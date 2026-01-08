@@ -2,6 +2,14 @@ use crate::error::{Error, Result};
 use crate::jj::run_jj_command;
 use std::path::PathBuf;
 
+/// Stack visualization format
+#[derive(Debug, Clone, PartialEq)]
+pub enum StackFormat {
+    /// Linear numbered list (default)
+    Linear,
+    // Future formats: Tree, Compact, Custom(String)
+}
+
 /// Configuration for jj-mrs
 ///
 /// Configuration is loaded from git config with priority:
@@ -28,6 +36,12 @@ pub struct Config {
 
     /// Accept non-compliant TLS certificates (for certificates that don't meet strict X.509 standards)
     pub tls_accept_non_compliant_certs: bool,
+
+    /// Enable stack visualization in MR descriptions (default: true)
+    pub enable_stack_visualization: bool,
+
+    /// Stack visualization format (default: Linear)
+    pub stack_format: StackFormat,
 }
 
 impl Config {
@@ -74,6 +88,23 @@ impl Config {
             .map(|v| v == "true" || v == "1" || v == "yes")
             .unwrap_or(false);
 
+        // Stack visualization config (optional with defaults)
+        let enable_stack_visualization = get_config("jj-mrs.enableStackVisualization")?
+            .map(|v| v == "true" || v == "1" || v == "yes")
+            .unwrap_or(true); // Default: enabled
+
+        let stack_format = match get_config("jj-mrs.stackFormat")?
+            .unwrap_or_else(|| "linear".to_string())
+            .as_str()
+        {
+            "linear" => StackFormat::Linear,
+            other => {
+                return Err(Error::Config {
+                    message: format!("Unknown stack format: {}", other),
+                });
+            }
+        };
+
         Ok(Config {
             gitlab_host,
             gitlab_project,
@@ -82,6 +113,8 @@ impl Config {
             default_branch,
             ca_bundle,
             tls_accept_non_compliant_certs,
+            enable_stack_visualization,
+            stack_format,
         })
     }
 
@@ -269,6 +302,8 @@ mod tests {
             default_branch: "main".to_string(),
             ca_bundle: None,
             tls_accept_non_compliant_certs: false,
+            enable_stack_visualization: true,
+            stack_format: StackFormat::Linear,
         };
 
         assert!(config.validate().is_ok());
@@ -281,8 +316,105 @@ mod tests {
             default_branch: "main".to_string(),
             ca_bundle: None,
             tls_accept_non_compliant_certs: false,
+            enable_stack_visualization: true,
+            stack_format: StackFormat::Linear,
         };
 
         assert!(invalid_config.validate().is_err());
+    }
+
+    #[test]
+    fn test_config_default_stack_visualization() {
+        let (_temp, repo_path) = create_test_repo();
+
+        // Set required config, but not stack visualization config
+        run_jj_command(
+            &repo_path,
+            &[
+                "config",
+                "set",
+                "--repo",
+                "jj-mrs.gitlabHost",
+                "https://gitlab.com",
+            ],
+        )
+        .expect("Failed to set config");
+
+        run_jj_command(
+            &repo_path,
+            &[
+                "config",
+                "set",
+                "--repo",
+                "jj-mrs.gitlabProject",
+                "test/proj",
+            ],
+        )
+        .expect("Failed to set config");
+
+        run_jj_command(
+            &repo_path,
+            &["config", "set", "--repo", "jj-mrs.gitlabToken", "token"],
+        )
+        .expect("Failed to set config");
+
+        let config = Config::load(&repo_path).expect("Failed to load config");
+
+        assert_eq!(config.enable_stack_visualization, true);
+        assert!(matches!(config.stack_format, StackFormat::Linear));
+    }
+
+    #[test]
+    fn test_config_explicit_stack_visualization() {
+        let (_temp, repo_path) = create_test_repo();
+
+        // Set required config
+        run_jj_command(
+            &repo_path,
+            &[
+                "config",
+                "set",
+                "--repo",
+                "jj-mrs.gitlabHost",
+                "https://gitlab.com",
+            ],
+        )
+        .expect("Failed to set config");
+
+        run_jj_command(
+            &repo_path,
+            &[
+                "config",
+                "set",
+                "--repo",
+                "jj-mrs.gitlabProject",
+                "test/proj",
+            ],
+        )
+        .expect("Failed to set config");
+
+        run_jj_command(
+            &repo_path,
+            &["config", "set", "--repo", "jj-mrs.gitlabToken", "token"],
+        )
+        .expect("Failed to set config");
+
+        // Set explicit stack visualization config (disable it)
+        run_jj_command(
+            &repo_path,
+            &[
+                "config",
+                "set",
+                "--repo",
+                "jj-mrs.enableStackVisualization",
+                "false",
+            ],
+        )
+        .expect("Failed to set config");
+
+        let config = Config::load(&repo_path).expect("Failed to load config");
+
+        assert_eq!(config.enable_stack_visualization, false);
+        assert!(matches!(config.stack_format, StackFormat::Linear)); // Still default
     }
 }

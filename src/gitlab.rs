@@ -176,6 +176,43 @@ impl GitLabClient {
         Ok(mr)
     }
 
+    /// Update the description of an existing merge request
+    pub async fn update_mr_description(
+        &self,
+        mr_iid: u64,
+        new_description: &str,
+    ) -> Result<MergeRequest> {
+        let url = format!(
+            "{}/api/v4/projects/{}/merge_requests/{}",
+            self.base_url,
+            self.encode_project_id(),
+            mr_iid
+        );
+
+        let payload = serde_json::json!({
+            "description": new_description,
+        });
+
+        let response = self
+            .client
+            .put(&url)
+            .header("PRIVATE-TOKEN", &self.token)
+            .json(&payload)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let text = response.text().await?;
+            return Err(Error::GitLabApi {
+                message: format!("Failed to update MR description: {} - {}", status, text),
+            });
+        }
+
+        let mr: MergeRequest = response.json().await?;
+        Ok(mr)
+    }
+
     /// Get a specific merge request by IID
     pub async fn get_merge_request(&self, mr_iid: u64) -> Result<MergeRequest> {
         let url = format!(

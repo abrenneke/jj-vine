@@ -60,6 +60,7 @@ pub async fn execute(
                 bookmark,
                 target_branch,
                 title,
+                description,
             } => {
                 // Skip MR creation if the push for this bookmark failed
                 if failed_pushes.contains(bookmark) {
@@ -78,8 +79,14 @@ pub async fn execute(
                 } else {
                     output::output(&format!("Creating MR: {} -> {}", bookmark, target_branch))?;
 
+                    let desc = if description.is_empty() {
+                        None
+                    } else {
+                        Some(description.as_str())
+                    };
+
                     match gitlab
-                        .create_merge_request(bookmark, target_branch, title, None)
+                        .create_merge_request(bookmark, target_branch, title, desc)
                         .await
                     {
                         Ok(mr) => {
@@ -88,6 +95,37 @@ pub async fn execute(
                         }
                         Err(e) => {
                             let error_msg = format!("Failed to create MR for {}: {}", bookmark, e);
+                            output::error(&error_msg)?;
+                            errors.push(error_msg);
+                        }
+                    }
+                }
+            }
+
+            Action::UpdateMRDescription {
+                bookmark,
+                mr_iid,
+                new_description,
+            } => {
+                if plan.dry_run {
+                    output::output(&format!(
+                        "Would update MR !{} description for {}",
+                        mr_iid, bookmark
+                    ))?;
+                } else {
+                    output::output(&format!(
+                        "Updating MR !{} description for {}",
+                        mr_iid, bookmark
+                    ))?;
+
+                    match gitlab.update_mr_description(*mr_iid, new_description).await {
+                        Ok(mr) => {
+                            output::output(&format!("Updated MR !{} description", mr.iid))?;
+                            merge_requests.push(mr);
+                        }
+                        Err(e) => {
+                            let error_msg =
+                                format!("Failed to update MR !{} description: {}", mr_iid, e);
                             output::error(&error_msg)?;
                             errors.push(error_msg);
                         }

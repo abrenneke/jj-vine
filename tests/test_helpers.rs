@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 /// Common utilities for e2e integration tests
 use jj_mrs::gitlab::GitLabClient;
 use std::path::PathBuf;
@@ -7,7 +9,6 @@ use tempfile::TempDir;
 /// Test repository setup
 pub struct TestRepo {
     /// Temporary directory containing the test repository
-    #[allow(dead_code)]
     pub dir: TempDir,
     /// Path to the repository
     pub path: PathBuf,
@@ -55,7 +56,6 @@ impl TestRepo {
     }
 
     /// Run jj-mrs command in this repository
-    #[allow(dead_code)]
     pub fn jj_mrs(&self, args: &[&str]) -> Result<String, Box<dyn std::error::Error>> {
         let output = Command::new("jj")
             .arg("mr")
@@ -74,7 +74,6 @@ impl TestRepo {
     }
 
     /// Run jj-mrs command and expect it to fail
-    #[allow(dead_code)]
     pub fn jj_mrs_expect_error(&self, args: &[&str]) -> Result<String, Box<dyn std::error::Error>> {
         let output = Command::new("jj")
             .arg("mr")
@@ -103,14 +102,12 @@ impl TestRepo {
     }
 
     /// Commit current changes
-    #[allow(dead_code)]
     pub fn commit(&self, message: &str) -> Result<(), Box<dyn std::error::Error>> {
         self.jj(&["commit", "-m", message])?;
         Ok(())
     }
 
     /// Initialize jj-mrs configuration
-    #[allow(dead_code)]
     pub fn init_mrs_config(
         &self,
         gitlab_host: &str,
@@ -136,7 +133,6 @@ impl TestRepo {
     }
 
     /// Add a git remote to the repository
-    #[allow(dead_code)]
     pub fn add_git_remote(&self, name: &str, url: &str) -> Result<(), Box<dyn std::error::Error>> {
         let output = Command::new("git")
             .args(["remote", "add", name, url])
