@@ -25,6 +25,12 @@ pub struct Config {
 
     /// Default branch name (default: "main")
     pub default_branch: String,
+
+    /// Optional path to CA bundle for TLS verification
+    pub ca_bundle: Option<String>,
+
+    /// Accept non-compliant TLS certificates (for certificates that don't meet strict X.509 standards)
+    pub tls_accept_non_compliant_certs: bool,
 }
 
 impl Config {
@@ -37,6 +43,7 @@ impl Config {
     /// - spr.branchPrefix - Optional branch prefix
     /// - spr.remoteName - Git remote name
     /// - spr.defaultBranch - Default branch name
+    /// - spr.caBundle - Optional path to CA bundle for TLS
     pub fn load(repo_path: &PathBuf) -> Result<Self> {
         // Helper to run jj config get
         let get_config = |key: &str| -> Result<Option<String>> {
@@ -58,25 +65,26 @@ impl Config {
         };
 
         // Required fields
-        let gitlab_host = get_config("spr.gitlabHost")?
-            .ok_or_else(|| Error::Config {
-                message: "Missing required config: spr.gitlabHost".to_string(),
-            })?;
+        let gitlab_host = get_config("spr.gitlabHost")?.ok_or_else(|| Error::Config {
+            message: "Missing required config: spr.gitlabHost".to_string(),
+        })?;
 
-        let gitlab_project = get_config("spr.gitlabProject")?
-            .ok_or_else(|| Error::Config {
-                message: "Missing required config: spr.gitlabProject".to_string(),
-            })?;
+        let gitlab_project = get_config("spr.gitlabProject")?.ok_or_else(|| Error::Config {
+            message: "Missing required config: spr.gitlabProject".to_string(),
+        })?;
 
-        let gitlab_token = get_config("spr.gitlabToken")?
-            .ok_or_else(|| Error::Config {
-                message: "Missing required config: spr.gitlabToken".to_string(),
-            })?;
+        let gitlab_token = get_config("spr.gitlabToken")?.ok_or_else(|| Error::Config {
+            message: "Missing required config: spr.gitlabToken".to_string(),
+        })?;
 
         // Optional fields with defaults
         let branch_prefix = get_config("spr.branchPrefix")?;
         let remote_name = get_config("spr.remoteName")?.unwrap_or_else(|| "origin".to_string());
         let default_branch = get_config("spr.defaultBranch")?.unwrap_or_else(|| "main".to_string());
+        let ca_bundle = get_config("spr.caBundle")?;
+        let tls_accept_non_compliant_certs = get_config("spr.tlsAcceptNonCompliantCerts")?
+            .map(|v| v == "true" || v == "1" || v == "yes")
+            .unwrap_or(false);
 
         Ok(Config {
             gitlab_host,
@@ -85,6 +93,8 @@ impl Config {
             branch_prefix,
             remote_name,
             default_branch,
+            ca_bundle,
+            tls_accept_non_compliant_certs,
         })
     }
 
@@ -120,7 +130,6 @@ impl Config {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -131,8 +140,7 @@ mod tests {
         let repo_path = temp_dir.path().to_path_buf();
 
         // Initialize jj repo
-        run_jj_command(&repo_path, &["git", "init", "--colocate"])
-            .expect("Failed to init jj repo");
+        run_jj_command(&repo_path, &["git", "init", "--colocate"]).expect("Failed to init jj repo");
 
         (temp_dir, repo_path)
     }
@@ -157,14 +165,41 @@ mod tests {
         let (_temp, repo_path) = create_test_repo();
 
         // Set required config
-        run_jj_command(&repo_path, &["config", "set", "--repo", "spr.gitlabHost", "https://gitlab.example.com"])
-            .expect("Failed to set config");
+        run_jj_command(
+            &repo_path,
+            &[
+                "config",
+                "set",
+                "--repo",
+                "spr.gitlabHost",
+                "https://gitlab.example.com",
+            ],
+        )
+        .expect("Failed to set config");
 
-        run_jj_command(&repo_path, &["config", "set", "--repo", "spr.gitlabProject", "my-group/my-project"])
-            .expect("Failed to set config");
+        run_jj_command(
+            &repo_path,
+            &[
+                "config",
+                "set",
+                "--repo",
+                "spr.gitlabProject",
+                "my-group/my-project",
+            ],
+        )
+        .expect("Failed to set config");
 
-        run_jj_command(&repo_path, &["config", "set", "--repo", "spr.gitlabToken", "glpat-test123"])
-            .expect("Failed to set config");
+        run_jj_command(
+            &repo_path,
+            &[
+                "config",
+                "set",
+                "--repo",
+                "spr.gitlabToken",
+                "glpat-test123",
+            ],
+        )
+        .expect("Failed to set config");
 
         // Load config
         let config = Config::load(&repo_path).expect("Failed to load config");
@@ -182,23 +217,59 @@ mod tests {
         let (_temp, repo_path) = create_test_repo();
 
         // Set all config including optional fields
-        run_jj_command(&repo_path, &["config", "set", "--repo", "spr.gitlabHost", "https://gitlab.example.com"])
-            .expect("Failed to set config");
+        run_jj_command(
+            &repo_path,
+            &[
+                "config",
+                "set",
+                "--repo",
+                "spr.gitlabHost",
+                "https://gitlab.example.com",
+            ],
+        )
+        .expect("Failed to set config");
 
-        run_jj_command(&repo_path, &["config", "set", "--repo", "spr.gitlabProject", "my-group/my-project"])
-            .expect("Failed to set config");
+        run_jj_command(
+            &repo_path,
+            &[
+                "config",
+                "set",
+                "--repo",
+                "spr.gitlabProject",
+                "my-group/my-project",
+            ],
+        )
+        .expect("Failed to set config");
 
-        run_jj_command(&repo_path, &["config", "set", "--repo", "spr.gitlabToken", "glpat-test123"])
-            .expect("Failed to set config");
+        run_jj_command(
+            &repo_path,
+            &[
+                "config",
+                "set",
+                "--repo",
+                "spr.gitlabToken",
+                "glpat-test123",
+            ],
+        )
+        .expect("Failed to set config");
 
-        run_jj_command(&repo_path, &["config", "set", "--repo", "spr.branchPrefix", "mrs/"])
-            .expect("Failed to set config");
+        run_jj_command(
+            &repo_path,
+            &["config", "set", "--repo", "spr.branchPrefix", "mrs/"],
+        )
+        .expect("Failed to set config");
 
-        run_jj_command(&repo_path, &["config", "set", "--repo", "spr.remoteName", "upstream"])
-            .expect("Failed to set config");
+        run_jj_command(
+            &repo_path,
+            &["config", "set", "--repo", "spr.remoteName", "upstream"],
+        )
+        .expect("Failed to set config");
 
-        run_jj_command(&repo_path, &["config", "set", "--repo", "spr.defaultBranch", "master"])
-            .expect("Failed to set config");
+        run_jj_command(
+            &repo_path,
+            &["config", "set", "--repo", "spr.defaultBranch", "master"],
+        )
+        .expect("Failed to set config");
 
         // Load config
         let config = Config::load(&repo_path).expect("Failed to load config");
@@ -220,6 +291,8 @@ mod tests {
             branch_prefix: None,
             remote_name: "origin".to_string(),
             default_branch: "main".to_string(),
+            ca_bundle: None,
+            tls_accept_non_compliant_certs: false,
         };
 
         assert!(config.validate().is_ok());
@@ -231,6 +304,8 @@ mod tests {
             branch_prefix: None,
             remote_name: "origin".to_string(),
             default_branch: "main".to_string(),
+            ca_bundle: None,
+            tls_accept_non_compliant_certs: false,
         };
 
         assert!(invalid_config.validate().is_err());
@@ -245,6 +320,8 @@ mod tests {
             branch_prefix: Some("mrs/".to_string()),
             remote_name: "origin".to_string(),
             default_branch: "main".to_string(),
+            ca_bundle: None,
+            tls_accept_non_compliant_certs: false,
         };
 
         assert_eq!(
@@ -259,6 +336,8 @@ mod tests {
             branch_prefix: None,
             remote_name: "origin".to_string(),
             default_branch: "main".to_string(),
+            ca_bundle: None,
+            tls_accept_non_compliant_certs: false,
         };
 
         assert_eq!(

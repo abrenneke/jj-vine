@@ -41,9 +41,9 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     // Determine repository path
-    let repo_path = cli.repository.unwrap_or_else(|| {
-        env::current_dir().expect("Failed to get current directory")
-    });
+    let repo_path = cli
+        .repository
+        .unwrap_or_else(|| env::current_dir().expect("Failed to get current directory"));
 
     match cli.command {
         Commands::Submit {

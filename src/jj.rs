@@ -80,7 +80,7 @@ impl Jujutsu {
             &revset,
             "--no-graph",
             "--template",
-            r#"commit_id.hex() ++ "\t" ++ change_id.hex() ++ "\t" ++ description.first_line() ++ "\t" ++ parents.map(|p| p.commit_id.hex()).join(",") ++ "\n""#,
+            r#"commit_id ++ "\t" ++ change_id ++ "\t" ++ description.first_line() ++ "\t" ++ parents.map(|p| p.commit_id()).join(",") ++ "\n""#,
         ])?;
 
         let mut changes = Vec::new();
@@ -154,16 +154,21 @@ impl Jujutsu {
         })
     }
 
+    /// Track a bookmark on a remote
+    pub fn track_bookmark(&self, bookmark: &str, remote: &str) -> Result<()> {
+        let remote_bookmark = format!("{}@{}", bookmark, remote);
+        self.run_captured(&["bookmark", "track", &remote_bookmark])?;
+        Ok(())
+    }
+
     /// Push a bookmark to a remote using jj git push
+    ///
+    /// This will automatically track the bookmark on the remote if it's not already tracked
     pub fn push_bookmark(&self, bookmark: &str, remote: &str) -> Result<()> {
-        self.run_captured(&[
-            "git",
-            "push",
-            "--remote",
-            remote,
-            "--bookmark",
-            bookmark,
-        ])?;
+        // Try to track the bookmark first (ignore errors if already tracked)
+        let _ = self.track_bookmark(bookmark, remote);
+
+        self.run_captured(&["git", "push", "--remote", remote, "--bookmark", bookmark])?;
         Ok(())
     }
 
@@ -227,7 +232,7 @@ pub fn run_jj_command(repo_path: &PathBuf, args: &[&str]) -> Result<String> {
 #[derive(Debug, Clone)]
 pub struct Bookmark {
     pub name: String,
-    
+
     /// Git commit ID (40 hex characters)
     pub commit_id: String,
 
@@ -272,7 +277,11 @@ mod tests {
             .output()
             .expect("Failed to init jj repo");
 
-        assert!(output.status.success(), "Failed to initialize jj repo: {}", String::from_utf8_lossy(&output.stderr));
+        assert!(
+            output.status.success(),
+            "Failed to initialize jj repo: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
 
         // Create an initial commit
         std::fs::write(repo_path.join("README.md"), "# Test repo\n")
@@ -284,7 +293,11 @@ mod tests {
             .output()
             .expect("Failed to create initial commit");
 
-        assert!(output.status.success(), "Failed to create initial commit: {}", String::from_utf8_lossy(&output.stderr));
+        assert!(
+            output.status.success(),
+            "Failed to create initial commit: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
 
         (temp_dir, repo_path)
     }
@@ -308,7 +321,9 @@ mod tests {
         let jj = Jujutsu::new(repo_path).expect("Failed to create Jujutsu instance");
 
         // @ should always exist in a jj repo
-        let commit_id = jj.resolve_revision("@").expect("Failed to resolve @ revision");
+        let commit_id = jj
+            .resolve_revision("@")
+            .expect("Failed to resolve @ revision");
         assert!(!commit_id.is_empty());
         // Commit IDs are hex strings
         assert!(commit_id.chars().all(|c| c.is_ascii_hexdigit()));
@@ -320,12 +335,17 @@ mod tests {
         let jj = Jujutsu::new(repo_path).expect("Failed to create Jujutsu instance");
 
         let commit_id = jj.resolve_revision("@").expect("Failed to resolve @");
-        let change_id = jj.get_change_id(&commit_id).expect("Failed to get change ID");
+        let change_id = jj
+            .get_change_id(&commit_id)
+            .expect("Failed to get change ID");
 
         assert!(!change_id.is_empty());
         // Change IDs use jj's custom encoding (32 lowercase letters)
         assert_eq!(change_id.len(), 32, "Change ID should be 32 characters");
-        assert!(change_id.chars().all(|c| c.is_ascii_lowercase()), "Change ID should be lowercase letters");
+        assert!(
+            change_id.chars().all(|c| c.is_ascii_lowercase()),
+            "Change ID should be lowercase letters"
+        );
     }
 
     #[test]
@@ -340,7 +360,11 @@ mod tests {
             .output()
             .expect("Failed to create bookmark");
 
-        assert!(output.status.success(), "Failed to create bookmark: {}", String::from_utf8_lossy(&output.stderr));
+        assert!(
+            output.status.success(),
+            "Failed to create bookmark: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
 
         // Get bookmarks
         let bookmarks = jj.get_bookmarks().expect("Failed to get bookmarks");
@@ -393,5 +417,72 @@ mod tests {
 
         assert_eq!(change.description_first_line, "Add feature");
         assert_eq!(change.parent_ids.len(), 1);
+    }
+
+    #[test]
+    fn test_get_changes() {
+        let (_temp, repo_path) = create_test_repo();
+        let jj = Jujutsu::new(repo_path.clone()).expect("Failed to create Jujutsu instance");
+
+        // Get the initial commit ID (verify it works)
+        let _initial_commit = jj.resolve_revision("@").expect("Failed to resolve @");
+
+        // Create a second commit
+        std::fs::write(repo_path.join("test.txt"), "test content\n")
+            .expect("Failed to write test file");
+
+        run_jj_command(&repo_path, &["describe", "-m", "Second commit"])
+            .expect("Failed to describe commit");
+
+        // Get changes between root and current
+        let changes = jj
+            .get_changes("root()", "@")
+            .expect("Failed to get changes");
+
+        // Should have at least 2 changes (initial + second)
+        assert!(
+            changes.len() >= 2,
+            "Expected at least 2 changes, got {}",
+            changes.len()
+        );
+
+        // Check that commit IDs are 40 hex characters
+        for change in &changes {
+            assert_eq!(
+                change.commit_id.len(),
+                40,
+                "Commit ID should be 40 characters"
+            );
+            assert!(
+                change.commit_id.chars().all(|c| c.is_ascii_hexdigit()),
+                "Commit ID should be hex"
+            );
+        }
+
+        // Check that change IDs are 32 lowercase characters
+        for change in &changes {
+            assert_eq!(
+                change.change_id.len(),
+                32,
+                "Change ID should be 32 characters"
+            );
+            assert!(
+                change.change_id.chars().all(|c| c.is_ascii_lowercase()),
+                "Change ID should be lowercase"
+            );
+        }
+
+        // Find the change with "Second commit" description
+        let second_commit = changes
+            .iter()
+            .find(|c| c.description_first_line == "Second commit");
+        assert!(
+            second_commit.is_some(),
+            "Should have a commit with 'Second commit' description. Found commits: {:?}",
+            changes
+                .iter()
+                .map(|c| &c.description_first_line)
+                .collect::<Vec<_>>()
+        );
     }
 }

@@ -1,6 +1,6 @@
 use crate::error::Result;
-use crate::jj::{run_jj_command};
-use console::{style, Term};
+use crate::jj::run_jj_command;
+use console::{Term, style};
 use dialoguer::{Input, Password};
 use std::path::PathBuf;
 
@@ -8,8 +8,14 @@ use std::path::PathBuf;
 pub async fn init(repo_path: PathBuf) -> Result<()> {
     let term = Term::stdout();
 
-    term.write_line(&format!("{}", style("This will configure jj-mrs for your GitLab instance.")))?;
-    term.write_line(&format!("{}", style("Configuration will be stored in .jj/repo/config.toml").dim()))?;
+    term.write_line(&format!(
+        "{}",
+        style("This will configure jj-mrs for your GitLab instance.")
+    ))?;
+    term.write_line(&format!(
+        "{}",
+        style("Configuration will be stored in .jj/repo/config.toml").dim()
+    ))?;
     term.write_line("")?;
 
     let (detected_host, detected_project) = detect_from_remote(&repo_path)?;
@@ -21,7 +27,10 @@ pub async fn init(repo_path: PathBuf) -> Result<()> {
             .interact_text()?
     } else {
         Input::<String>::new()
-            .with_prompt(format!("{}", style("GitLab instance URL (e.g. https://gitlab.example.com)").bold()))
+            .with_prompt(format!(
+                "{}",
+                style("GitLab instance URL (e.g. https://gitlab.example.com)").bold()
+            ))
             .interact_text()?
     };
 
@@ -32,8 +41,14 @@ pub async fn init(repo_path: PathBuf) -> Result<()> {
             .interact_text()?
     } else {
         term.write_line(&format!("{}", style("Project ID can be either:").dim()))?;
-        term.write_line(&format!("{}", style("  - Group/project path (e.g., my-group/my-project)").dim()))?;
-        term.write_line(&format!("{}", style("  - Numeric project ID (e.g., 12345)").dim()))?;
+        term.write_line(&format!(
+            "{}",
+            style("  - Group/project path (e.g., my-group/my-project)").dim()
+        ))?;
+        term.write_line(&format!(
+            "{}",
+            style("  - Numeric project ID (e.g., 12345)").dim()
+        ))?;
 
         Input::<String>::new()
             .with_prompt(format!("{}", style("GitLab project ID").bold()))
@@ -41,12 +56,33 @@ pub async fn init(repo_path: PathBuf) -> Result<()> {
     };
 
     term.write_line("")?;
-    term.write_line(&format!("{}", style("Personal Access Token required scopes:").yellow()))?;
-    term.write_line(&format!("  {} {}", style("•").yellow(), style("api (for creating/updating merge requests)").dim()))?;
+    term.write_line(&format!(
+        "{}",
+        style("Personal Access Token required scopes:").yellow()
+    ))?;
+    term.write_line(&format!(
+        "  {} {}",
+        style("•").yellow(),
+        style("api (for creating/updating merge requests)").dim()
+    ))?;
     term.write_line("")?;
-    term.write_line(&format!("{} {}", style("⚠").yellow(), style("Note: GitLab does not offer more granular scopes for MR operations.").dim()))?;
-    term.write_line(&format!("  {}", style("The 'api' scope grants full read/write API access.").dim()))?;
-    term.write_line(&format!("  {}", style(format!("Create token at: {}/-/user_settings/personal_access_tokens", gitlab_host)).dim()))?;
+    term.write_line(&format!(
+        "{} {}",
+        style("⚠").yellow(),
+        style("Note: GitLab does not offer more granular scopes for MR operations.").dim()
+    ))?;
+    term.write_line(&format!(
+        "  {}",
+        style("The 'api' scope grants full read/write API access.").dim()
+    ))?;
+    term.write_line(&format!(
+        "  {}",
+        style(format!(
+            "Create token at: {}/-/user_settings/personal_access_tokens",
+            gitlab_host
+        ))
+        .dim()
+    ))?;
     term.write_line("")?;
 
     let gitlab_token = Password::new()
@@ -54,7 +90,10 @@ pub async fn init(repo_path: PathBuf) -> Result<()> {
         .interact()?;
 
     let branch_prefix = Input::<String>::new()
-        .with_prompt(format!("{}", style("Branch prefix (e.g. mrs/, leave empty for no prefix)").bold()))
+        .with_prompt(format!(
+            "{}",
+            style("Branch prefix (e.g. mrs/, leave empty for no prefix)").bold()
+        ))
         .default("".to_string())
         .interact_text()?;
 
@@ -76,8 +115,15 @@ pub async fn init(repo_path: PathBuf) -> Result<()> {
     set_config(&repo_path, "spr.defaultBranch", &default_branch)?;
 
     term.write_line("")?;
-    term.write_line(&format!("{} {}", style("✓").green().bold(), style("Configuration complete!").green()))?;
-    term.write_line(&format!("{}", style("You can now use: jj mr submit <bookmark>").cyan()))?;
+    term.write_line(&format!(
+        "{} {}",
+        style("✓").green().bold(),
+        style("Configuration complete!").green()
+    ))?;
+    term.write_line(&format!(
+        "{}",
+        style("You can now use: jj mr submit <bookmark>").cyan()
+    ))?;
 
     Ok(())
 }
@@ -143,7 +189,6 @@ fn parse_gitlab_url(url: &str) -> Option<(String, String)> {
 
     None
 }
-
 
 #[cfg(test)]
 mod tests {

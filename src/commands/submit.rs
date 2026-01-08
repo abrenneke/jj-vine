@@ -28,7 +28,9 @@ pub async fn submit(
         config.gitlab_host.clone(),
         config.gitlab_project.clone(),
         config.gitlab_token.clone(),
-    );
+        config.ca_bundle.clone(),
+        config.tls_accept_non_compliant_certs,
+    )?;
 
     // Phase 1: Analyze
     output::output(&format!("Analyzing bookmark '{}'...", bookmark))?;
@@ -44,7 +46,10 @@ pub async fn submit(
     output::output("Creating submission plan...")?;
     let submission_plan = plan::plan(&analysis, &jj, &gitlab, &config, dry_run).await?;
 
-    output::output(&format!("Plan: {} action(s)", submission_plan.actions.len()))?;
+    output::output(&format!(
+        "Plan: {} action(s)",
+        submission_plan.actions.len()
+    ))?;
 
     // Phase 3: Execute
     output::output("Executing...")?;

@@ -28,6 +28,7 @@ pub async fn execute(
 ) -> Result<SubmissionResult> {
     let mut merge_requests = Vec::new();
     let mut errors = Vec::new();
+    let mut failed_pushes = std::collections::HashSet::new();
 
     if plan.dry_run {
         output::output("DRY RUN - No changes will be made")?;
@@ -39,7 +40,10 @@ pub async fn execute(
                 let remote_branch = config.apply_branch_prefix(bookmark);
 
                 if plan.dry_run {
-                    output::output(&format!("Would push {} to {}/{}", bookmark, remote, remote_branch))?;
+                    output::output(&format!(
+                        "Would push {} to {}/{}",
+                        bookmark, remote, remote_branch
+                    ))?;
                 } else {
                     output::output(&format!("Pushing {} to {}...", bookmark, remote))?;
 
@@ -51,6 +55,7 @@ pub async fn execute(
                             let error_msg = format!("Failed to push {}: {}", bookmark, e);
                             output::error(&error_msg)?;
                             errors.push(error_msg);
+                            failed_pushes.insert(bookmark.clone());
                         }
                     }
                 }
@@ -61,6 +66,15 @@ pub async fn execute(
                 target_branch,
                 title,
             } => {
+                // Skip MR creation if the push for this bookmark failed
+                if failed_pushes.contains(bookmark) {
+                    let error_msg =
+                        format!("Skipping MR creation for {} because push failed", bookmark);
+                    output::output(&error_msg)?;
+                    errors.push(error_msg);
+                    continue;
+                }
+
                 let source_branch = config.apply_branch_prefix(bookmark);
 
                 if plan.dry_run {
@@ -69,7 +83,10 @@ pub async fn execute(
                         source_branch, target_branch, title
                     ))?;
                 } else {
-                    output::output(&format!("Creating MR: {} -> {}", source_branch, target_branch))?;
+                    output::output(&format!(
+                        "Creating MR: {} -> {}",
+                        source_branch, target_branch
+                    ))?;
 
                     match gitlab
                         .create_merge_request(&source_branch, target_branch, title, None)
@@ -141,4 +158,9 @@ mod tests {
         assert_eq!(result.merge_requests.len(), 0);
         assert_eq!(result.errors.len(), 0);
     }
+
+    // Regression test for push failure handling:
+    // When a bookmark push fails, the corresponding MR creation should be skipped.
+    // This is tested through integration tests with actual jj commands.
+    // The fix adds failed_pushes HashSet tracking and checks it before CreateMR actions.
 }

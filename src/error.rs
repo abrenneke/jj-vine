@@ -85,7 +85,7 @@ impl From<std::string::FromUtf8Error> for Error {
 impl From<dialoguer::Error> for Error {
     fn from(source: dialoguer::Error) -> Self {
         Error::Io {
-            source: std::io::Error::new(std::io::ErrorKind::Other, source),
+            source: std::io::Error::other(source),
         }
     }
 }

@@ -8,10 +8,7 @@ use crate::submit::analyze::SubmissionAnalysis;
 #[derive(Debug, Clone, PartialEq)]
 pub enum Action {
     /// Push a bookmark to remote
-    Push {
-        bookmark: String,
-        remote: String,
-    },
+    Push { bookmark: String, remote: String },
 
     /// Create a new merge request
     CreateMR {

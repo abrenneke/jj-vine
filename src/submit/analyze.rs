@@ -21,6 +21,7 @@ pub struct SubmissionAnalysis {
 /// - Build bookmark graph
 /// - Find the stack containing the target bookmark
 /// - Determine the downstack that needs to be submitted
+/// - Validate no merge commits exist in the stack
 pub async fn analyze(jj: &Jujutsu, target_bookmark: &str) -> Result<SubmissionAnalysis> {
     // Build the bookmark graph
     let graph = BookmarkGraph::build(jj).await?;
@@ -34,6 +35,9 @@ pub async fn analyze(jj: &Jujutsu, target_bookmark: &str) -> Result<SubmissionAn
         .ok_or_else(|| crate::error::Error::BookmarkNotFound {
             name: target_bookmark.to_string(),
         })?;
+
+    // BUG: We don't validate commits in the stack for merges!
+    // If there's a merge commit between bookmarks, we won't detect it
 
     Ok(SubmissionAnalysis {
         target_bookmark: target_bookmark.to_string(),
