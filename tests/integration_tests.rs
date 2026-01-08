@@ -516,3 +516,95 @@ fn test_e2e_push_failure_skips_mr_creation() {
         stderr
     );
 }
+
+/// Test that --tracked does not include the default branch (main)
+#[test]
+fn test_tracked_excludes_default_branch() {
+    let repo = TestRepo::new().expect("Failed to create test repo");
+
+    // Initialize config
+    repo.init_mrs_config("https://gitlab.example.com", "test/project", "test-token")
+        .expect("Failed to init MRS config");
+
+    // Create a git remote (bare repo)
+    let remote_dir = repo.path.join("remote.git");
+    std::fs::create_dir(&remote_dir).expect("Failed to create remote dir");
+    std::process::Command::new("git")
+        .args(["init", "--bare"])
+        .current_dir(&remote_dir)
+        .output()
+        .expect("Failed to init bare repo");
+
+    // Initialize the bare repo with a main branch
+    std::process::Command::new("git")
+        .args([
+            "--git-dir",
+            remote_dir.to_str().unwrap(),
+            "symbolic-ref",
+            "HEAD",
+            "refs/heads/main",
+        ])
+        .output()
+        .expect("Failed to set HEAD");
+
+    repo.add_git_remote("origin", remote_dir.to_str().unwrap())
+        .expect("Failed to add remote");
+
+    // Create initial commit and set up main bookmark
+    repo.create_file("README.md", "# Test repo\n")
+        .expect("Failed to create file");
+    repo.commit("Initial commit")
+        .expect("Failed to commit");
+    // Create bookmark on the previous commit (@-), not the new empty working copy (@)
+    repo.jj(&["bookmark", "create", "main", "-r", "@-"])
+        .expect("Failed to create main bookmark");
+
+    // Track and push main to remote
+    repo.jj(&["bookmark", "track", "main@origin"])
+        .expect("Failed to track main");
+    repo.jj(&["git", "push", "--bookmark", "main"])
+        .expect("Failed to push main");
+
+    // Create a feature bookmark
+    repo.create_file("feature.txt", "feature content")
+        .expect("Failed to create file");
+    repo.commit("Add feature")
+        .expect("Failed to commit");
+    // Create bookmark on the previous commit (@-), not the new empty working copy (@)
+    repo.jj(&["bookmark", "create", "feature-1", "-r", "@-"])
+        .expect("Failed to create feature bookmark");
+
+    // Track and push feature to remote
+    repo.jj(&["bookmark", "track", "feature-1@origin"])
+        .expect("Failed to track feature-1");
+    repo.jj(&["git", "push", "--bookmark", "feature-1"])
+        .expect("Failed to push feature-1");
+
+    // Run submit with --tracked and --dry-run
+    let output = repo
+        .jj_mrs(&["submit", "--tracked", "--dry-run"])
+        .expect("Failed to run submit");
+
+    // Verify that:
+    // 1. main is NOT in the submission list
+    // 2. feature-1 IS in the submission list
+    // 3. The submission succeeds (no error about trying to submit main)
+
+    assert!(
+        !output.contains("Submitting main"),
+        "main should NOT be submitted with --tracked. Output: {}",
+        output
+    );
+
+    assert!(
+        output.contains("feature-1") || output.contains("Submitting feature-1"),
+        "feature-1 should be submitted with --tracked. Output: {}",
+        output
+    );
+
+    assert!(
+        !output.contains("Cannot submit 'main'") && !output.contains("Failed to submit main"),
+        "Should not attempt to submit main at all. Output: {}",
+        output
+    );
+}

@@ -264,8 +264,22 @@ impl Jujutsu {
     /// 1. It was authored by the current user (mine() revset)
     /// 2. It is a local bookmark (not a remote-tracking bookmark)
     /// 3. It has been pushed to the remote
+    /// 4. It is not the default branch (main/master/trunk)
     pub fn get_tracked_bookmarks(&self, remote: &str) -> Result<Vec<String>> {
         debug!("Getting tracked bookmarks for remote: {}", remote);
+
+        // Get the default branch to filter it out
+        // If no default branch exists, we'll skip filtering (though this is an unusual case)
+        let default_branch = match self.get_default_branch() {
+            Ok(branch) => {
+                debug!("Default branch is '{}'", branch);
+                Some(branch)
+            }
+            Err(_) => {
+                debug!("No default branch found, will not filter any branches");
+                None
+            }
+        };
 
         // Use mine() & bookmarks() to get user's local bookmarks
         debug!("Running jj log to get mine() & bookmarks()");
@@ -292,6 +306,17 @@ impl Jujutsu {
             // Skip remote-tracking bookmarks (those with @remote suffix)
             if bookmark_name.contains('@') {
                 continue;
+            }
+
+            // Skip the default branch - it should never be submitted
+            if let Some(ref default_branch) = default_branch {
+                if bookmark_name == default_branch {
+                    debug!(
+                        "Skipping default branch '{}' from tracked bookmarks",
+                        bookmark_name
+                    );
+                    continue;
+                }
             }
 
             // Check if the bookmark exists on the remote
