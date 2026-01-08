@@ -43,6 +43,7 @@ pub async fn submit(
     // Sort bookmarks topologically (dependencies first)
     let default_branch = jj.get_default_branch()?;
     let bookmark_graph = BookmarkGraph::build(&jj, &default_branch).await?;
+    bookmark_graph.validate_bookmarks(&jj, &bookmarks)?;
     let sorted_bookmarks = bookmark_graph.topological_sort(&bookmarks)?;
 
     output::output(&format!(

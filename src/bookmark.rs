@@ -51,28 +51,6 @@ impl BookmarkGraph {
             let changes = jj.get_changes(&bookmark.commit_id, &bookmark.commit_id)?;
 
             if let Some(change) = changes.first() {
-                // Detect merge commits (multiple parents) on the bookmark's commit
-                if change.parent_ids.len() > 1 {
-                    return Err(Error::InvalidGraph {
-                        message: format!(
-                            "Bookmark '{}' points to a merge commit with {} parents. \
-                             Merge commits are not supported in bookmark stacks. \
-                             Please use a linear history for stacked MRs.",
-                            bookmark.name,
-                            change.parent_ids.len()
-                        ),
-                    });
-                }
-
-                // Check all ancestors for merge commits
-                // We need to traverse the full history to catch merges at any depth
-                Self::validate_no_merges_in_ancestors(
-                    jj,
-                    &bookmark.name,
-                    &change.parent_ids,
-                    &local_bookmarks,
-                )?;
-
                 // For each parent commit, traverse ancestry to find nearest bookmark
                 for parent_id in &change.parent_ids {
                     if let Some(parent_bookmark_name) =
@@ -93,6 +71,53 @@ impl BookmarkGraph {
             adjacency_list,
             stacks,
         })
+    }
+
+    /// Validate that bookmarks have linear history (no merge commits)
+    ///
+    /// This should be called after building the graph, and only for bookmarks
+    /// that will be submitted as MRs. This allows the graph to be built for
+    /// all bookmarks (including those with merge commits) while only validating
+    /// the ones that need to follow MR submission rules.
+    pub fn validate_bookmarks(&self, jj: &Jujutsu, bookmarks: &[String]) -> Result<()> {
+        let all_bookmarks: Vec<_> = self.bookmarks.values().cloned().collect();
+
+        for bookmark_name in bookmarks {
+            let bookmark =
+                self.bookmarks
+                    .get(bookmark_name)
+                    .ok_or_else(|| Error::BookmarkNotFound {
+                        name: bookmark_name.clone(),
+                    })?;
+
+            // Get the commit for this bookmark
+            let changes = jj.get_changes(&bookmark.commit_id, &bookmark.commit_id)?;
+
+            if let Some(change) = changes.first() {
+                // Check if bookmark itself is a merge commit
+                if change.parent_ids.len() > 1 {
+                    return Err(Error::InvalidGraph {
+                        message: format!(
+                            "Bookmark '{}' points to a merge commit with {} parents. \
+                             Merge commits are not supported in bookmark stacks. \
+                             Please use a linear history for stacked MRs.",
+                            bookmark_name,
+                            change.parent_ids.len()
+                        ),
+                    });
+                }
+
+                // Check ancestors for merge commits
+                Self::validate_no_merges_in_ancestors(
+                    jj,
+                    bookmark_name,
+                    &change.parent_ids,
+                    &all_bookmarks,
+                )?;
+            }
+        }
+
+        Ok(())
     }
 
     /// Build stacks from the bookmark graph
@@ -772,5 +797,102 @@ mod tests {
 
         assert!(b_pos > a_pos, "B should come after A");
         assert!(y_pos > x_pos, "Y should come after X");
+    }
+
+    #[test]
+    fn test_build_graph_with_merge_commits_succeeds() {
+        use crate::jj::{Jujutsu, run_jj_command};
+        use std::path::PathBuf;
+        use std::process::Command as StdCommand;
+        use tempfile::TempDir;
+
+        // Helper to create test repo
+        fn create_test_repo() -> (TempDir, PathBuf) {
+            let temp_dir = TempDir::new().expect("Failed to create temp dir");
+            let repo_path = temp_dir.path().to_path_buf();
+
+            // Initialize jj repo
+            let output = StdCommand::new(crate::jj::which_jj().expect("jj not found"))
+                .current_dir(&repo_path)
+                .args(["git", "init", "--colocate"])
+                .output()
+                .expect("Failed to init jj repo");
+
+            assert!(output.status.success(), "Failed to init jj repo");
+
+            (temp_dir, repo_path)
+        }
+
+        let (_temp, repo_path) = create_test_repo();
+
+        // Create initial commit
+        run_jj_command(&repo_path, &["describe", "-m", "initial"]).expect("Failed to describe");
+
+        // Create first branch
+        run_jj_command(&repo_path, &["bookmark", "create", "branch1"])
+            .expect("Failed to create branch1");
+        run_jj_command(&repo_path, &["new"]).expect("Failed to create new commit");
+        run_jj_command(&repo_path, &["describe", "-m", "branch1-commit"])
+            .expect("Failed to describe");
+
+        // Go back and create second branch
+        run_jj_command(&repo_path, &["new", "branch1-"]).expect("Failed to checkout parent");
+        run_jj_command(&repo_path, &["bookmark", "create", "branch2"])
+            .expect("Failed to create branch2");
+        run_jj_command(&repo_path, &["describe", "-m", "branch2-commit"])
+            .expect("Failed to describe");
+
+        // Create merge commit
+        let branch1_id = run_jj_command(
+            &repo_path,
+            &["log", "-r", "branch1", "--no-graph", "-T", "commit_id"],
+        )
+        .expect("Failed to get branch1 id");
+        let branch2_id = run_jj_command(
+            &repo_path,
+            &["log", "-r", "branch2", "--no-graph", "-T", "commit_id"],
+        )
+        .expect("Failed to get branch2 id");
+
+        run_jj_command(&repo_path, &["new", branch1_id.trim(), branch2_id.trim()])
+            .expect("Failed to create merge");
+        run_jj_command(&repo_path, &["describe", "-m", "merge-commit"])
+            .expect("Failed to describe merge");
+        run_jj_command(&repo_path, &["bookmark", "create", "wip"])
+            .expect("Failed to create wip bookmark");
+
+        // Create a normal linear bookmark
+        run_jj_command(&repo_path, &["new", "root()"]).expect("Failed to create new change");
+        run_jj_command(&repo_path, &["describe", "-m", "feature-a-commit"])
+            .expect("Failed to describe");
+        run_jj_command(&repo_path, &["bookmark", "create", "feature-a"])
+            .expect("Failed to create feature-a");
+
+        let jj = Jujutsu::new(repo_path.clone()).unwrap();
+
+        // Build graph - currently this WILL FAIL because build() validates all bookmarks
+        // After the fix, this should succeed because validation is separate
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let graph = runtime.block_on(BookmarkGraph::build(&jj, "main"));
+
+        // This assertion will fail with current code (which is what we want for TDD)
+        // After implementing the fix, it should pass
+        assert!(
+            graph.is_ok(),
+            "build() should succeed even with merge commits present"
+        );
+
+        let graph = graph.unwrap();
+
+        // After the fix, validating only "feature-a" should succeed
+        let result = graph.validate_bookmarks(&jj, &["feature-a".to_string()]);
+        assert!(result.is_ok(), "Validating linear bookmark should succeed");
+
+        // Validating "wip" should fail (it's a merge)
+        let result = graph.validate_bookmarks(&jj, &["wip".to_string()]);
+        assert!(
+            result.is_err(),
+            "Validating merge commit bookmark should fail"
+        );
     }
 }

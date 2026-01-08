@@ -34,6 +34,9 @@ pub async fn analyze(
     // Get the downstack (all bookmarks from root to target, inclusive)
     let downstack = graph.get_downstack(target_bookmark)?;
 
+    // Validate the downstack has no merge commits
+    graph.validate_bookmarks(jj, &downstack)?;
+
     // Find the stack and get its base branch
     let stack = graph
         .find_stack_for_bookmark(target_bookmark)

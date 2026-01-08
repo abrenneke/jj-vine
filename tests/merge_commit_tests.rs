@@ -61,44 +61,37 @@ async fn test_merge_commit_detection_in_bookmark_graph() {
         "Should have merge commit with 2 parents"
     );
 
-    // Now try to build a bookmark graph
+    // Build the bookmark graph (should succeed - validation is separate)
     let jj = Jujutsu::new(repo.path.clone()).expect("Failed to create Jujutsu instance");
-    let result = BookmarkGraph::build(&jj, "main").await;
+    let graph = BookmarkGraph::build(&jj, "main")
+        .await
+        .expect("Failed to build graph");
 
-    // THIS TEST WILL FAIL because we don't detect or handle merge commits
-    // Expected: Either error with clear message OR handle merge correctly
-    // Actual: Likely picks one parent arbitrarily, creating incorrect graph
+    // The graph was built successfully - it only constructs the structure
+    // Now validate the "merged" bookmark - this should detect the merge commit
+    let result = graph.validate_bookmarks(&jj, &["merged".to_string()]);
 
     match result {
-        Ok(graph) => {
-            // The graph was built, but it's incorrect!
-            // A merge commit has 2 parents, but our adjacency list only stores one
+        Ok(_) => {
+            // The graph was built, but validation should have caught the merge!
             eprintln!("Graph stacks: {:?}", graph.stacks);
             eprintln!("Adjacency list: {:?}", graph.adjacency_list);
 
-            // BUG: This should fail because we're not handling merge commits correctly
-            // The adjacency list should either:
-            // 1. Contain both parents (needs data structure change), OR
-            // 2. We should error when detecting a merge commit
-
-            // For now, we'll detect the bug by checking if we only have one parent
-            // when we should have two
-            let parent = graph.adjacency_list.get("merged");
-
-            // Current behavior: parent is Some("branch-b"), missing branch-a
-            // Expected: Either error or represent both parents somehow
-            assert!(
-                parent.is_none(),
-                "FAILING TEST: Merge commits should be rejected with an error, \
-                 but we're currently storing only one parent: {:?}. \
-                 This creates an incorrect graph structure.",
-                parent
+            panic!(
+                "FAILING TEST: Merge commits should be rejected during validation, \
+                 but validation passed."
             );
         }
         Err(e) => {
-            // This is actually the correct behavior!
-            // We should error when encountering merge commits
-            eprintln!("Correctly rejected merge commit: {}", e);
+            // This is the correct behavior!
+            // We should error when validating merge commits
+            eprintln!("Correctly rejected merge commit during validation: {}", e);
+            let error_msg = format!("{}", e);
+            assert!(
+                error_msg.contains("merge") || error_msg.contains("multiple parents"),
+                "Error should mention merge commits: {}",
+                error_msg
+            );
         }
     }
 }
@@ -137,21 +130,26 @@ async fn test_submit_bookmark_with_merge_in_stack() {
     repo.create_bookmark("merged-top")
         .expect("Failed to create bookmark");
 
-    // Build the graph - this should fail due to merge commit detection
+    // Build the graph (should succeed - validation is separate)
     let jj = Jujutsu::new(repo.path.clone()).expect("Failed to create Jujutsu instance");
-    let graph_result = BookmarkGraph::build(&jj, "main").await;
+    let graph = BookmarkGraph::build(&jj, "main")
+        .await
+        .expect("Failed to build graph");
 
-    // The graph build should fail because we detect the merge in the stack
-    match graph_result {
+    // Now validate the merged-top bookmark - should fail due to merge commit in its history
+    let result = graph.validate_bookmarks(&jj, &["merged-top".to_string()]);
+
+    // The validation should fail because we detect the merge in the stack
+    match result {
         Ok(_) => {
             panic!(
-                "FAILING TEST: Should have errored when building graph with merge commit, \
-                 but graph built successfully."
+                "FAILING TEST: Should have errored when validating bookmark with merge commit, \
+                 but validation passed."
             );
         }
         Err(e) => {
             // This is the correct behavior!
-            eprintln!("Correctly rejected merge in stack during build: {}", e);
+            eprintln!("Correctly rejected merge in stack during validation: {}", e);
 
             // Verify error message is clear
             let error_msg = format!("{}", e);

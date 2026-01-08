@@ -57,15 +57,20 @@ async fn test_merge_commit_two_levels_deep() {
         .expect("Failed to get log");
     eprintln!("Log structure:\n{}", log);
 
-    // Try to build the graph
+    // Build the graph (should succeed - validation is separate)
     let jj = Jujutsu::new(repo.path.clone()).expect("Failed to create Jujutsu instance");
-    let result = BookmarkGraph::build(&jj, "main").await;
+    let graph = BookmarkGraph::build(&jj, "main")
+        .await
+        .expect("Failed to build graph");
+
+    // Now validate feature-top - this should detect the merge
+    let result = graph.validate_bookmarks(&jj, &["feature-top".to_string()]);
 
     // Actually, this WILL be caught because we check immediate parent
     // feature-top -> after-merge -> MERGE (caught here!)
     match result {
-        Ok(graph) => {
-            eprintln!("Graph built successfully (unexpected!): {:?}", graph.stacks);
+        Ok(_) => {
+            eprintln!("Validation passed (unexpected!): {:?}", graph.stacks);
             panic!("Should have detected merge at parent level");
         }
         Err(e) => {
@@ -130,13 +135,18 @@ async fn test_merge_commit_three_levels_deep() {
         .expect("Failed to create bookmark");
 
     let jj = Jujutsu::new(repo.path.clone()).expect("Failed to create Jujutsu instance");
-    let result = BookmarkGraph::build(&jj, "main").await;
+    let graph = BookmarkGraph::build(&jj, "main")
+        .await
+        .expect("Failed to build graph");
+
+    // Validate feature-deep - should detect merge 3 levels deep
+    let result = graph.validate_bookmarks(&jj, &["feature-deep".to_string()]);
 
     match result {
         Ok(_) => {
             panic!(
                 "FAILING TEST: Merge is 3 levels deep, we only check 1 level. \
-                 Should have errored but built successfully."
+                 Should have errored but validated successfully."
             );
         }
         Err(e) => {
@@ -200,7 +210,12 @@ async fn test_merge_between_two_bookmarks() {
     // base -> branch2 -/
 
     let jj = Jujutsu::new(repo.path.clone()).expect("Failed to create Jujutsu instance");
-    let result = BookmarkGraph::build(&jj, "main").await;
+    let graph = BookmarkGraph::build(&jj, "main")
+        .await
+        .expect("Failed to build graph");
+
+    // Validate top - should detect merge between bookmarks
+    let result = graph.validate_bookmarks(&jj, &["top".to_string()]);
 
     match result {
         Ok(_) => {

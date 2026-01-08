@@ -441,6 +441,8 @@ async fn test_base_branch_not_pushed() {
         remote_name: "origin".to_string(),
         ca_bundle: None,
         tls_accept_non_compliant_certs: false,
+        enable_stack_visualization: true,
+        stack_format: jj_mrs::config::StackFormat::Linear,
     };
 
     let analysis = analyze::analyze(&jj, &config, "feature-2")
@@ -507,6 +509,8 @@ async fn test_single_bookmark_not_push_base() {
         remote_name: "origin".to_string(),
         ca_bundle: None,
         tls_accept_non_compliant_certs: false,
+        enable_stack_visualization: true,
+        stack_format: jj_mrs::config::StackFormat::Linear,
     };
 
     let analysis = analyze::analyze(&jj, &config, "feature-1")
@@ -555,6 +559,8 @@ async fn test_submit_base_branch_errors() {
         remote_name: "origin".to_string(),
         ca_bundle: None,
         tls_accept_non_compliant_certs: false,
+        enable_stack_visualization: true,
+        stack_format: jj_mrs::config::StackFormat::Linear,
     };
 
     // Attempting to submit main should error
