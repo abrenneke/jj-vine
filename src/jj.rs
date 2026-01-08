@@ -2,6 +2,7 @@ use crate::error::{Error, Result};
 use snafu::ResultExt;
 use std::path::PathBuf;
 use std::process::Command;
+use tracing::{debug, trace};
 
 /// Jujutsu subprocess interface
 pub struct Jujutsu {
@@ -17,17 +18,18 @@ impl Jujutsu {
 
     /// Run a jj command and return the output
     pub fn run_captured(&self, args: &[&str]) -> Result<String> {
+        trace!("Running jj command: jj {}", args.join(" "));
         run_jj_command(&self.repo_path, args)
     }
 
-    /// Get all bookmarks with their commit info
+    /// Get all bookmarks authored by the current user with their commit info
     pub fn get_bookmarks(&self) -> Result<Vec<Bookmark>> {
-        // Use jj log with bookmarks() revset to get bookmark info
+        // Use jj log with mine() & bookmarks() revset to get only user's bookmarks
         // Each bookmark will appear on its own line with its commit/change ID
         let output = self.run_captured(&[
             "log",
             "-r",
-            "bookmarks()",
+            "mine() & bookmarks()",
             "--no-graph",
             "--template",
             // For each commit with bookmarks, output each bookmark name on a separate line
@@ -59,6 +61,54 @@ impl Jujutsu {
 
                 let is_local = remote.is_none();
                 // For now, assume local bookmarks might have remotes (we'd need git ls-remote to check)
+                let has_remote = false;
+
+                bookmarks.push(Bookmark {
+                    name,
+                    commit_id: parts[1].to_string(),
+                    change_id: parts[2].to_string(),
+                    remote,
+                    is_local,
+                    has_remote,
+                });
+            }
+        }
+
+        Ok(bookmarks)
+    }
+
+    /// Get bookmarks matching a custom revset
+    pub fn get_bookmarks_with_revset(&self, revset: &str) -> Result<Vec<Bookmark>> {
+        let output = self.run_captured(&[
+            "log",
+            "-r",
+            revset,
+            "--no-graph",
+            "--template",
+            r#"bookmarks.map(|b| b ++ "\t" ++ commit_id ++ "\t" ++ change_id).join("\n") ++ "\n""#,
+        ])?;
+
+        let mut bookmarks = Vec::new();
+        for line in output.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+
+            let parts: Vec<&str> = line.split('\t').collect();
+            if parts.len() >= 3 {
+                let full_name = parts[0];
+                let full_name = full_name.strip_suffix('*').unwrap_or(full_name);
+
+                let (name, remote) = if let Some(at_pos) = full_name.rfind('@') {
+                    let name = full_name[..at_pos].to_string();
+                    let remote = full_name[at_pos + 1..].to_string();
+                    (name, Some(remote))
+                } else {
+                    (full_name.to_string(), None)
+                };
+
+                let is_local = remote.is_none();
                 let has_remote = false;
 
                 bookmarks.push(Bookmark {
@@ -113,6 +163,7 @@ impl Jujutsu {
 
     /// Resolve a revision to a commit ID
     pub fn resolve_revision(&self, revset: &str) -> Result<String> {
+        trace!("Resolving revision: {}", revset);
         let output = self.run_captured(&[
             "log",
             "-r",
@@ -189,10 +240,20 @@ impl Jujutsu {
     /// Check if a bookmark exists on a remote
     /// This checks if `bookmark@remote` resolves to a commit
     pub fn remote_bookmark_exists(&self, bookmark: &str, remote: &str) -> Result<bool> {
+        trace!(
+            "Checking if bookmark '{}' exists on remote '{}'",
+            bookmark, remote
+        );
         let revset = format!("{}@{}", bookmark, remote);
         match self.resolve_revision(&revset) {
-            Ok(_) => Ok(true),
-            Err(Error::JjCommand { .. }) => Ok(false),
+            Ok(_) => {
+                trace!("Bookmark '{}@{}' exists", bookmark, remote);
+                Ok(true)
+            }
+            Err(Error::JjCommand { .. }) => {
+                trace!("Bookmark '{}@{}' does not exist", bookmark, remote);
+                Ok(false)
+            }
             Err(e) => Err(e),
         }
     }
@@ -204,7 +265,10 @@ impl Jujutsu {
     /// 2. It is a local bookmark (not a remote-tracking bookmark)
     /// 3. It has been pushed to the remote
     pub fn get_tracked_bookmarks(&self, remote: &str) -> Result<Vec<String>> {
+        debug!("Getting tracked bookmarks for remote: {}", remote);
+
         // Use mine() & bookmarks() to get user's local bookmarks
+        debug!("Running jj log to get mine() & bookmarks()");
         let output = self.run_captured(&[
             "log",
             "-r",
@@ -213,6 +277,7 @@ impl Jujutsu {
             "--template",
             r#"bookmarks.map(|b| b ++ "\n").join("")"#,
         ])?;
+        debug!("Got bookmarks output, processing lines");
 
         let mut tracked = Vec::new();
         for line in output.lines() {
@@ -230,11 +295,22 @@ impl Jujutsu {
             }
 
             // Check if the bookmark exists on the remote
+            debug!("Checking if bookmark '{}' exists on remote", bookmark_name);
             if self.remote_bookmark_exists(bookmark_name, remote)? {
+                debug!(
+                    "Bookmark '{}' exists on remote, adding to tracked list",
+                    bookmark_name
+                );
                 tracked.push(bookmark_name.to_string());
+            } else {
+                debug!(
+                    "Bookmark '{}' does not exist on remote, skipping",
+                    bookmark_name
+                );
             }
         }
 
+        debug!("Found {} tracked bookmarks", tracked.len());
         Ok(tracked)
     }
 }

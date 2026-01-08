@@ -113,6 +113,8 @@ impl TestRepo {
         gitlab_host: &str,
         gitlab_project: &str,
         gitlab_token: &str,
+        ca_bundle: Option<String>,
+        tls_accept_non_compliant_certs: bool,
     ) -> Result<(), Box<dyn std::error::Error>> {
         self.jj(&["config", "set", "--repo", "jj-mrs.gitlabHost", gitlab_host])?;
         self.jj(&[
@@ -129,6 +131,21 @@ impl TestRepo {
             "jj-mrs.gitlabToken",
             gitlab_token,
         ])?;
+
+        if let Some(bundle) = ca_bundle {
+            self.jj(&["config", "set", "--repo", "jj-mrs.caBundle", &bundle])?;
+        }
+
+        if tls_accept_non_compliant_certs {
+            self.jj(&[
+                "config",
+                "set",
+                "--repo",
+                "jj-mrs.tlsAcceptNonCompliantCerts",
+                "true",
+            ])?;
+        }
+
         Ok(())
     }
 
@@ -159,6 +176,10 @@ pub struct GitLabConfig {
     pub project: String,
     /// GitLab personal access token
     pub token: String,
+    /// Optional path to CA bundle for TLS verification
+    pub ca_bundle: Option<String>,
+    /// Accept non-compliant TLS certificates
+    pub tls_accept_non_compliant_certs: bool,
 }
 
 impl GitLabConfig {
@@ -177,11 +198,18 @@ impl GitLabConfig {
         let host = std::env::var("GITLAB_HOST").ok()?;
         let project = std::env::var("GITLAB_PROJECT").ok()?;
         let token = std::env::var("GITLAB_TOKEN").ok()?;
+        let ca_bundle = std::env::var("GITLAB_CA_BUNDLE").ok();
+        let tls_accept_non_compliant_certs = std::env::var("GITLAB_TLS_ACCEPT_NON_COMPLIANT_CERTS")
+            .ok()
+            .and_then(|v| v.parse::<bool>().ok())
+            .unwrap_or(false);
 
         Some(Self {
             host,
             project,
             token,
+            ca_bundle,
+            tls_accept_non_compliant_certs,
         })
     }
 }
@@ -262,7 +290,13 @@ impl TestRepo {
         let repo = Self::new()?;
 
         // Initialize jj-mrs configuration
-        repo.init_mrs_config(&config.host, &config.project, &config.token)?;
+        repo.init_mrs_config(
+            &config.host,
+            &config.project,
+            &config.token,
+            config.ca_bundle.clone(),
+            config.tls_accept_non_compliant_certs,
+        )?;
 
         // Construct SSH remote URL from host and project
         // Extract hostname from GITLAB_HOST (e.g., "https://gitlab.internal.valence.nl/" -> "gitlab.internal.valence.nl")

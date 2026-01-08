@@ -59,7 +59,8 @@ async fn test_merge_commit_two_levels_deep() {
 
     // Build the graph (should succeed - validation is separate)
     let jj = Jujutsu::new(repo.path.clone()).expect("Failed to create Jujutsu instance");
-    let graph = BookmarkGraph::build(&jj, "main")
+    let bookmarks = jj.get_bookmarks().expect("Failed to get bookmarks");
+    let graph = BookmarkGraph::build(&jj, "main", bookmarks)
         .await
         .expect("Failed to build graph");
 
@@ -135,7 +136,8 @@ async fn test_merge_commit_three_levels_deep() {
         .expect("Failed to create bookmark");
 
     let jj = Jujutsu::new(repo.path.clone()).expect("Failed to create Jujutsu instance");
-    let graph = BookmarkGraph::build(&jj, "main")
+    let bookmarks = jj.get_bookmarks().expect("Failed to get bookmarks");
+    let graph = BookmarkGraph::build(&jj, "main", bookmarks)
         .await
         .expect("Failed to build graph");
 
@@ -210,7 +212,8 @@ async fn test_merge_between_two_bookmarks() {
     // base -> branch2 -/
 
     let jj = Jujutsu::new(repo.path.clone()).expect("Failed to create Jujutsu instance");
-    let graph = BookmarkGraph::build(&jj, "main")
+    let bookmarks = jj.get_bookmarks().expect("Failed to get bookmarks");
+    let graph = BookmarkGraph::build(&jj, "main", bookmarks)
         .await
         .expect("Failed to build graph");
 

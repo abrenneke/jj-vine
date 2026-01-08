@@ -27,7 +27,7 @@ fn test_e2e_mrs_config() {
     let repo = TestRepo::new().expect("Failed to create test repo");
 
     // Initialize MRS config
-    repo.init_mrs_config("https://gitlab.example.com", "test/project", "test-token")
+    repo.init_mrs_config("https://gitlab.example.com", "test/project", "test-token", None, false)
         .expect("Failed to init MRS config");
 
     // Verify config was set
@@ -43,7 +43,7 @@ fn test_tracked_and_bookmark_mutually_exclusive() {
     let repo = TestRepo::new().expect("Failed to create test repo");
 
     // Initialize config
-    repo.init_mrs_config("https://gitlab.example.com", "test/project", "test-token")
+    repo.init_mrs_config("https://gitlab.example.com", "test/project", "test-token", None, false)
         .expect("Failed to init MRS config");
 
     // Try to use both bookmark and --tracked
@@ -67,7 +67,7 @@ fn test_submit_requires_bookmark_or_tracked() {
     let repo = TestRepo::new().expect("Failed to create test repo");
 
     // Initialize config
-    repo.init_mrs_config("https://gitlab.example.com", "test/project", "test-token")
+    repo.init_mrs_config("https://gitlab.example.com", "test/project", "test-token", None, false)
         .expect("Failed to init MRS config");
 
     // Try to submit without any arguments
@@ -91,7 +91,7 @@ fn test_tracked_with_no_bookmarks() {
     let repo = TestRepo::new().expect("Failed to create test repo");
 
     // Initialize config
-    repo.init_mrs_config("https://gitlab.example.com", "test/project", "test-token")
+    repo.init_mrs_config("https://gitlab.example.com", "test/project", "test-token", None, false)
         .expect("Failed to init MRS config");
 
     // Create a git remote (bare repo)
@@ -320,7 +320,7 @@ fn test_tracked_dry_run_end_to_end() {
     repo.jj(&["git", "fetch"]).expect("Failed to fetch");
 
     // Initialize jj-mrs config
-    repo.init_mrs_config("https://gitlab.example.com", "test/project", "test-token")
+    repo.init_mrs_config("https://gitlab.example.com", "test/project", "test-token", None, false)
         .expect("Failed to init MRS config");
 
     // Create and push multiple bookmarks
@@ -482,6 +482,8 @@ fn test_e2e_push_failure_skips_mr_creation() {
         &gitlab_config.host,
         &gitlab_config.project,
         &gitlab_config.token,
+        gitlab_config.ca_bundle.clone(),
+        gitlab_config.tls_accept_non_compliant_certs,
     )
     .expect("Failed to init MRS config");
 

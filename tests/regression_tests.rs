@@ -292,7 +292,8 @@ async fn test_deleted_middle_bookmark() {
     use jj_mrs::jj::Jujutsu;
 
     let jj = Jujutsu::new(repo.path.clone()).expect("Failed to create Jujutsu instance");
-    let graph = BookmarkGraph::build(&jj, "main")
+    let bookmarks = jj.get_bookmarks().expect("Failed to get bookmarks");
+    let graph = BookmarkGraph::build(&jj, "main", bookmarks)
         .await
         .expect("Failed to build graph");
 
@@ -349,7 +350,8 @@ async fn test_default_branch_configuration() {
 
     // Build the graph with "main" as default_branch
     let jj = Jujutsu::new(repo.path.clone()).expect("Failed to create Jujutsu instance");
-    let graph_main = BookmarkGraph::build(&jj, "main")
+    let bookmarks = jj.get_bookmarks().expect("Failed to get bookmarks");
+    let graph_main = BookmarkGraph::build(&jj, "main", bookmarks.clone())
         .await
         .expect("Failed to build graph with 'main'");
 
@@ -363,7 +365,7 @@ async fn test_default_branch_configuration() {
     );
 
     // Build the graph with "develop" as default_branch
-    let graph_develop = BookmarkGraph::build(&jj, "develop")
+    let graph_develop = BookmarkGraph::build(&jj, "develop", bookmarks.clone())
         .await
         .expect("Failed to build graph with 'develop'");
 
@@ -377,7 +379,7 @@ async fn test_default_branch_configuration() {
     );
 
     // Build the graph with "master" as default_branch
-    let graph_master = BookmarkGraph::build(&jj, "master")
+    let graph_master = BookmarkGraph::build(&jj, "master", bookmarks)
         .await
         .expect("Failed to build graph with 'master'");
 
@@ -576,4 +578,174 @@ async fn test_submit_base_branch_errors() {
             error_msg
         );
     }
+}
+
+/// Test: BookmarkGraph::build() should not traverse entire default branch history
+///
+/// Problem: When building a bookmark graph, the code was traversing the entire
+/// commit history of the default branch (master/main) looking for a bookmarked
+/// ancestor. In large repositories with thousands of commits, this caused
+/// multi-minute hangs.
+///
+/// Expected behavior:
+/// - Building the graph should skip processing the default branch
+/// - The default branch has no parent bookmark by definition
+/// - Graph building should complete quickly even with long default branch history
+///
+/// This test creates a repo with:
+/// - master bookmark with a long commit history (100+ commits)
+/// - feature branches off master
+/// Then verifies BookmarkGraph::build() completes quickly without traversing
+/// the entire master history.
+#[tokio::test]
+async fn test_bookmark_graph_does_not_traverse_default_branch_history() {
+    use jj_mrs::bookmark::BookmarkGraph;
+    use jj_mrs::jj::Jujutsu;
+
+    // Initialize tracing for debugging
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter("debug")
+        .with_test_writer()
+        .try_init();
+
+    let repo = TestRepo::new().expect("Failed to create test repo");
+
+    // Create an initial bookmark that master will descend from
+    repo.create_file("initial.txt", "initial")
+        .expect("Failed to create initial file");
+    repo.jj(&["describe", "-m", "Initial commit"])
+        .expect("Failed to describe");
+    repo.create_bookmark("initial")
+        .expect("Failed to create initial bookmark");
+
+    // Create a long history on master (simulating a real repo)
+    // Create 100 commits to make this realistic
+    for i in 1..=100 {
+        repo.jj(&["new"]).expect("Failed to create new change");
+        repo.create_file(&format!("file{}.txt", i), &format!("content {}", i))
+            .expect("Failed to create file");
+        repo.jj(&["describe", "-m", &format!("Commit {}", i)])
+            .expect("Failed to describe");
+    }
+
+    // Create master bookmark at the tip
+    repo.create_bookmark("master")
+        .expect("Failed to create master");
+
+    // Create a feature bookmark off master
+    repo.jj(&["new", "master"])
+        .expect("Failed to create new change off master");
+    repo.create_file("feature.txt", "feature content")
+        .expect("Failed to create feature file");
+    repo.jj(&["describe", "-m", "Feature commit"])
+        .expect("Failed to describe");
+    repo.create_bookmark("feature-1")
+        .expect("Failed to create feature-1");
+
+    // Now build the bookmark graph
+    // This should NOT traverse the entire 100-commit master history
+    let jj = Jujutsu::new(repo.path.clone()).expect("Failed to create Jujutsu instance");
+    let bookmarks = jj.get_bookmarks().expect("Failed to get bookmarks");
+
+    let graph = BookmarkGraph::build(&jj, "master", bookmarks)
+        .await
+        .expect("Failed to build bookmark graph");
+
+    // The default branch has no parent bookmark
+    let master_parent = graph.get_parent("master");
+    assert_eq!(
+        master_parent, None,
+        "Default branch should have no parent bookmark"
+    );
+
+    // Feature branches should have the default branch as their parent
+    let parent = graph.get_parent("feature-1");
+    assert_eq!(
+        parent,
+        Some(&"master".to_string()),
+        "feature-1 should have master as parent"
+    );
+}
+
+/// Submitting tracked bookmarks should succeed even when the repository
+/// contains untracked bookmarks with merge commits.
+#[tokio::test]
+async fn test_submit_tracked_ignores_untracked_merge_commits() {
+    use jj_mrs::commands::submit::submit;
+    use test_helpers::{unique_test_branch, GitLabTest};
+
+    let test = match GitLabTest::setup().await {
+        Some(t) => t,
+        None => return,
+    };
+
+    let repo = test.repo;
+
+    // Use unique branch name to avoid conflicts with previous test runs
+    let tracked_feature = unique_test_branch("tracked-feature");
+
+    // Create main locally (no need to push - config specifies default branch)
+    repo.create_file("initial.txt", "initial")
+        .expect("Failed to create file");
+    repo.jj(&["describe", "-m", "Initial commit"])
+        .expect("Failed to describe");
+    repo.create_bookmark("main").expect("Failed to create main");
+
+    // Create a clean tracked bookmark
+    repo.create_file("feature.txt", "feature")
+        .expect("Failed to create file");
+    repo.jj(&["describe", "-m", "Feature commit"])
+        .expect("Failed to describe");
+    repo.create_bookmark(&tracked_feature)
+        .expect("Failed to create tracked-feature");
+    repo.jj(&["bookmark", "track", &format!("{}@origin", tracked_feature)])
+        .expect("Failed to track tracked-feature");
+    repo.jj(&["git", "push", "--bookmark", &tracked_feature])
+        .expect("Failed to push tracked-feature");
+
+    // Create untracked bookmark with merge commit
+    repo.jj(&["new", "main"]).expect("Failed to new from main");
+    repo.create_file("branch1.txt", "branch1")
+        .expect("Failed to create file");
+    repo.jj(&["describe", "-m", "Branch 1"])
+        .expect("Failed to describe");
+    let branch1_id = repo
+        .jj(&["log", "-r", "@", "--no-graph", "-T", "commit_id"])
+        .expect("Failed to get commit id")
+        .trim()
+        .to_string();
+
+    repo.jj(&["new", "main"]).expect("Failed to new from main");
+    repo.create_file("branch2.txt", "branch2")
+        .expect("Failed to create file");
+    repo.jj(&["describe", "-m", "Branch 2"])
+        .expect("Failed to describe");
+    let branch2_id = repo
+        .jj(&["log", "-r", "@", "--no-graph", "-T", "commit_id"])
+        .expect("Failed to get commit id")
+        .trim()
+        .to_string();
+
+    // Create merge commit (untracked)
+    repo.jj(&["new", &branch1_id, &branch2_id])
+        .expect("Failed to create merge");
+    repo.jj(&["describe", "-m", "Merge commit"])
+        .expect("Failed to describe merge");
+    repo.create_bookmark("untracked-merge")
+        .expect("Failed to create untracked-merge");
+
+    // Submit only the tracked bookmark - should succeed
+    let result = submit(
+        repo.path.clone(),
+        vec![tracked_feature],
+        "origin".to_string(),
+        true, // dry_run
+    )
+    .await;
+
+    assert!(
+        result.is_ok(),
+        "Submit should succeed even with untracked merge commits: {:?}",
+        result.err()
+    );
 }

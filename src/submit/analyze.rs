@@ -28,8 +28,12 @@ pub async fn analyze(
     config: &Config,
     target_bookmark: &str,
 ) -> Result<SubmissionAnalysis> {
+    // Get only the target bookmark and its ancestors
+    let revset = format!("::{}  & mine() & bookmarks()", target_bookmark);
+    let relevant_bookmarks = jj.get_bookmarks_with_revset(&revset)?;
+
     // Build the bookmark graph
-    let graph = BookmarkGraph::build(jj, &config.default_branch).await?;
+    let graph = BookmarkGraph::build(jj, &config.default_branch, relevant_bookmarks).await?;
 
     // Get the downstack (all bookmarks from root to target, inclusive)
     let downstack = graph.get_downstack(target_bookmark)?;

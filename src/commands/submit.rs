@@ -7,6 +7,7 @@ use crate::output;
 use crate::submit::execute::SubmissionResult;
 use crate::submit::{analyze, execute, plan};
 use std::path::PathBuf;
+use tracing::{debug, info};
 
 /// Submit bookmarks and their dependencies as GitLab MRs
 ///
@@ -20,6 +21,8 @@ pub async fn submit(
     remote: String,
     dry_run: bool,
 ) -> Result<()> {
+    info!("Starting submit for {} bookmarks", bookmarks.len());
+
     if bookmarks.is_empty() {
         return Err(Error::Config {
             message: "No bookmarks to submit".to_string(),
@@ -27,10 +30,12 @@ pub async fn submit(
     }
 
     // Load configuration
+    debug!("Loading configuration");
     let config = Config::load(&repo_path)?;
     config.validate()?;
 
     // Create jj and GitLab clients
+    debug!("Creating Jujutsu and GitLab clients");
     let jj = Jujutsu::new(repo_path)?;
     let gitlab = GitLabClient::new(
         config.gitlab_host.clone(),
@@ -41,9 +46,33 @@ pub async fn submit(
     )?;
 
     // Sort bookmarks topologically (dependencies first)
-    let default_branch = jj.get_default_branch()?;
-    let bookmark_graph = BookmarkGraph::build(&jj, &default_branch).await?;
+    debug!("Using default branch from config: {}", config.default_branch);
+    let default_branch = &config.default_branch;
+
+    // Build revset for only the bookmarks we're submitting and their ancestors
+    let revset = format!(
+        "({}) & mine() & bookmarks()",
+        bookmarks
+            .iter()
+            .map(|b| format!("::{}", b))
+            .collect::<Vec<_>>()
+            .join(" | ")
+    );
+    debug!("Querying bookmarks with revset: {}", revset);
+    let relevant_bookmarks = jj.get_bookmarks_with_revset(&revset)?;
+    debug!(
+        "Got {} relevant bookmarks for submission",
+        relevant_bookmarks.len()
+    );
+
+    debug!(
+        "Building bookmark graph for default branch: {}",
+        default_branch
+    );
+    let bookmark_graph = BookmarkGraph::build(&jj, &default_branch, relevant_bookmarks).await?;
+    debug!("Validating bookmarks");
     bookmark_graph.validate_bookmarks(&jj, &bookmarks)?;
+    debug!("Performing topological sort");
     let sorted_bookmarks = bookmark_graph.topological_sort(&bookmarks)?;
 
     output::output(&format!(

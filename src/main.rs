@@ -4,6 +4,7 @@ use jj_mrs::error::{Error, Result};
 use jj_mrs::jj::Jujutsu;
 use std::env;
 use std::path::PathBuf;
+use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
 #[command(name = "jj-mrs")]
@@ -12,6 +13,10 @@ struct Cli {
     /// Repository path (defaults to current directory)
     #[arg(short = 'R', long, global = true)]
     repository: Option<PathBuf>,
+
+    /// Enable verbose logging
+    #[arg(short = 'v', long, global = true)]
+    verbose: bool,
 
     #[command(subcommand)]
     command: Commands,
@@ -44,6 +49,17 @@ enum Commands {
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
+
+    // Initialize tracing
+    let filter = if cli.verbose {
+        EnvFilter::new("debug")
+    } else {
+        EnvFilter::new("info")
+    };
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_target(false)
+        .init();
 
     // Determine repository path
     let repo_path = cli

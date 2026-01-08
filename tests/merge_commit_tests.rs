@@ -63,7 +63,8 @@ async fn test_merge_commit_detection_in_bookmark_graph() {
 
     // Build the bookmark graph (should succeed - validation is separate)
     let jj = Jujutsu::new(repo.path.clone()).expect("Failed to create Jujutsu instance");
-    let graph = BookmarkGraph::build(&jj, "main")
+    let bookmarks = jj.get_bookmarks().expect("Failed to get bookmarks");
+    let graph = BookmarkGraph::build(&jj, "main", bookmarks)
         .await
         .expect("Failed to build graph");
 
@@ -132,7 +133,8 @@ async fn test_submit_bookmark_with_merge_in_stack() {
 
     // Build the graph (should succeed - validation is separate)
     let jj = Jujutsu::new(repo.path.clone()).expect("Failed to create Jujutsu instance");
-    let graph = BookmarkGraph::build(&jj, "main")
+    let bookmarks = jj.get_bookmarks().expect("Failed to get bookmarks");
+    let graph = BookmarkGraph::build(&jj, "main", bookmarks)
         .await
         .expect("Failed to build graph");
 

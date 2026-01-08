@@ -1,6 +1,7 @@
 use crate::error::{Error, Result};
 use crate::jj::{Bookmark, Jujutsu};
 use std::collections::{HashMap, HashSet};
+use tracing::{debug, trace, warn};
 
 /// Bookmark dependency graph
 ///
@@ -29,13 +30,23 @@ pub struct BranchStack {
 }
 
 impl BookmarkGraph {
-    /// Build a bookmark graph from a jujutsu repository
-    pub async fn build(jj: &Jujutsu, default_branch: &str) -> Result<Self> {
-        // Get all bookmarks
-        let bookmarks_list = jj.get_bookmarks()?;
+    /// Build a bookmark graph from a list of bookmarks
+    ///
+    /// # Arguments
+    ///
+    /// * `jj` - Jujutsu instance
+    /// * `default_branch` - The default branch name (e.g., "main", "master")
+    /// * `bookmarks_list` - List of bookmarks to include in the graph
+    pub async fn build(
+        jj: &Jujutsu,
+        default_branch: &str,
+        bookmarks_list: Vec<Bookmark>,
+    ) -> Result<Self> {
+        debug!("Building graph for {} bookmarks", bookmarks_list.len());
 
         // Filter to only local bookmarks (not remote-tracking ones)
         let local_bookmarks: Vec<_> = bookmarks_list.into_iter().filter(|b| b.is_local).collect();
+        debug!("Filtered to {} local bookmarks", local_bookmarks.len());
 
         // Build a map of bookmarks by name
         let mut bookmarks = HashMap::new();
@@ -46,25 +57,56 @@ impl BookmarkGraph {
         // Build adjacency list by finding parent relationships
         let mut adjacency_list = HashMap::new();
 
-        for bookmark in &local_bookmarks {
+        debug!(
+            "Building adjacency list for {} bookmarks",
+            local_bookmarks.len()
+        );
+        for (i, bookmark) in local_bookmarks.iter().enumerate() {
+            // Skip the default branch - it has no parent bookmark by definition
+            if bookmark.name == default_branch {
+                debug!(
+                    "Skipping default branch '{}' during adjacency list building",
+                    default_branch
+                );
+                continue;
+            }
+
+            debug!(
+                "Processing bookmark {}/{}: {}",
+                i + 1,
+                local_bookmarks.len(),
+                bookmark.name
+            );
             // Get the commit for this bookmark
             let changes = jj.get_changes(&bookmark.commit_id, &bookmark.commit_id)?;
 
             if let Some(change) = changes.first() {
                 // For each parent commit, traverse ancestry to find nearest bookmark
                 for parent_id in &change.parent_ids {
+                    debug!(
+                        "Finding nearest bookmarked ancestor for bookmark '{}' starting from parent {}",
+                        bookmark.name, parent_id
+                    );
                     if let Some(parent_bookmark_name) =
                         Self::find_nearest_bookmarked_ancestor(jj, parent_id, &local_bookmarks)?
                     {
+                        debug!(
+                            "Found parent bookmark '{}' for '{}'",
+                            parent_bookmark_name, bookmark.name
+                        );
                         adjacency_list.insert(bookmark.name.clone(), parent_bookmark_name);
                         break;
+                    } else {
+                        debug!("No bookmarked ancestor found for '{}'", bookmark.name);
                     }
                 }
             }
         }
 
         // Build stacks by traversing the graph
+        debug!("Building stacks");
         let stacks = Self::build_stacks(&bookmarks, &adjacency_list, default_branch);
+        debug!("Built {} stacks", stacks.len());
 
         Ok(Self {
             bookmarks,
@@ -293,30 +335,60 @@ impl BookmarkGraph {
             .collect();
 
         let mut current_id = start_commit_id.to_string();
+        let mut steps = 0;
 
         loop {
+            steps += 1;
+            if steps % 100 == 0 {
+                warn!(
+                    "find_nearest_bookmarked_ancestor: {} steps traversed",
+                    steps
+                );
+            }
+
             // Avoid infinite loops
             if visited.contains(&current_id) {
+                debug!(
+                    "find_nearest_bookmarked_ancestor: reached cycle after {} steps",
+                    steps
+                );
                 return Ok(None);
             }
             visited.insert(current_id.clone());
 
             // Check if current commit has a bookmark
             if let Some(bookmark_name) = bookmarked_commits.get(current_id.as_str()) {
+                debug!(
+                    "find_nearest_bookmarked_ancestor: found bookmark '{}' after {} steps",
+                    bookmark_name, steps
+                );
                 return Ok(Some(bookmark_name.to_string()));
             }
 
             // Get parent commits
+            trace!(
+                "find_nearest_bookmarked_ancestor: getting changes for commit {} (step {})",
+                &current_id[..8],
+                steps
+            );
             let changes = jj.get_changes(&current_id, &current_id)?;
             if let Some(change) = changes.first() {
                 if change.parent_ids.is_empty() {
                     // Reached root with no bookmark
+                    debug!(
+                        "find_nearest_bookmarked_ancestor: reached root after {} steps",
+                        steps
+                    );
                     return Ok(None);
                 }
                 // Follow first parent
                 current_id = change.parent_ids[0].clone();
             } else {
                 // No change found
+                debug!(
+                    "find_nearest_bookmarked_ancestor: no change found after {} steps",
+                    steps
+                );
                 return Ok(None);
             }
         }
@@ -870,10 +942,10 @@ mod tests {
 
         let jj = Jujutsu::new(repo_path.clone()).unwrap();
 
-        // Build graph - currently this WILL FAIL because build() validates all bookmarks
-        // After the fix, this should succeed because validation is separate
+        // Build graph - should succeed because validation is separate
+        let bookmarks = jj.get_bookmarks().unwrap();
         let runtime = tokio::runtime::Runtime::new().unwrap();
-        let graph = runtime.block_on(BookmarkGraph::build(&jj, "main"));
+        let graph = runtime.block_on(BookmarkGraph::build(&jj, "main", bookmarks));
 
         // This assertion will fail with current code (which is what we want for TDD)
         // After implementing the fix, it should pass
