@@ -345,18 +345,14 @@ uYyBeUf6LmQswHqXfxOmAoy1HbXDtNvmClznsb0=
         let path = temp_file.path().to_str().unwrap().to_string();
 
         // This should succeed with from_pem_bundle() but would fail with from_pem()
-        let result = GitLabClient::new(
+        GitLabClient::new(
             "https://gitlab.example.com".to_string(),
             "group/project".to_string(),
             "token123".to_string(),
             Some(path),
             false,
-        );
-
-        match result {
-            Ok(_) => {}
-            Err(e) => panic!("Failed to create client with multi-cert bundle: {:?}", e),
-        }
+        )
+        .expect("Failed to create client with multi-cert bundle");
     }
 
     // Note: Integration tests with real GitLab API would require a test instance

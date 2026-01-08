@@ -256,10 +256,11 @@ fn test_bookmark_directly_on_main() {
 /// when you try to submit c?
 ///
 /// Expected behavior:
-/// - Should detect broken stack
-/// - Should either auto-fix (c now targets a) or error clearly
-#[test]
-fn test_deleted_middle_bookmark() {
+/// - bookmark-c should traverse ancestry to find nearest bookmarked ancestor
+/// - bookmark-c's parent should be bookmark-a (not main)
+/// - Stack should be: [bookmark-a, bookmark-c]
+#[tokio::test]
+async fn test_deleted_middle_bookmark() {
     let repo = TestRepo::new().expect("Failed to create test repo");
 
     // Create stack: a -> b -> c
@@ -285,14 +286,290 @@ fn test_deleted_middle_bookmark() {
     repo.jj(&["bookmark", "delete", "bookmark-b"])
         .expect("Failed to delete bookmark");
 
-    // Now we have: a -> (deleted) -> c
-    // What should happen when we try to submit c?
-    // The parent commit of c's commit still exists, but has no bookmark
+    // Build the bookmark graph
+    use jj_mrs::bookmark::BookmarkGraph;
+    use jj_mrs::jj::Jujutsu;
 
-    let log = repo.jj(&["log", "--no-graph"]).expect("Failed to get log");
+    let jj = Jujutsu::new(repo.path.clone()).expect("Failed to create Jujutsu instance");
+    let graph = BookmarkGraph::build(&jj, "main")
+        .await
+        .expect("Failed to build graph");
 
-    println!("Log after deleting middle bookmark:\n{}", log);
+    // Verify that bookmark-c's parent is bookmark-a
+    let parent = graph.get_parent("bookmark-c");
+    assert_eq!(
+        parent,
+        Some(&"bookmark-a".to_string()),
+        "bookmark-c should have bookmark-a as parent after bookmark-b is deleted"
+    );
 
-    // TODO: Should c now detect a as its parent?
-    // Or should the commit without a bookmark be included in c's MR?
+    // Verify the stack structure
+    let stack = graph
+        .find_stack_for_bookmark("bookmark-c")
+        .expect("bookmark-c should be in a stack");
+
+    assert_eq!(
+        stack.bookmarks,
+        vec!["bookmark-a", "bookmark-c"],
+        "Stack should contain bookmark-a and bookmark-c in order"
+    );
+}
+
+/// Test: Default branch configuration is used for stack base
+///
+/// Problem: The base branch was hardcoded to "main" instead of using the
+/// default_branch from config, as identified in TESTING_FINDINGS.md
+///
+/// Expected behavior:
+/// - When building bookmark graph, the default_branch parameter should be used
+/// - Each stack's base should match the provided default_branch
+/// - This allows repositories using different default branches (e.g., "master", "develop")
+#[tokio::test]
+async fn test_default_branch_configuration() {
+    use jj_mrs::bookmark::BookmarkGraph;
+    use jj_mrs::jj::Jujutsu;
+
+    let repo = TestRepo::new().expect("Failed to create test repo");
+
+    // Create a simple bookmark stack
+    repo.create_file("file1.txt", "content1")
+        .expect("Failed to create file");
+    repo.jj(&["commit", "-m", "First commit"])
+        .expect("Failed to commit");
+    repo.create_bookmark("feature-a")
+        .expect("Failed to create bookmark");
+
+    repo.create_file("file2.txt", "content2")
+        .expect("Failed to create file");
+    repo.jj(&["commit", "-m", "Second commit"])
+        .expect("Failed to commit");
+    repo.create_bookmark("feature-b")
+        .expect("Failed to create bookmark");
+
+    // Build the graph with "main" as default_branch
+    let jj = Jujutsu::new(repo.path.clone()).expect("Failed to create Jujutsu instance");
+    let graph_main = BookmarkGraph::build(&jj, "main")
+        .await
+        .expect("Failed to build graph with 'main'");
+
+    let stack_main = graph_main
+        .find_stack_for_bookmark("feature-b")
+        .expect("feature-b should be in a stack");
+
+    assert_eq!(
+        stack_main.base, "main",
+        "Stack base should be 'main' when configured"
+    );
+
+    // Build the graph with "develop" as default_branch
+    let graph_develop = BookmarkGraph::build(&jj, "develop")
+        .await
+        .expect("Failed to build graph with 'develop'");
+
+    let stack_develop = graph_develop
+        .find_stack_for_bookmark("feature-b")
+        .expect("feature-b should be in a stack");
+
+    assert_eq!(
+        stack_develop.base, "develop",
+        "Stack base should be 'develop' when configured"
+    );
+
+    // Build the graph with "master" as default_branch
+    let graph_master = BookmarkGraph::build(&jj, "master")
+        .await
+        .expect("Failed to build graph with 'master'");
+
+    let stack_master = graph_master
+        .find_stack_for_bookmark("feature-b")
+        .expect("feature-b should be in a stack");
+
+    assert_eq!(
+        stack_master.base, "master",
+        "Stack base should be 'master' when configured"
+    );
+}
+
+/// Test: Base branch should not be pushed when submitting feature bookmarks
+///
+/// Problem: When submitting a feature bookmark, the tool was trying to push the
+/// base branch (main) to the remote, which would fail on protected branches.
+///
+/// Expected behavior:
+/// - Only feature bookmarks should be pushed
+/// - Base branch should NOT be pushed
+/// - First MR should target the base branch
+#[tokio::test]
+async fn test_base_branch_not_pushed() {
+    use jj_mrs::config::Config;
+    use jj_mrs::jj::Jujutsu;
+    use jj_mrs::submit::analyze;
+
+    let repo = TestRepo::new().expect("Failed to create test repo");
+
+    // Setup: Create stack main → feature-1 → feature-2
+    repo.create_file("file1.txt", "initial")
+        .expect("Failed to create file");
+    repo.jj(&["describe", "-m", "Initial commit"])
+        .expect("Failed to describe");
+    repo.create_bookmark("main").expect("Failed to create main");
+
+    repo.jj(&["new"]).expect("Failed to create new change");
+    repo.create_file("file2.txt", "feature1")
+        .expect("Failed to create file");
+    repo.jj(&["describe", "-m", "Feature 1"])
+        .expect("Failed to describe");
+    repo.create_bookmark("feature-1")
+        .expect("Failed to create feature-1");
+
+    repo.jj(&["new"]).expect("Failed to create new change");
+    repo.create_file("file3.txt", "feature2")
+        .expect("Failed to create file");
+    repo.jj(&["describe", "-m", "Feature 2"])
+        .expect("Failed to describe");
+    repo.create_bookmark("feature-2")
+        .expect("Failed to create feature-2");
+
+    // Test the analyze function directly
+    let jj = Jujutsu::new(repo.path.clone()).expect("Failed to create Jujutsu instance");
+    let config = Config {
+        gitlab_host: "https://gitlab.example.com".to_string(),
+        gitlab_project: "test/project".to_string(),
+        gitlab_token: "fake-token".to_string(),
+        default_branch: "main".to_string(),
+        remote_name: "origin".to_string(),
+        branch_prefix: Some("abrenneke".to_string()),
+        ca_bundle: None,
+        tls_accept_non_compliant_certs: false,
+    };
+
+    let analysis = analyze::analyze(&jj, &config, "feature-2")
+        .await
+        .expect("Failed to analyze");
+
+    // Verify: Should NOT include main in bookmarks_to_submit
+    assert!(
+        !analysis.bookmarks_to_submit.contains(&"main".to_string()),
+        "bookmarks_to_submit should not contain 'main': {:?}",
+        analysis.bookmarks_to_submit
+    );
+
+    // Verify: SHOULD include feature bookmarks
+    assert!(
+        analysis
+            .bookmarks_to_submit
+            .contains(&"feature-1".to_string()),
+        "bookmarks_to_submit should contain 'feature-1': {:?}",
+        analysis.bookmarks_to_submit
+    );
+    assert!(
+        analysis
+            .bookmarks_to_submit
+            .contains(&"feature-2".to_string()),
+        "bookmarks_to_submit should contain 'feature-2': {:?}",
+        analysis.bookmarks_to_submit
+    );
+
+    // Verify: base_branch should still be 'main' (needed for MR targeting)
+    assert_eq!(analysis.base_branch, "main");
+}
+
+/// Test: Single feature bookmark (directly on base) should not push base
+#[tokio::test]
+async fn test_single_bookmark_not_push_base() {
+    use jj_mrs::config::Config;
+    use jj_mrs::jj::Jujutsu;
+    use jj_mrs::submit::analyze;
+
+    let repo = TestRepo::new().expect("Failed to create test repo");
+
+    // Setup: main → feature-1 (single feature bookmark)
+    repo.create_file("file1.txt", "initial")
+        .expect("Failed to create file");
+    repo.jj(&["describe", "-m", "Initial commit"])
+        .expect("Failed to describe");
+    repo.create_bookmark("main").expect("Failed to create main");
+
+    repo.jj(&["new"]).expect("Failed to create new change");
+    repo.create_file("file2.txt", "feature")
+        .expect("Failed to create file");
+    repo.jj(&["describe", "-m", "Feature"])
+        .expect("Failed to describe");
+    repo.create_bookmark("feature-1")
+        .expect("Failed to create feature-1");
+
+    let jj = Jujutsu::new(repo.path.clone()).expect("Failed to create Jujutsu instance");
+    let config = Config {
+        gitlab_host: "https://gitlab.example.com".to_string(),
+        gitlab_project: "test/project".to_string(),
+        gitlab_token: "fake-token".to_string(),
+        default_branch: "main".to_string(),
+        remote_name: "origin".to_string(),
+        branch_prefix: None,
+        ca_bundle: None,
+        tls_accept_non_compliant_certs: false,
+    };
+
+    let analysis = analyze::analyze(&jj, &config, "feature-1")
+        .await
+        .expect("Failed to analyze");
+
+    // Should NOT include main
+    assert!(
+        !analysis.bookmarks_to_submit.contains(&"main".to_string()),
+        "Should not include base branch: {:?}",
+        analysis.bookmarks_to_submit
+    );
+
+    // SHOULD include only feature-1
+    assert_eq!(
+        analysis.bookmarks_to_submit,
+        vec!["feature-1".to_string()],
+        "Should contain only feature-1: {:?}",
+        analysis.bookmarks_to_submit
+    );
+
+    assert_eq!(analysis.base_branch, "main");
+}
+
+/// Test: Attempting to submit the base branch should error
+#[tokio::test]
+async fn test_submit_base_branch_errors() {
+    use jj_mrs::config::Config;
+    use jj_mrs::jj::Jujutsu;
+    use jj_mrs::submit::analyze;
+
+    let repo = TestRepo::new().expect("Failed to create test repo");
+
+    repo.create_file("file1.txt", "initial")
+        .expect("Failed to create file");
+    repo.jj(&["describe", "-m", "Initial commit"])
+        .expect("Failed to describe");
+    repo.create_bookmark("main").expect("Failed to create main");
+
+    let jj = Jujutsu::new(repo.path.clone()).expect("Failed to create Jujutsu instance");
+    let config = Config {
+        gitlab_host: "https://gitlab.example.com".to_string(),
+        gitlab_project: "test/project".to_string(),
+        gitlab_token: "fake-token".to_string(),
+        default_branch: "main".to_string(),
+        remote_name: "origin".to_string(),
+        branch_prefix: None,
+        ca_bundle: None,
+        tls_accept_non_compliant_certs: false,
+    };
+
+    // Attempting to submit main should error
+    let result = analyze::analyze(&jj, &config, "main").await;
+
+    assert!(result.is_err(), "Should error when submitting base branch");
+
+    if let Err(e) = result {
+        let error_msg = format!("{}", e);
+        assert!(
+            error_msg.contains("base branch"),
+            "Error should mention base branch: {}",
+            error_msg
+        );
+    }
 }

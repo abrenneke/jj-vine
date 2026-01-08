@@ -107,12 +107,12 @@ pub async fn init(repo_path: PathBuf) -> Result<()> {
         .default("main".to_string())
         .interact_text()?;
 
-    set_config(&repo_path, "spr.gitlabHost", &gitlab_host)?;
-    set_config(&repo_path, "spr.gitlabProject", &gitlab_project)?;
-    set_config(&repo_path, "spr.gitlabToken", &gitlab_token)?;
-    set_config(&repo_path, "spr.branchPrefix", &branch_prefix)?;
-    set_config(&repo_path, "spr.remoteName", &remote_name)?;
-    set_config(&repo_path, "spr.defaultBranch", &default_branch)?;
+    set_config(&repo_path, "jj-mrs.gitlabHost", &gitlab_host)?;
+    set_config(&repo_path, "jj-mrs.gitlabProject", &gitlab_project)?;
+    set_config(&repo_path, "jj-mrs.gitlabToken", &gitlab_token)?;
+    set_config(&repo_path, "jj-mrs.branchPrefix", &branch_prefix)?;
+    set_config(&repo_path, "jj-mrs.remoteName", &remote_name)?;
+    set_config(&repo_path, "jj-mrs.defaultBranch", &default_branch)?;
 
     term.write_line("")?;
     term.write_line(&format!(

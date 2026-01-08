@@ -63,7 +63,7 @@ async fn test_merge_commit_detection_in_bookmark_graph() {
 
     // Now try to build a bookmark graph
     let jj = Jujutsu::new(repo.path.clone()).expect("Failed to create Jujutsu instance");
-    let result = BookmarkGraph::build(&jj).await;
+    let result = BookmarkGraph::build(&jj, "main").await;
 
     // THIS TEST WILL FAIL because we don't detect or handle merge commits
     // Expected: Either error with clear message OR handle merge correctly
@@ -139,7 +139,7 @@ async fn test_submit_bookmark_with_merge_in_stack() {
 
     // Build the graph - this should fail due to merge commit detection
     let jj = Jujutsu::new(repo.path.clone()).expect("Failed to create Jujutsu instance");
-    let graph_result = BookmarkGraph::build(&jj).await;
+    let graph_result = BookmarkGraph::build(&jj, "main").await;
 
     // The graph build should fail because we detect the merge in the stack
     match graph_result {

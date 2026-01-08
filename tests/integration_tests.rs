@@ -32,7 +32,7 @@ fn test_e2e_mrs_config() {
 
     // Verify config was set
     let config = repo
-        .jj(&["config", "get", "spr.gitlabHost"])
+        .jj(&["config", "get", "jj-mrs.gitlabHost"])
         .expect("Failed to get config");
     assert!(config.contains("gitlab.example.com"));
 }

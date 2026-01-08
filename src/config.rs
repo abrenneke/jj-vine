@@ -37,13 +37,13 @@ impl Config {
     /// Load configuration from jj config
     ///
     /// Reads configuration keys:
-    /// - spr.gitlabHost - GitLab instance URL
-    /// - spr.gitlabProject - Project ID
-    /// - spr.gitlabToken - Personal Access Token
-    /// - spr.branchPrefix - Optional branch prefix
-    /// - spr.remoteName - Git remote name
-    /// - spr.defaultBranch - Default branch name
-    /// - spr.caBundle - Optional path to CA bundle for TLS
+    /// - jj-mrs.gitlabHost - GitLab instance URL
+    /// - jj-mrs.gitlabProject - Project ID
+    /// - jj-mrs.gitlabToken - Personal Access Token
+    /// - jj-mrs.branchPrefix - Optional branch prefix
+    /// - jj-mrs.remoteName - Git remote name
+    /// - jj-mrs.defaultBranch - Default branch name
+    /// - jj-mrs.caBundle - Optional path to CA bundle for TLS
     pub fn load(repo_path: &PathBuf) -> Result<Self> {
         // Helper to run jj config get
         let get_config = |key: &str| -> Result<Option<String>> {
@@ -65,24 +65,25 @@ impl Config {
         };
 
         // Required fields
-        let gitlab_host = get_config("spr.gitlabHost")?.ok_or_else(|| Error::Config {
-            message: "Missing required config: spr.gitlabHost".to_string(),
+        let gitlab_host = get_config("jj-mrs.gitlabHost")?.ok_or_else(|| Error::Config {
+            message: "Missing required config: jj-mrs.gitlabHost".to_string(),
         })?;
 
-        let gitlab_project = get_config("spr.gitlabProject")?.ok_or_else(|| Error::Config {
-            message: "Missing required config: spr.gitlabProject".to_string(),
+        let gitlab_project = get_config("jj-mrs.gitlabProject")?.ok_or_else(|| Error::Config {
+            message: "Missing required config: jj-mrs.gitlabProject".to_string(),
         })?;
 
-        let gitlab_token = get_config("spr.gitlabToken")?.ok_or_else(|| Error::Config {
-            message: "Missing required config: spr.gitlabToken".to_string(),
+        let gitlab_token = get_config("jj-mrs.gitlabToken")?.ok_or_else(|| Error::Config {
+            message: "Missing required config: jj-mrs.gitlabToken".to_string(),
         })?;
 
         // Optional fields with defaults
-        let branch_prefix = get_config("spr.branchPrefix")?;
-        let remote_name = get_config("spr.remoteName")?.unwrap_or_else(|| "origin".to_string());
-        let default_branch = get_config("spr.defaultBranch")?.unwrap_or_else(|| "main".to_string());
-        let ca_bundle = get_config("spr.caBundle")?;
-        let tls_accept_non_compliant_certs = get_config("spr.tlsAcceptNonCompliantCerts")?
+        let branch_prefix = get_config("jj-mrs.branchPrefix")?;
+        let remote_name = get_config("jj-mrs.remoteName")?.unwrap_or_else(|| "origin".to_string());
+        let default_branch =
+            get_config("jj-mrs.defaultBranch")?.unwrap_or_else(|| "main".to_string());
+        let ca_bundle = get_config("jj-mrs.caBundle")?;
+        let tls_accept_non_compliant_certs = get_config("jj-mrs.tlsAcceptNonCompliantCerts")?
             .map(|v| v == "true" || v == "1" || v == "yes")
             .unwrap_or(false);
 
@@ -154,7 +155,7 @@ mod tests {
         assert!(result.is_err());
 
         if let Err(Error::Config { message }) = result {
-            assert!(message.contains("spr.gitlabHost"));
+            assert!(message.contains("jj-mrs.gitlabHost"));
         } else {
             panic!("Expected Config error for missing required field");
         }
@@ -171,7 +172,7 @@ mod tests {
                 "config",
                 "set",
                 "--repo",
-                "spr.gitlabHost",
+                "jj-mrs.gitlabHost",
                 "https://gitlab.example.com",
             ],
         )
@@ -183,7 +184,7 @@ mod tests {
                 "config",
                 "set",
                 "--repo",
-                "spr.gitlabProject",
+                "jj-mrs.gitlabProject",
                 "my-group/my-project",
             ],
         )
@@ -195,7 +196,7 @@ mod tests {
                 "config",
                 "set",
                 "--repo",
-                "spr.gitlabToken",
+                "jj-mrs.gitlabToken",
                 "glpat-test123",
             ],
         )
@@ -223,7 +224,7 @@ mod tests {
                 "config",
                 "set",
                 "--repo",
-                "spr.gitlabHost",
+                "jj-mrs.gitlabHost",
                 "https://gitlab.example.com",
             ],
         )
@@ -235,7 +236,7 @@ mod tests {
                 "config",
                 "set",
                 "--repo",
-                "spr.gitlabProject",
+                "jj-mrs.gitlabProject",
                 "my-group/my-project",
             ],
         )
@@ -247,7 +248,7 @@ mod tests {
                 "config",
                 "set",
                 "--repo",
-                "spr.gitlabToken",
+                "jj-mrs.gitlabToken",
                 "glpat-test123",
             ],
         )
@@ -255,19 +256,19 @@ mod tests {
 
         run_jj_command(
             &repo_path,
-            &["config", "set", "--repo", "spr.branchPrefix", "mrs/"],
+            &["config", "set", "--repo", "jj-mrs.branchPrefix", "mrs/"],
         )
         .expect("Failed to set config");
 
         run_jj_command(
             &repo_path,
-            &["config", "set", "--repo", "spr.remoteName", "upstream"],
+            &["config", "set", "--repo", "jj-mrs.remoteName", "upstream"],
         )
         .expect("Failed to set config");
 
         run_jj_command(
             &repo_path,
-            &["config", "set", "--repo", "spr.defaultBranch", "master"],
+            &["config", "set", "--repo", "jj-mrs.defaultBranch", "master"],
         )
         .expect("Failed to set config");
 

@@ -59,7 +59,7 @@ async fn test_merge_commit_two_levels_deep() {
 
     // Try to build the graph
     let jj = Jujutsu::new(repo.path.clone()).expect("Failed to create Jujutsu instance");
-    let result = BookmarkGraph::build(&jj).await;
+    let result = BookmarkGraph::build(&jj, "main").await;
 
     // Actually, this WILL be caught because we check immediate parent
     // feature-top -> after-merge -> MERGE (caught here!)
@@ -130,7 +130,7 @@ async fn test_merge_commit_three_levels_deep() {
         .expect("Failed to create bookmark");
 
     let jj = Jujutsu::new(repo.path.clone()).expect("Failed to create Jujutsu instance");
-    let result = BookmarkGraph::build(&jj).await;
+    let result = BookmarkGraph::build(&jj, "main").await;
 
     match result {
         Ok(_) => {
@@ -200,7 +200,7 @@ async fn test_merge_between_two_bookmarks() {
     // base -> branch2 -/
 
     let jj = Jujutsu::new(repo.path.clone()).expect("Failed to create Jujutsu instance");
-    let result = BookmarkGraph::build(&jj).await;
+    let result = BookmarkGraph::build(&jj, "main").await;
 
     match result {
         Ok(_) => {

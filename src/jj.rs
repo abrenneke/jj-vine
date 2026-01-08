@@ -382,10 +382,14 @@ mod tests {
         let result = jj.get_default_branch();
         assert!(result.is_err());
 
+        assert!(
+            matches!(result, Err(Error::Config { .. })),
+            "Expected Config error, got {:?}",
+            result
+        );
+
         if let Err(Error::Config { message }) = result {
             assert!(message.contains("Could not find default branch"));
-        } else {
-            panic!("Expected Config error");
         }
     }
 

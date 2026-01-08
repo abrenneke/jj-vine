@@ -109,12 +109,15 @@ mod tests {
             remote: "origin".to_string(),
         };
 
-        match action {
-            Action::Push { bookmark, remote } => {
-                assert_eq!(bookmark, "feature");
-                assert_eq!(remote, "origin");
-            }
-            _ => panic!("Expected Push action"),
+        assert!(
+            matches!(&action, Action::Push { .. }),
+            "Expected Push action, got {:?}",
+            action
+        );
+
+        if let Action::Push { bookmark, remote } = action {
+            assert_eq!(bookmark, "feature");
+            assert_eq!(remote, "origin");
         }
     }
 
@@ -126,17 +129,21 @@ mod tests {
             title: "[jj-mrs] feature".to_string(),
         };
 
-        match action {
-            Action::CreateMR {
-                bookmark,
-                target_branch,
-                title,
-            } => {
-                assert_eq!(bookmark, "feature");
-                assert_eq!(target_branch, "main");
-                assert_eq!(title, "[jj-mrs] feature");
-            }
-            _ => panic!("Expected CreateMR action"),
+        assert!(
+            matches!(&action, Action::CreateMR { .. }),
+            "Expected CreateMR action, got {:?}",
+            action
+        );
+
+        if let Action::CreateMR {
+            bookmark,
+            target_branch,
+            title,
+        } = action
+        {
+            assert_eq!(bookmark, "feature");
+            assert_eq!(target_branch, "main");
+            assert_eq!(title, "[jj-mrs] feature");
         }
     }
 

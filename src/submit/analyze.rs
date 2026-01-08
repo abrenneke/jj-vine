@@ -1,4 +1,5 @@
 use crate::bookmark::BookmarkGraph;
+use crate::config::Config;
 use crate::error::Result;
 use crate::jj::Jujutsu;
 
@@ -22,12 +23,16 @@ pub struct SubmissionAnalysis {
 /// - Find the stack containing the target bookmark
 /// - Determine the downstack that needs to be submitted
 /// - Validate no merge commits exist in the stack
-pub async fn analyze(jj: &Jujutsu, target_bookmark: &str) -> Result<SubmissionAnalysis> {
+pub async fn analyze(
+    jj: &Jujutsu,
+    config: &Config,
+    target_bookmark: &str,
+) -> Result<SubmissionAnalysis> {
     // Build the bookmark graph
-    let graph = BookmarkGraph::build(jj).await?;
+    let graph = BookmarkGraph::build(jj, &config.default_branch).await?;
 
     // Get the downstack (all bookmarks from root to target, inclusive)
-    let bookmarks_to_submit = graph.get_downstack(target_bookmark)?;
+    let downstack = graph.get_downstack(target_bookmark)?;
 
     // Find the stack and get its base branch
     let stack = graph
@@ -36,8 +41,22 @@ pub async fn analyze(jj: &Jujutsu, target_bookmark: &str) -> Result<SubmissionAn
             name: target_bookmark.to_string(),
         })?;
 
-    // BUG: We don't validate commits in the stack for merges!
-    // If there's a merge commit between bookmarks, we won't detect it
+    // Filter out the base branch from bookmarks to submit
+    // We need the base for MR targeting, but we should never push it
+    let bookmarks_to_submit: Vec<String> = downstack
+        .into_iter()
+        .filter(|bookmark| bookmark != &stack.base)
+        .collect();
+
+    // Validate we have at least one bookmark to submit
+    if bookmarks_to_submit.is_empty() {
+        return Err(crate::error::Error::Other {
+            message: format!(
+                "Cannot submit '{}': it appears to be the base branch. Only feature bookmarks can be submitted.",
+                target_bookmark
+            ),
+        });
+    }
 
     Ok(SubmissionAnalysis {
         target_bookmark: target_bookmark.to_string(),

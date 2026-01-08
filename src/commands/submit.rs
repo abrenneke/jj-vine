@@ -34,7 +34,7 @@ pub async fn submit(
 
     // Phase 1: Analyze
     output::output(&format!("Analyzing bookmark '{}'...", bookmark))?;
-    let analysis = analyze::analyze(&jj, &bookmark).await?;
+    let analysis = analyze::analyze(&jj, &config, &bookmark).await?;
 
     output::output(&format!(
         "Found {} bookmark(s) to submit: {}",

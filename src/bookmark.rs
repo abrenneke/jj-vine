@@ -30,7 +30,7 @@ pub struct BranchStack {
 
 impl BookmarkGraph {
     /// Build a bookmark graph from a jujutsu repository
-    pub async fn build(jj: &Jujutsu) -> Result<Self> {
+    pub async fn build(jj: &Jujutsu, default_branch: &str) -> Result<Self> {
         // Get all bookmarks
         let bookmarks_list = jj.get_bookmarks()?;
 
@@ -73,23 +73,20 @@ impl BookmarkGraph {
                     &local_bookmarks,
                 )?;
 
-                // For each parent commit, check if it has a bookmark
+                // For each parent commit, traverse ancestry to find nearest bookmark
                 for parent_id in &change.parent_ids {
-                    // Find if any bookmark points to this parent
-                    for potential_parent in &local_bookmarks {
-                        if potential_parent.commit_id == *parent_id {
-                            // Found a parent bookmark
-                            adjacency_list
-                                .insert(bookmark.name.clone(), potential_parent.name.clone());
-                            break;
-                        }
+                    if let Some(parent_bookmark_name) =
+                        Self::find_nearest_bookmarked_ancestor(jj, parent_id, &local_bookmarks)?
+                    {
+                        adjacency_list.insert(bookmark.name.clone(), parent_bookmark_name);
+                        break;
                     }
                 }
             }
         }
 
         // Build stacks by traversing the graph
-        let stacks = Self::build_stacks(&bookmarks, &adjacency_list);
+        let stacks = Self::build_stacks(&bookmarks, &adjacency_list, default_branch);
 
         Ok(Self {
             bookmarks,
@@ -102,6 +99,7 @@ impl BookmarkGraph {
     fn build_stacks(
         bookmarks: &HashMap<String, Bookmark>,
         adjacency_list: &HashMap<String, String>,
+        default_branch: &str,
     ) -> Vec<BranchStack> {
         let mut stacks = Vec::new();
 
@@ -136,7 +134,7 @@ impl BookmarkGraph {
 
                 stacks.push(BranchStack {
                     bookmarks: stack_bookmarks,
-                    base: "main".to_string(), // Default base, should be determined from config
+                    base: default_branch.to_string(),
                 });
             }
         }
@@ -177,6 +175,53 @@ impl BookmarkGraph {
     /// Get the parent bookmark of a given bookmark
     pub fn get_parent(&self, bookmark_name: &str) -> Option<&String> {
         self.adjacency_list.get(bookmark_name)
+    }
+
+    /// Find the nearest bookmarked ancestor starting from a given commit
+    ///
+    /// Traverses the commit ancestry until finding a commit with a bookmark.
+    /// Returns the name of the first bookmark found, or None if no bookmarked
+    /// ancestor exists.
+    fn find_nearest_bookmarked_ancestor(
+        jj: &Jujutsu,
+        start_commit_id: &str,
+        bookmarks: &[Bookmark],
+    ) -> Result<Option<String>> {
+        use std::collections::HashSet;
+        let mut visited = HashSet::new();
+        let bookmarked_commits: HashMap<&str, &str> = bookmarks
+            .iter()
+            .map(|b| (b.commit_id.as_str(), b.name.as_str()))
+            .collect();
+
+        let mut current_id = start_commit_id.to_string();
+
+        loop {
+            // Avoid infinite loops
+            if visited.contains(&current_id) {
+                return Ok(None);
+            }
+            visited.insert(current_id.clone());
+
+            // Check if current commit has a bookmark
+            if let Some(bookmark_name) = bookmarked_commits.get(current_id.as_str()) {
+                return Ok(Some(bookmark_name.to_string()));
+            }
+
+            // Get parent commits
+            let changes = jj.get_changes(&current_id, &current_id)?;
+            if let Some(change) = changes.first() {
+                if change.parent_ids.is_empty() {
+                    // Reached root with no bookmark
+                    return Ok(None);
+                }
+                // Follow first parent
+                current_id = change.parent_ids[0].clone();
+            } else {
+                // No change found
+                return Ok(None);
+            }
+        }
     }
 
     /// Validate that no merge commits exist in the ancestor chain
@@ -290,10 +335,11 @@ mod tests {
         let mut adjacency_list = HashMap::new();
         adjacency_list.insert("feature-b".to_string(), "feature-a".to_string());
 
-        let stacks = BookmarkGraph::build_stacks(&bookmarks, &adjacency_list);
+        let stacks = BookmarkGraph::build_stacks(&bookmarks, &adjacency_list, "main");
 
         assert_eq!(stacks.len(), 1);
         assert_eq!(stacks[0].bookmarks, vec!["feature-a", "feature-b"]);
+        assert_eq!(stacks[0].base, "main");
     }
 
     #[test]
@@ -325,9 +371,11 @@ mod tests {
         // No adjacency (two independent stacks)
         let adjacency_list = HashMap::new();
 
-        let stacks = BookmarkGraph::build_stacks(&bookmarks, &adjacency_list);
+        let stacks = BookmarkGraph::build_stacks(&bookmarks, &adjacency_list, "main");
 
         assert_eq!(stacks.len(), 2);
+        assert_eq!(stacks[0].base, "main");
+        assert_eq!(stacks[1].base, "main");
     }
 
     #[test]
@@ -494,7 +542,7 @@ mod tests {
         adjacency_list.insert("feature-b".to_string(), "feature-a".to_string());
         adjacency_list.insert("alt-feature".to_string(), "feature-a".to_string());
 
-        let stacks = BookmarkGraph::build_stacks(&bookmarks, &adjacency_list);
+        let stacks = BookmarkGraph::build_stacks(&bookmarks, &adjacency_list, "main");
 
         // Both branches should be in separate stacks
         assert_eq!(stacks.len(), 2);

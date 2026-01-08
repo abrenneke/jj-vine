@@ -62,7 +62,14 @@ impl TestRepo {
             .current_dir(&self.path)
             .output()?;
 
-        Ok(String::from_utf8(output.stdout)?)
+        // Combine stdout and stderr to capture all output
+        let mut full_output = String::from_utf8(output.stdout)?;
+        if !output.stderr.is_empty() {
+            full_output.push_str("\n--- STDERR ---\n");
+            full_output.push_str(&String::from_utf8_lossy(&output.stderr));
+        }
+
+        Ok(full_output)
     }
 
     /// Run jj-mrs command and expect it to fail
@@ -106,15 +113,21 @@ impl TestRepo {
         gitlab_project: &str,
         gitlab_token: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        self.jj(&["config", "set", "--repo", "spr.gitlabHost", gitlab_host])?;
+        self.jj(&["config", "set", "--repo", "jj-mrs.gitlabHost", gitlab_host])?;
         self.jj(&[
             "config",
             "set",
             "--repo",
-            "spr.gitlabProject",
+            "jj-mrs.gitlabProject",
             gitlab_project,
         ])?;
-        self.jj(&["config", "set", "--repo", "spr.gitlabToken", gitlab_token])?;
+        self.jj(&[
+            "config",
+            "set",
+            "--repo",
+            "jj-mrs.gitlabToken",
+            gitlab_token,
+        ])?;
         Ok(())
     }
 
