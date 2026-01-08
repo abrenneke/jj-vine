@@ -27,7 +27,7 @@ fn test_no_op_submission_when_nothing_changed() {
     repo.create_bookmark("feature-1")
         .expect("Failed to create bookmark");
 
-    // TODO: First submission would create MR (requires GitLab integration)
+    // For real GitLab MR creation tests, see tests/gitlab_integration_tests.rs
     // For now, we'll test that repeated submissions of the same bookmark
     // don't keep generating push actions
 
@@ -77,7 +77,7 @@ fn test_multiple_bookmarks_on_same_commit() {
         "Bookmarks should point to same commit"
     );
 
-    // TODO: When we submit feature-a, what happens to feature-b?
+    // Question: When we submit feature-a, what happens to feature-b?
     // Should we warn? Should we create separate MRs? Should we error?
     // Currently this is undefined behavior.
 }
@@ -162,7 +162,7 @@ fn test_empty_bookmark_on_base() {
         .expect("Failed to create bookmark");
 
     // This bookmark has no commits relative to main
-    // TODO: What should happen when we try to submit it?
+    // Question: What should happen when we try to submit it?
     // Should we error? Should we skip it?
     // Currently this is undefined behavior.
 
@@ -215,9 +215,10 @@ fn test_complex_branching_structure() {
 
     println!("Log:\n{}", log);
 
-    // TODO: Verify that submitting child1 creates MRs for [base, child1]
-    // TODO: Verify that submitting child2 creates MRs for [base, child2]
-    // TODO: Verify that base MR is created/updated correctly for both
+    // For GitLab MR creation tests, see tests/gitlab_integration_tests.rs
+    // Real integration tests verify that:
+    // - Submitting a bookmark creates MRs for all ancestors
+    // - MRs are correctly created/updated for stacked bookmarks
 }
 
 /// Test: Bookmark with no parent bookmark (directly on main)
@@ -438,7 +439,6 @@ async fn test_base_branch_not_pushed() {
         gitlab_token: "fake-token".to_string(),
         default_branch: "main".to_string(),
         remote_name: "origin".to_string(),
-        branch_prefix: Some("abrenneke".to_string()),
         ca_bundle: None,
         tls_accept_non_compliant_certs: false,
     };
@@ -505,7 +505,6 @@ async fn test_single_bookmark_not_push_base() {
         gitlab_token: "fake-token".to_string(),
         default_branch: "main".to_string(),
         remote_name: "origin".to_string(),
-        branch_prefix: None,
         ca_bundle: None,
         tls_accept_non_compliant_certs: false,
     };
@@ -554,7 +553,6 @@ async fn test_submit_base_branch_errors() {
         gitlab_token: "fake-token".to_string(),
         default_branch: "main".to_string(),
         remote_name: "origin".to_string(),
-        branch_prefix: None,
         ca_bundle: None,
         tls_accept_non_compliant_certs: false,
     };

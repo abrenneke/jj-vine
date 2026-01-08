@@ -355,6 +355,5 @@ uYyBeUf6LmQswHqXfxOmAoy1HbXDtNvmClznsb0=
         .expect("Failed to create client with multi-cert bundle");
     }
 
-    // Note: Integration tests with real GitLab API would require a test instance
-    // For now, we test the structure and basic functionality
+    // For real GitLab API integration tests, see tests/gitlab_integration_tests.rs
 }

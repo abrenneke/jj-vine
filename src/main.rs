@@ -1,6 +1,7 @@
 use clap::{Parser, Subcommand};
 use jj_mrs::commands::{init, submit};
-use jj_mrs::error::Result;
+use jj_mrs::error::{Error, Result};
+use jj_mrs::jj::Jujutsu;
 use std::env;
 use std::path::PathBuf;
 
@@ -20,8 +21,12 @@ struct Cli {
 enum Commands {
     /// Submit a bookmark and its dependencies as GitLab MRs
     Submit {
-        /// The bookmark to submit
-        bookmark: String,
+        /// The bookmark to submit (mutually exclusive with --tracked)
+        bookmark: Option<String>,
+
+        /// Submit all tracked bookmarks (mutually exclusive with bookmark)
+        #[arg(long)]
+        tracked: bool,
 
         /// Remote to push to
         #[arg(long, default_value = "origin")]
@@ -48,10 +53,42 @@ async fn main() -> Result<()> {
     match cli.command {
         Commands::Submit {
             bookmark,
+            tracked,
             remote,
             dry_run,
         } => {
-            submit::submit(repo_path, bookmark, remote, dry_run).await?;
+            // Validate: either bookmark or tracked must be set, but not both
+            let bookmarks = match (bookmark, tracked) {
+                (Some(_), true) => {
+                    return Err(Error::Config {
+                        message: "Cannot specify both a bookmark and --tracked flag. Please use one or the other.".to_string(),
+                    });
+                }
+                (None, false) => {
+                    return Err(Error::Config {
+                        message: "Must specify either a bookmark or use --tracked flag".to_string(),
+                    });
+                }
+                (Some(bookmark), false) => {
+                    // Single bookmark mode
+                    vec![bookmark]
+                }
+                (None, true) => {
+                    // Tracked bookmarks mode
+                    let jj = Jujutsu::new(repo_path.clone())?;
+                    let tracked_bookmarks = jj.get_tracked_bookmarks(&remote)?;
+
+                    if tracked_bookmarks.is_empty() {
+                        return Err(Error::Config {
+                            message: "No tracked bookmarks found. Tracked bookmarks must be authored by you and pushed to remote.".to_string(),
+                        });
+                    }
+
+                    tracked_bookmarks
+                }
+            };
+
+            submit::submit(repo_path, bookmarks, remote, dry_run).await?;
             Ok(())
         }
         Commands::Init => {

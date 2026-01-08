@@ -177,6 +177,79 @@ impl BookmarkGraph {
         self.adjacency_list.get(bookmark_name)
     }
 
+    /// Sort bookmarks in topological order (dependencies first)
+    ///
+    /// Returns bookmarks ordered such that parent bookmarks appear before their children.
+    /// Handles disconnected bookmarks gracefully.
+    pub fn topological_sort(&self, bookmarks: &[String]) -> Result<Vec<String>> {
+        use std::collections::{HashMap, HashSet};
+
+        if bookmarks.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Build a set of bookmarks we're sorting for quick lookup
+        let bookmark_set: HashSet<_> = bookmarks.iter().collect();
+
+        // Build in-degree map (count of dependencies) for the given bookmarks
+        let mut in_degree: HashMap<&String, usize> = HashMap::new();
+        let mut children: HashMap<&String, Vec<&String>> = HashMap::new();
+
+        // Initialize all bookmarks with in-degree 0
+        for bookmark in bookmarks {
+            in_degree.entry(bookmark).or_insert(0);
+        }
+
+        // Build the graph for only the bookmarks we're sorting
+        for bookmark in bookmarks {
+            if let Some(parent) = self.adjacency_list.get(bookmark) {
+                // Only count the parent if it's in our list of bookmarks to sort
+                if bookmark_set.contains(parent) {
+                    *in_degree.entry(bookmark).or_insert(0) += 1;
+                    children.entry(parent).or_default().push(bookmark);
+                }
+            }
+        }
+
+        // Kahn's algorithm: process bookmarks with no dependencies
+        let mut queue: Vec<&String> = in_degree
+            .iter()
+            .filter(|(_, degree)| **degree == 0)
+            .map(|(bookmark, _)| *bookmark)
+            .collect();
+
+        // Sort the initial queue for deterministic output
+        queue.sort();
+
+        let mut result = Vec::new();
+
+        while let Some(current) = queue.pop() {
+            result.push(current.clone());
+
+            // Process all children of current
+            if let Some(child_list) = children.get(current) {
+                for &child in child_list {
+                    if let Some(degree) = in_degree.get_mut(child) {
+                        *degree -= 1;
+                        if *degree == 0 {
+                            queue.push(child);
+                            queue.sort(); // Keep sorted for deterministic output
+                        }
+                    }
+                }
+            }
+        }
+
+        // Check if all bookmarks were processed (no cycles)
+        if result.len() != bookmarks.len() {
+            return Err(Error::InvalidGraph {
+                message: "Circular dependency detected in bookmarks".to_string(),
+            });
+        }
+
+        Ok(result)
+    }
+
     /// Find the nearest bookmarked ancestor starting from a given commit
     ///
     /// Traverses the commit ancestry until finding a commit with a bookmark.
@@ -571,5 +644,133 @@ mod tests {
 
         assert!(graph.find_stack_for_bookmark("feature-b").is_some());
         assert!(graph.find_stack_for_bookmark("alt-feature").is_some());
+    }
+
+    #[test]
+    fn test_topological_sort_single() {
+        let graph = BookmarkGraph {
+            bookmarks: HashMap::new(),
+            adjacency_list: HashMap::new(),
+            stacks: Vec::new(),
+        };
+
+        let bookmarks = vec!["feature-a".to_string()];
+        let sorted = graph
+            .topological_sort(&bookmarks)
+            .expect("Failed to sort single bookmark");
+
+        assert_eq!(sorted, vec!["feature-a"]);
+    }
+
+    #[test]
+    fn test_topological_sort_chain() {
+        // Create a linear chain: A -> B -> C
+        let mut adjacency_list = HashMap::new();
+        adjacency_list.insert("feature-b".to_string(), "feature-a".to_string());
+        adjacency_list.insert("feature-c".to_string(), "feature-b".to_string());
+
+        let graph = BookmarkGraph {
+            bookmarks: HashMap::new(),
+            adjacency_list,
+            stacks: Vec::new(),
+        };
+
+        let bookmarks = vec![
+            "feature-c".to_string(),
+            "feature-a".to_string(),
+            "feature-b".to_string(),
+        ];
+
+        let sorted = graph
+            .topological_sort(&bookmarks)
+            .expect("Failed to sort chain");
+
+        // Should be ordered A, B, C (dependencies first)
+        assert_eq!(
+            sorted,
+            vec!["feature-a", "feature-b", "feature-c"],
+            "Expected A -> B -> C order"
+        );
+    }
+
+    #[test]
+    fn test_topological_sort_complex() {
+        // Create a complex DAG:
+        //     A
+        //    / \
+        //   B   C
+        //    \ /
+        //     D
+        let mut adjacency_list = HashMap::new();
+        adjacency_list.insert("feature-b".to_string(), "feature-a".to_string());
+        adjacency_list.insert("feature-c".to_string(), "feature-a".to_string());
+        adjacency_list.insert("feature-d".to_string(), "feature-b".to_string());
+        // Note: D could also depend on C, but for simplicity we just use B
+
+        let graph = BookmarkGraph {
+            bookmarks: HashMap::new(),
+            adjacency_list,
+            stacks: Vec::new(),
+        };
+
+        let bookmarks = vec![
+            "feature-d".to_string(),
+            "feature-a".to_string(),
+            "feature-b".to_string(),
+            "feature-c".to_string(),
+        ];
+
+        let sorted = graph
+            .topological_sort(&bookmarks)
+            .expect("Failed to sort complex DAG");
+
+        // A should come first
+        assert_eq!(sorted[0], "feature-a", "A should be first");
+
+        // B and C should come after A but before D
+        let a_pos = sorted.iter().position(|b| b == "feature-a").unwrap();
+        let b_pos = sorted.iter().position(|b| b == "feature-b").unwrap();
+        let c_pos = sorted.iter().position(|b| b == "feature-c").unwrap();
+        let d_pos = sorted.iter().position(|b| b == "feature-d").unwrap();
+
+        assert!(b_pos > a_pos, "B should come after A");
+        assert!(c_pos > a_pos, "C should come after A");
+        assert!(d_pos > b_pos, "D should come after B");
+    }
+
+    #[test]
+    fn test_topological_sort_disconnected() {
+        // Two independent chains: A -> B and X -> Y
+        let mut adjacency_list = HashMap::new();
+        adjacency_list.insert("feature-b".to_string(), "feature-a".to_string());
+        adjacency_list.insert("feature-y".to_string(), "feature-x".to_string());
+
+        let graph = BookmarkGraph {
+            bookmarks: HashMap::new(),
+            adjacency_list,
+            stacks: Vec::new(),
+        };
+
+        let bookmarks = vec![
+            "feature-b".to_string(),
+            "feature-y".to_string(),
+            "feature-a".to_string(),
+            "feature-x".to_string(),
+        ];
+
+        let sorted = graph
+            .topological_sort(&bookmarks)
+            .expect("Failed to sort disconnected bookmarks");
+
+        assert_eq!(sorted.len(), 4, "Should have all 4 bookmarks");
+
+        // Within each chain, order should be preserved
+        let a_pos = sorted.iter().position(|b| b == "feature-a").unwrap();
+        let b_pos = sorted.iter().position(|b| b == "feature-b").unwrap();
+        let x_pos = sorted.iter().position(|b| b == "feature-x").unwrap();
+        let y_pos = sorted.iter().position(|b| b == "feature-y").unwrap();
+
+        assert!(b_pos > a_pos, "B should come after A");
+        assert!(y_pos > x_pos, "Y should come after X");
     }
 }

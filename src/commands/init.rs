@@ -89,14 +89,6 @@ pub async fn init(repo_path: PathBuf) -> Result<()> {
         .with_prompt(format!("{}", style("GitLab Personal Access Token").bold()))
         .interact()?;
 
-    let branch_prefix = Input::<String>::new()
-        .with_prompt(format!(
-            "{}",
-            style("Branch prefix (e.g. mrs/, leave empty for no prefix)").bold()
-        ))
-        .default("".to_string())
-        .interact_text()?;
-
     let remote_name = Input::<String>::new()
         .with_prompt(format!("{}", style("Remote name").bold()))
         .default("origin".to_string())
@@ -110,7 +102,6 @@ pub async fn init(repo_path: PathBuf) -> Result<()> {
     set_config(&repo_path, "jj-mrs.gitlabHost", &gitlab_host)?;
     set_config(&repo_path, "jj-mrs.gitlabProject", &gitlab_project)?;
     set_config(&repo_path, "jj-mrs.gitlabToken", &gitlab_token)?;
-    set_config(&repo_path, "jj-mrs.branchPrefix", &branch_prefix)?;
     set_config(&repo_path, "jj-mrs.remoteName", &remote_name)?;
     set_config(&repo_path, "jj-mrs.defaultBranch", &default_branch)?;
 

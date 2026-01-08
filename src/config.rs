@@ -17,9 +17,6 @@ pub struct Config {
     /// GitLab Personal Access Token
     pub gitlab_token: String,
 
-    /// Optional branch prefix (e.g., "mrs/")
-    pub branch_prefix: Option<String>,
-
     /// Git remote name (default: "origin")
     pub remote_name: String,
 
@@ -35,15 +32,6 @@ pub struct Config {
 
 impl Config {
     /// Load configuration from jj config
-    ///
-    /// Reads configuration keys:
-    /// - jj-mrs.gitlabHost - GitLab instance URL
-    /// - jj-mrs.gitlabProject - Project ID
-    /// - jj-mrs.gitlabToken - Personal Access Token
-    /// - jj-mrs.branchPrefix - Optional branch prefix
-    /// - jj-mrs.remoteName - Git remote name
-    /// - jj-mrs.defaultBranch - Default branch name
-    /// - jj-mrs.caBundle - Optional path to CA bundle for TLS
     pub fn load(repo_path: &PathBuf) -> Result<Self> {
         // Helper to run jj config get
         let get_config = |key: &str| -> Result<Option<String>> {
@@ -78,7 +66,6 @@ impl Config {
         })?;
 
         // Optional fields with defaults
-        let branch_prefix = get_config("jj-mrs.branchPrefix")?;
         let remote_name = get_config("jj-mrs.remoteName")?.unwrap_or_else(|| "origin".to_string());
         let default_branch =
             get_config("jj-mrs.defaultBranch")?.unwrap_or_else(|| "main".to_string());
@@ -91,7 +78,6 @@ impl Config {
             gitlab_host,
             gitlab_project,
             gitlab_token,
-            branch_prefix,
             remote_name,
             default_branch,
             ca_bundle,
@@ -120,14 +106,6 @@ impl Config {
         }
 
         Ok(())
-    }
-
-    /// Apply branch prefix to a bookmark name if configured
-    pub fn apply_branch_prefix(&self, bookmark: &str) -> String {
-        match &self.branch_prefix {
-            Some(prefix) => format!("{}{}", prefix, bookmark),
-            None => bookmark.to_string(),
-        }
     }
 }
 
@@ -210,7 +188,6 @@ mod tests {
         assert_eq!(config.gitlab_token, "glpat-test123");
         assert_eq!(config.remote_name, "origin");
         assert_eq!(config.default_branch, "main");
-        assert!(config.branch_prefix.is_none());
     }
 
     #[test]
@@ -278,7 +255,6 @@ mod tests {
         assert_eq!(config.gitlab_host, "https://gitlab.example.com");
         assert_eq!(config.gitlab_project, "my-group/my-project");
         assert_eq!(config.gitlab_token, "glpat-test123");
-        assert_eq!(config.branch_prefix, Some("mrs/".to_string()));
         assert_eq!(config.remote_name, "upstream");
         assert_eq!(config.default_branch, "master");
     }
@@ -289,7 +265,6 @@ mod tests {
             gitlab_host: "https://gitlab.example.com".to_string(),
             gitlab_project: "group/project".to_string(),
             gitlab_token: "token".to_string(),
-            branch_prefix: None,
             remote_name: "origin".to_string(),
             default_branch: "main".to_string(),
             ca_bundle: None,
@@ -302,7 +277,6 @@ mod tests {
             gitlab_host: "".to_string(),
             gitlab_project: "group/project".to_string(),
             gitlab_token: "token".to_string(),
-            branch_prefix: None,
             remote_name: "origin".to_string(),
             default_branch: "main".to_string(),
             ca_bundle: None,
@@ -310,40 +284,5 @@ mod tests {
         };
 
         assert!(invalid_config.validate().is_err());
-    }
-
-    #[test]
-    fn test_apply_branch_prefix() {
-        let config_with_prefix = Config {
-            gitlab_host: "https://gitlab.example.com".to_string(),
-            gitlab_project: "group/project".to_string(),
-            gitlab_token: "token".to_string(),
-            branch_prefix: Some("mrs/".to_string()),
-            remote_name: "origin".to_string(),
-            default_branch: "main".to_string(),
-            ca_bundle: None,
-            tls_accept_non_compliant_certs: false,
-        };
-
-        assert_eq!(
-            config_with_prefix.apply_branch_prefix("feature"),
-            "mrs/feature"
-        );
-
-        let config_without_prefix = Config {
-            gitlab_host: "https://gitlab.example.com".to_string(),
-            gitlab_project: "group/project".to_string(),
-            gitlab_token: "token".to_string(),
-            branch_prefix: None,
-            remote_name: "origin".to_string(),
-            default_branch: "main".to_string(),
-            ca_bundle: None,
-            tls_accept_non_compliant_certs: false,
-        };
-
-        assert_eq!(
-            config_without_prefix.apply_branch_prefix("feature"),
-            "feature"
-        );
     }
 }

@@ -24,7 +24,7 @@ pub async fn execute(
     plan: &SubmissionPlan,
     jj: &Jujutsu,
     gitlab: &GitLabClient,
-    config: &Config,
+    _config: &Config,
 ) -> Result<SubmissionResult> {
     let mut merge_requests = Vec::new();
     let mut errors = Vec::new();
@@ -37,13 +37,8 @@ pub async fn execute(
     for action in &plan.actions {
         match action {
             Action::Push { bookmark, remote } => {
-                let remote_branch = config.apply_branch_prefix(bookmark);
-
                 if plan.dry_run {
-                    output::output(&format!(
-                        "Would push {} to {}/{}",
-                        bookmark, remote, remote_branch
-                    ))?;
+                    output::output(&format!("Would push {} to {}", bookmark, remote))?;
                 } else {
                     output::output(&format!("Pushing {} to {}...", bookmark, remote))?;
 
@@ -75,21 +70,16 @@ pub async fn execute(
                     continue;
                 }
 
-                let source_branch = config.apply_branch_prefix(bookmark);
-
                 if plan.dry_run {
                     output::output(&format!(
                         "Would create MR: {} -> {} (title: {})",
-                        source_branch, target_branch, title
+                        bookmark, target_branch, title
                     ))?;
                 } else {
-                    output::output(&format!(
-                        "Creating MR: {} -> {}",
-                        source_branch, target_branch
-                    ))?;
+                    output::output(&format!("Creating MR: {} -> {}", bookmark, target_branch))?;
 
                     match gitlab
-                        .create_merge_request(&source_branch, target_branch, title, None)
+                        .create_merge_request(bookmark, target_branch, title, None)
                         .await
                     {
                         Ok(mr) => {

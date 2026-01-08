@@ -51,8 +51,6 @@ pub async fn plan(
     let mut actions = Vec::new();
 
     for (idx, bookmark) in analysis.bookmarks_to_submit.iter().enumerate() {
-        let remote_branch = config.apply_branch_prefix(bookmark);
-
         // Always push the bookmark
         actions.push(Action::Push {
             bookmark: bookmark.clone(),
@@ -65,12 +63,11 @@ pub async fn plan(
             analysis.base_branch.clone()
         } else {
             // Other bookmarks -> target the previous bookmark
-            let prev_bookmark = &analysis.bookmarks_to_submit[idx - 1];
-            config.apply_branch_prefix(prev_bookmark)
+            analysis.bookmarks_to_submit[idx - 1].clone()
         };
 
         // Check if an MR already exists
-        match gitlab.find_mr_by_source_branch(&remote_branch).await? {
+        match gitlab.find_mr_by_source_branch(bookmark).await? {
             Some(existing_mr) => {
                 // MR exists - check if we need to update the target branch
                 if existing_mr.target_branch != target_branch {
@@ -84,7 +81,7 @@ pub async fn plan(
             }
             None => {
                 // No MR exists - create one
-                let title = format!("[jj-mrs] {}", bookmark);
+                let title = bookmark.to_string();
 
                 actions.push(Action::CreateMR {
                     bookmark: bookmark.clone(),

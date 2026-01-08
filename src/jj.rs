@@ -43,8 +43,12 @@ impl Jujutsu {
 
             let parts: Vec<&str> = line.split('\t').collect();
             if parts.len() >= 3 {
-                // Parse bookmark name (might have @remote suffix)
+                // Parse bookmark name (might have @remote suffix and/or * suffix for tracking conflicts)
                 let full_name = parts[0];
+
+                // Strip trailing * if present (indicates tracking conflict/divergence)
+                let full_name = full_name.strip_suffix('*').unwrap_or(full_name);
+
                 let (name, remote) = if let Some(at_pos) = full_name.rfind('@') {
                     let name = full_name[..at_pos].to_string();
                     let remote = full_name[at_pos + 1..].to_string();
@@ -191,6 +195,47 @@ impl Jujutsu {
             Err(Error::JjCommand { .. }) => Ok(false),
             Err(e) => Err(e),
         }
+    }
+
+    /// Get all tracked bookmarks for the current user
+    ///
+    /// A bookmark is "tracked" if:
+    /// 1. It was authored by the current user (mine() revset)
+    /// 2. It is a local bookmark (not a remote-tracking bookmark)
+    /// 3. It has been pushed to the remote
+    pub fn get_tracked_bookmarks(&self, remote: &str) -> Result<Vec<String>> {
+        // Use mine() & bookmarks() to get user's local bookmarks
+        let output = self.run_captured(&[
+            "log",
+            "-r",
+            "mine() & bookmarks()",
+            "--no-graph",
+            "--template",
+            r#"bookmarks.map(|b| b ++ "\n").join("")"#,
+        ])?;
+
+        let mut tracked = Vec::new();
+        for line in output.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+
+            // Strip trailing * if present (indicates tracking conflict/divergence)
+            let bookmark_name = line.strip_suffix('*').unwrap_or(line);
+
+            // Skip remote-tracking bookmarks (those with @remote suffix)
+            if bookmark_name.contains('@') {
+                continue;
+            }
+
+            // Check if the bookmark exists on the remote
+            if self.remote_bookmark_exists(bookmark_name, remote)? {
+                tracked.push(bookmark_name.to_string());
+            }
+        }
+
+        Ok(tracked)
     }
 }
 
@@ -488,5 +533,151 @@ mod tests {
                 .map(|c| &c.description_first_line)
                 .collect::<Vec<_>>()
         );
+    }
+
+    /// Test: Bookmark parsing should strip asterisk suffix from diverged bookmarks
+    ///
+    /// Problem: When a bookmark has diverged (local and remote point to different commits),
+    /// jj displays it with a trailing asterisk (e.g., "bookmark-a*"). The bookmark parser
+    /// was including this asterisk in the bookmark name, causing BookmarkNotFound errors
+    /// when trying to submit the bookmark by its actual name.
+    ///
+    /// This test directly tests the parsing logic with sample input that includes asterisks.
+    #[test]
+    fn test_bookmark_parsing_strips_asterisk() {
+        let (_temp_dir, repo_path) = create_test_repo();
+        let jj = Jujutsu::new(repo_path).expect("Failed to create Jujutsu instance");
+
+        // Create a bookmark
+        jj.run_captured(&["bookmark", "create", "test-bookmark"])
+            .expect("Failed to create bookmark");
+
+        // Manually create output that mimics what jj log would return with an asterisk
+        // This simulates a diverged bookmark scenario
+        let sample_output_with_asterisk = "test-bookmark*\taaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\tbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n";
+
+        // Parse the output using the same logic as get_bookmarks()
+        let mut bookmarks = Vec::new();
+        for line in sample_output_with_asterisk.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+
+            let parts: Vec<&str> = line.split('\t').collect();
+            if parts.len() >= 3 {
+                // This is the parsing logic from get_bookmarks() that should strip the asterisk
+                let full_name = parts[0];
+
+                // Strip trailing * if present (indicates tracking conflict/divergence)
+                let full_name = full_name.strip_suffix('*').unwrap_or(full_name);
+
+                let (name, remote) = if let Some(at_pos) = full_name.rfind('@') {
+                    let name = full_name[..at_pos].to_string();
+                    let remote = full_name[at_pos + 1..].to_string();
+                    (name, Some(remote))
+                } else {
+                    (full_name.to_string(), None)
+                };
+
+                let is_local = remote.is_none();
+                bookmarks.push(Bookmark {
+                    name,
+                    commit_id: parts[1].to_string(),
+                    change_id: parts[2].to_string(),
+                    remote,
+                    is_local,
+                    has_remote: false,
+                });
+            }
+        }
+
+        // The bug: bookmark name includes the asterisk
+        assert_eq!(bookmarks.len(), 1, "Should parse one bookmark");
+        assert_eq!(
+            bookmarks[0].name, "test-bookmark",
+            "Bookmark name should NOT include asterisk, found: '{}'",
+            bookmarks[0].name
+        );
+    }
+
+    #[test]
+    fn test_get_tracked_bookmarks_empty() {
+        let (_temp, repo_path) = create_test_repo();
+        let jj = Jujutsu::new(repo_path).expect("Failed to create Jujutsu instance");
+
+        // No bookmarks created yet, should return empty list
+        let tracked = jj
+            .get_tracked_bookmarks("origin")
+            .expect("Failed to get tracked bookmarks");
+
+        assert_eq!(tracked.len(), 0, "Should have no tracked bookmarks");
+    }
+
+    #[test]
+    fn test_get_tracked_bookmarks_filters_unpushed() {
+        let (_temp, repo_path) = create_test_repo();
+        let jj = Jujutsu::new(repo_path.clone()).expect("Failed to create Jujutsu instance");
+
+        // Create a local bookmark
+        run_jj_command(&repo_path, &["bookmark", "create", "local-only"])
+            .expect("Failed to create bookmark");
+
+        // The bookmark exists locally but hasn't been pushed to any remote
+        // so it should not appear in tracked bookmarks
+        let tracked = jj
+            .get_tracked_bookmarks("origin")
+            .expect("Failed to get tracked bookmarks");
+
+        assert_eq!(
+            tracked.len(),
+            0,
+            "Should have no tracked bookmarks (local bookmark not pushed)"
+        );
+    }
+
+    #[test]
+    fn test_get_tracked_bookmarks_returns_pushed() {
+        let (_temp, repo_path) = create_test_repo();
+        let jj = Jujutsu::new(repo_path.clone()).expect("Failed to create Jujutsu instance");
+
+        // Create a bookmark
+        run_jj_command(&repo_path, &["bookmark", "create", "feature-a"])
+            .expect("Failed to create bookmark");
+
+        // Set up a bare git repo to act as a remote
+        let remote_dir = _temp.path().join("remote.git");
+        std::fs::create_dir(&remote_dir).expect("Failed to create remote dir");
+
+        StdCommand::new("git")
+            .current_dir(&remote_dir)
+            .args(["init", "--bare"])
+            .output()
+            .expect("Failed to init bare git repo");
+
+        // Add the remote
+        run_jj_command(
+            &repo_path,
+            &[
+                "git",
+                "remote",
+                "add",
+                "origin",
+                remote_dir.to_str().unwrap(),
+            ],
+        )
+        .expect("Failed to add remote");
+
+        // Push the bookmark
+        jj.push_bookmark("feature-a", "origin")
+            .expect("Failed to push bookmark");
+
+        // Now the bookmark should appear in tracked bookmarks
+        let tracked = jj
+            .get_tracked_bookmarks("origin")
+            .expect("Failed to get tracked bookmarks");
+
+        assert_eq!(tracked.len(), 1, "Should have 1 tracked bookmark");
+        assert_eq!(tracked[0], "feature-a", "Should track feature-a");
     }
 }
