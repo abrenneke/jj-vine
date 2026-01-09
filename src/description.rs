@@ -1,5 +1,4 @@
 /// Stack description management and formatting for MR descriptions
-
 /// Abstraction for different stack visualization formats
 pub trait DescriptionFormatter {
     /// Format the stack visualization
@@ -21,31 +20,21 @@ impl DescriptionFormatter for LinearListFormatter {
 
         // Header
         lines.push(format!(
-            "This MR is part of a stack of {} bookmarks:",
-            stack.bookmarks.len() + 1
+            "This MR is part of a stack of {} MRs:",
+            stack.bookmarks.len()
         ));
         lines.push("".to_string());
 
-        // Base branch (always first)
-        lines.push(format!("1. `{}`", stack.base_branch));
-
-        // Bookmarks
+        // Bookmarks (no base branch in the list)
         for (idx, bookmark) in stack.bookmarks.iter().enumerate() {
-            let num = idx + 2; // Start from 2 (after base branch)
+            let num = idx + 1;
 
             if bookmark.name == current_bookmark {
                 // Current bookmark - bold with marker
                 lines.push(format!("{}. **{} ← this MR**", num, bookmark.name));
-            } else if let Some(url) = &bookmark.mr_url {
-                // Other bookmark with MR - link
-                if let Some(iid) = bookmark.mr_iid {
-                    lines.push(format!(
-                        "{}. [{}]({}) - MR !{}",
-                        num, bookmark.name, url, iid
-                    ));
-                } else {
-                    lines.push(format!("{}. [{}]({})", num, bookmark.name, url));
-                }
+            } else if let Some(iid) = bookmark.mr_iid {
+                // Other bookmark with MR - use !{iid} format (GitLab auto-links)
+                lines.push(format!("{}. {} - !{}", num, bookmark.name, iid));
             } else {
                 // Bookmark without MR yet
                 lines.push(format!("{}. {}", num, bookmark.name));
@@ -256,6 +245,57 @@ mod tests {
 
         let output = formatter.format_stack(&stack, "bookmark-b");
         assert!(output.contains("**bookmark-b ← this MR**"));
-        assert!(output.contains("[bookmark-a](https://gitlab.com/mrs/100) - MR !100"));
+        assert!(output.contains("bookmark-a - !100"));
+    }
+
+    #[test]
+    fn test_linear_formatter_proper_gitlab_format() {
+        let formatter = LinearListFormatter;
+
+        let stack = StackContext {
+            bookmarks: vec![
+                StackBookmarkInfo {
+                    name: "feature-1".to_string(),
+                    mr_iid: Some(18),
+                    mr_url: Some(
+                        "https://gitlab.internal.valence.nl/abrenneke/testing/-/merge_requests/18"
+                            .to_string(),
+                    ),
+                },
+                StackBookmarkInfo {
+                    name: "feature-2".to_string(),
+                    mr_iid: None,
+                    mr_url: None,
+                },
+                StackBookmarkInfo {
+                    name: "alt-feature".to_string(),
+                    mr_iid: Some(19),
+                    mr_url: Some(
+                        "https://gitlab.internal.valence.nl/abrenneke/testing/-/merge_requests/19"
+                            .to_string(),
+                    ),
+                },
+            ],
+            base_branch: "main".to_string(),
+        };
+
+        let output = formatter.format_stack(&stack, "feature-2");
+
+        // Should NOT include the base branch in the list
+        assert!(!output.contains("1. `main`"));
+
+        // Should use "MRs" not "bookmarks" in description
+        assert!(output.contains("This MR is part of a stack of 3 MRs"));
+
+        // Should use !{iid} format, not full markdown links
+        assert!(output.contains("1. feature-1 - !18"));
+        assert!(!output.contains("[feature-1](https://gitlab"));
+
+        // Current MR should be bold with marker
+        assert!(output.contains("2. **feature-2 ← this MR**"));
+
+        // Other MR with link should also use !{iid} format
+        assert!(output.contains("3. alt-feature - !19"));
+        assert!(!output.contains("[alt-feature](https://gitlab"));
     }
 }

@@ -328,14 +328,14 @@ impl Jujutsu {
             }
 
             // Skip the default branch - it should never be submitted
-            if let Some(ref default_branch) = default_branch {
-                if bookmark_name == default_branch {
-                    debug!(
-                        "Skipping default branch '{}' from tracked bookmarks",
-                        bookmark_name
-                    );
-                    continue;
-                }
+            if let Some(ref default_branch) = default_branch
+                && bookmark_name == default_branch
+            {
+                debug!(
+                    "Skipping default branch '{}' from tracked bookmarks",
+                    bookmark_name
+                );
+                continue;
             }
 
             // Check if the bookmark exists on the remote
@@ -394,7 +394,7 @@ pub fn run_jj_command(repo_path: &PathBuf, args: &[&str]) -> Result<String> {
     Ok(stdout)
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Bookmark {
     pub name: String,
 

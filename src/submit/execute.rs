@@ -24,7 +24,7 @@ pub async fn execute(
     plan: &SubmissionPlan,
     jj: &Jujutsu,
     gitlab: &GitLabClient,
-    _config: &Config,
+    config: &Config,
 ) -> Result<SubmissionResult> {
     let mut merge_requests = Vec::new();
     let mut errors = Vec::new();
@@ -102,37 +102,6 @@ pub async fn execute(
                 }
             }
 
-            Action::UpdateMRDescription {
-                bookmark,
-                mr_iid,
-                new_description,
-            } => {
-                if plan.dry_run {
-                    output::output(&format!(
-                        "Would update MR !{} description for {}",
-                        mr_iid, bookmark
-                    ))?;
-                } else {
-                    output::output(&format!(
-                        "Updating MR !{} description for {}",
-                        mr_iid, bookmark
-                    ))?;
-
-                    match gitlab.update_mr_description(*mr_iid, new_description).await {
-                        Ok(mr) => {
-                            output::output(&format!("Updated MR !{} description", mr.iid))?;
-                            merge_requests.push(mr);
-                        }
-                        Err(e) => {
-                            let error_msg =
-                                format!("Failed to update MR !{} description: {}", mr_iid, e);
-                            output::error(&error_msg)?;
-                            errors.push(error_msg);
-                        }
-                    }
-                }
-            }
-
             Action::UpdateMRBase {
                 bookmark,
                 mr_iid,
@@ -157,6 +126,75 @@ pub async fn execute(
                         Err(e) => {
                             let error_msg =
                                 format!("Failed to update MR base for {}: {}", bookmark, e);
+                            output::error(&error_msg)?;
+                            errors.push(error_msg);
+                        }
+                    }
+                }
+            }
+
+            Action::UpdateMRDescription {
+                bookmark,
+                bookmark_graph,
+                bookmarks_being_submitted: _,
+            } => {
+                if plan.dry_run {
+                    output::output(&format!("Would update MR description for {}", bookmark))?;
+                } else {
+                    output::output(&format!("Updating MR description for {}", bookmark))?;
+
+                    // Find stacks that contain this bookmark
+                    let containing_stacks: Vec<&crate::bookmark::BranchStack> = bookmark_graph
+                        .stacks
+                        .iter()
+                        .filter(|stack| stack.bookmarks.contains(&bookmark.to_string()))
+                        .collect();
+
+                    // Query MRs only for bookmarks in these stacks
+                    let mut all_mrs = std::collections::HashMap::new();
+                    for stack in &containing_stacks {
+                        for bm in &stack.bookmarks {
+                            if !all_mrs.contains_key(bm)
+                                && let Ok(Some(mr)) = gitlab.find_mr_by_source_branch(bm).await
+                            {
+                                all_mrs.insert(bm.clone(), mr);
+                            }
+                        }
+                    }
+
+                    // Generate description showing ALL stacks this bookmark is part of
+                    match crate::submit::plan::generate_multi_stack_description(
+                        bookmark,
+                        &containing_stacks,
+                        &all_mrs,
+                        &config.stack_format,
+                        &config.default_branch,
+                    ) {
+                        Ok(description) => {
+                            // Update the MR description if we found the MR
+                            if let Some(mr) = all_mrs.get(bookmark) {
+                                match gitlab.update_mr_description(mr.iid, &description).await {
+                                    Ok(updated_mr) => {
+                                        output::output(&format!(
+                                            "Updated MR !{} description",
+                                            updated_mr.iid
+                                        ))?;
+                                        merge_requests.push(updated_mr);
+                                    }
+                                    Err(e) => {
+                                        let error_msg = format!(
+                                            "Failed to update MR description for {}: {}",
+                                            bookmark, e
+                                        );
+                                        output::error(&error_msg)?;
+                                        errors.push(error_msg);
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            let error_msg =
+                                format!("Failed to generate description for {}: {}", bookmark, e);
                             output::error(&error_msg)?;
                             errors.push(error_msg);
                         }

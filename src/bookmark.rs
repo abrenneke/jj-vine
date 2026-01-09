@@ -6,7 +6,7 @@ use tracing::{debug, trace};
 /// Bookmark dependency graph
 ///
 /// Represents the relationships between bookmarks in a jujutsu repository
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct BookmarkGraph {
     /// All bookmarks in the repository (keyed by name)
     pub bookmarks: HashMap<String, Bookmark>,
@@ -20,7 +20,7 @@ pub struct BookmarkGraph {
 }
 
 /// A stack of related bookmarks
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct BranchStack {
     /// Bookmarks in this stack, ordered from root to leaf
     pub bookmarks: Vec<String>,

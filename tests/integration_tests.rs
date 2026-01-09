@@ -500,6 +500,10 @@ fn test_e2e_push_failure_skips_mr_creation() {
     // Fetch to get main@origin
     repo.jj(&["git", "fetch"]).expect("Failed to fetch");
 
+    // Track main branch
+    repo.jj(&["bookmark", "track", "main@origin"])
+        .expect("Failed to track main branch");
+
     // Now create our feature branch
     repo.create_file("test.txt", "test")
         .expect("Failed to create file");

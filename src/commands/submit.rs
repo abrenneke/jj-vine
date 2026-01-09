@@ -98,7 +98,17 @@ pub async fn submit(
             bookmark
         ))?;
 
-        match submit_bookmark_stack(bookmark, &jj, &gitlab, &config, &remote, dry_run).await {
+        match submit_bookmark_stack(
+            bookmark,
+            &jj,
+            &gitlab,
+            &config,
+            &remote,
+            &bookmark_graph,
+            dry_run,
+        )
+        .await
+        {
             Ok(result) => {
                 all_merge_requests.extend(result.merge_requests);
 
@@ -194,6 +204,7 @@ async fn submit_bookmark_stack(
     gitlab: &GitLabClient,
     config: &Config,
     _remote: &str,
+    bookmark_graph: &BookmarkGraph,
     dry_run: bool,
 ) -> Result<SubmissionResult> {
     // Phase 1: Analyze
@@ -208,7 +219,8 @@ async fn submit_bookmark_stack(
 
     // Phase 2: Plan
     output::output("  Creating submission plan...")?;
-    let submission_plan = plan::plan(&analysis, jj, gitlab, config, dry_run).await?;
+    let submission_plan =
+        plan::plan(&analysis, jj, gitlab, config, bookmark_graph, dry_run).await?;
 
     output::output(&format!(
         "  Plan: {} action(s)",

@@ -1,6 +1,6 @@
 use crate::config::{Config, StackFormat};
 use crate::description::{
-    DescriptionFormatter, DescriptionManager, LinearListFormatter, StackBookmarkInfo, StackContext,
+    DescriptionFormatter, LinearListFormatter, StackBookmarkInfo, StackContext,
 };
 use crate::error::Result;
 use crate::gitlab::{GitLabClient, MergeRequest};
@@ -29,11 +29,11 @@ pub enum Action {
         new_target_branch: String,
     },
 
-    /// Update the description of an existing MR
+    /// Update MR description (after all MRs created)
     UpdateMRDescription {
         bookmark: String,
-        mr_iid: u64,
-        new_description: String,
+        bookmark_graph: crate::bookmark::BookmarkGraph,
+        bookmarks_being_submitted: Vec<String>,
     },
 }
 
@@ -58,6 +58,7 @@ pub async fn plan(
     jj: &Jujutsu,
     gitlab: &GitLabClient,
     config: &Config,
+    bookmark_graph: &crate::bookmark::BookmarkGraph,
     dry_run: bool,
 ) -> Result<SubmissionPlan> {
     let mut actions = Vec::new();
@@ -69,18 +70,6 @@ pub async fn plan(
             existing_mrs.insert(bookmark.clone(), mr);
         }
     }
-
-    // Generate descriptions if stack visualization is enabled
-    let bookmark_descriptions = if config.enable_stack_visualization {
-        generate_descriptions(
-            &analysis.bookmarks_to_submit,
-            &analysis.base_branch,
-            &existing_mrs,
-            &config.stack_format,
-        )?
-    } else {
-        HashMap::new()
-    };
 
     for (idx, bookmark) in analysis.bookmarks_to_submit.iter().enumerate() {
         // Always push the bookmark
@@ -98,12 +87,6 @@ pub async fn plan(
             analysis.bookmarks_to_submit[idx - 1].clone()
         };
 
-        // Get generated description (or empty if visualization disabled)
-        let description = bookmark_descriptions
-            .get(bookmark)
-            .cloned()
-            .unwrap_or_default();
-
         // Check if an MR already exists
         match existing_mrs.get(bookmark) {
             Some(existing_mr) => {
@@ -115,86 +98,118 @@ pub async fn plan(
                         new_target_branch: target_branch.clone(),
                     });
                 }
-
-                // Check if we need to update the description
-                if config.enable_stack_visualization {
-                    let current_desc = existing_mr.description.as_deref().unwrap_or("");
-                    if current_desc != description {
-                        actions.push(Action::UpdateMRDescription {
-                            bookmark: bookmark.clone(),
-                            mr_iid: existing_mr.iid,
-                            new_description: description,
-                        });
-                    }
-                }
+                // Description will be updated via deferred action
             }
             None => {
-                // No MR exists - create one
+                // No MR exists - create one with empty description
+                // Description will be set via deferred action
                 let title = get_mr_title(jj, bookmark, &target_branch)?;
 
                 actions.push(Action::CreateMR {
                     bookmark: bookmark.clone(),
                     target_branch,
                     title,
-                    description,
+                    description: String::new(),
                 });
             }
+        }
+    }
+
+    // Add description updates for ALL bookmarks in a stack
+    // These will execute AFTER all MRs are created, ensuring all descriptions have MR IIDs
+    if config.enable_stack_visualization && analysis.bookmarks_to_submit.len() > 1 {
+        for bookmark in &analysis.bookmarks_to_submit {
+            actions.push(Action::UpdateMRDescription {
+                bookmark: bookmark.clone(),
+                bookmark_graph: bookmark_graph.clone(),
+                bookmarks_being_submitted: analysis.bookmarks_to_submit.clone(),
+            });
         }
     }
 
     Ok(SubmissionPlan { actions, dry_run })
 }
 
-/// Generate MR descriptions for all bookmarks in the stack
-fn generate_descriptions(
-    bookmarks: &[String],
-    base_branch: &str,
+/// Generate description for a bookmark that may be in multiple stacks
+pub fn generate_multi_stack_description(
+    bookmark: &str,
+    stacks: &[&crate::bookmark::BranchStack],
     existing_mrs: &HashMap<String, MergeRequest>,
-    stack_format: &StackFormat,
-) -> Result<HashMap<String, String>> {
+    format: &StackFormat,
+    base_branch: &str,
+) -> Result<String> {
+    if stacks.is_empty() {
+        return Ok(String::new());
+    }
+
     // Create formatter based on config
-    let formatter: Box<dyn DescriptionFormatter> = match stack_format {
+    let formatter: Box<dyn DescriptionFormatter> = match format {
         StackFormat::Linear => Box::new(LinearListFormatter),
     };
 
-    let manager = DescriptionManager::new(formatter);
-    let mut descriptions = HashMap::new();
-
-    // Build stack context with all bookmarks
-    let stack_context = StackContext {
-        bookmarks: bookmarks
+    if stacks.len() == 1 {
+        // Single stack - use existing format
+        let stack = stacks[0];
+        let stack_info: Vec<StackBookmarkInfo> = stack
+            .bookmarks
             .iter()
-            .map(|b| StackBookmarkInfo {
-                name: b.clone(),
-                mr_iid: existing_mrs.get(b).map(|mr| mr.iid),
-                mr_url: existing_mrs.get(b).map(|mr| mr.web_url.clone()),
+            .map(|bm| StackBookmarkInfo {
+                name: bm.clone(),
+                mr_iid: existing_mrs.get(bm).map(|mr| mr.iid),
+                mr_url: existing_mrs.get(bm).map(|mr| mr.web_url.clone()),
             })
-            .collect(),
-        base_branch: base_branch.to_string(),
-    };
+            .collect();
 
-    // Generate description for each bookmark
-    for bookmark in bookmarks {
-        // Parse existing description to extract user content
-        let user_content = if let Some(mr) = existing_mrs.get(bookmark) {
-            if let Some(desc) = &mr.description {
-                let parsed = manager.parse_description(desc);
-                parsed.user_content
-            } else {
-                None
-            }
-        } else {
-            None
+        let context = StackContext {
+            bookmarks: stack_info,
+            base_branch: base_branch.to_string(),
         };
 
-        // Generate new description with stack visualization + user content
-        let description =
-            manager.generate_description(user_content.as_deref(), &stack_context, bookmark);
-
-        descriptions.insert(bookmark.clone(), description);
+        return Ok(formatter.format_stack(&context, bookmark));
     }
 
-    Ok(descriptions)
+    // Multiple stacks - format each separately
+    let mut lines = Vec::new();
+    lines.push(format!("This MR is part of {} stacks:", stacks.len()));
+    lines.push("".to_string());
+
+    for (idx, stack) in stacks.iter().enumerate() {
+        lines.push(format!(
+            "Stack {} ({} MRs):",
+            idx + 1,
+            stack.bookmarks.len()
+        ));
+
+        // Build StackContext for this stack
+        let stack_info: Vec<StackBookmarkInfo> = stack
+            .bookmarks
+            .iter()
+            .map(|bm| StackBookmarkInfo {
+                name: bm.clone(),
+                mr_iid: existing_mrs.get(bm).map(|mr| mr.iid),
+                mr_url: existing_mrs.get(bm).map(|mr| mr.web_url.clone()),
+            })
+            .collect();
+
+        let context = StackContext {
+            bookmarks: stack_info,
+            base_branch: base_branch.to_string(),
+        };
+
+        // Format this stack
+        let stack_desc = formatter.format_stack(&context, bookmark);
+
+        // Add indented stack lines (skip the header line "This MR is part of...")
+        for line in stack_desc.lines().skip(2) {
+            lines.push(line.to_string());
+        }
+
+        if idx < stacks.len() - 1 {
+            lines.push("".to_string()); // Blank line between stacks
+        }
+    }
+
+    Ok(lines.join("\n"))
 }
 
 /// Determine the title for an MR based on the number of commits
@@ -312,16 +327,6 @@ mod tests {
 
         assert_eq!(plan.actions.len(), 2);
         assert!(!plan.dry_run);
-    }
-
-    #[test]
-    fn test_action_update_mr_description() {
-        let action = Action::UpdateMRDescription {
-            bookmark: "test".to_string(),
-            mr_iid: 123,
-            new_description: "New stack".to_string(),
-        };
-        assert!(matches!(action, Action::UpdateMRDescription { .. }));
     }
 
     #[test]
