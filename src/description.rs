@@ -279,16 +279,14 @@ pub fn generate_multi_stack_description(
             base_branch: base_branch.to_string(),
         };
 
-        // Format this stack
         let stack_desc = formatter.format_stack(&context, bookmark);
 
-        // Add indented stack lines (skip the header line "This MR is part of...")
         for line in stack_desc.lines().skip(2) {
             lines.push(line.to_string());
         }
 
         if idx < stacks.len() - 1 {
-            lines.push("".to_string()); // Blank line between stacks
+            lines.push("".to_string());
         }
     }
 

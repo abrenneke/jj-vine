@@ -403,7 +403,7 @@ impl BookmarkGraph {
             r#"commit_id ++ " parents: " ++ parents.len()"#,
         ])?;
 
-        if !output.trim().is_empty() {
+        if !output.stdout.trim().is_empty() {
             // Found merge commits in the new commits
             return Err(Error::InvalidGraph {
                 message: format!(
@@ -873,8 +873,11 @@ mod tests {
         )
         .expect("Failed to get branch2 id");
 
-        run_jj_command(&repo_path, &["new", branch1_id.trim(), branch2_id.trim()])
-            .expect("Failed to create merge");
+        run_jj_command(
+            &repo_path,
+            &["new", branch1_id.stdout.trim(), branch2_id.stdout.trim()],
+        )
+        .expect("Failed to create merge");
         run_jj_command(&repo_path, &["describe", "-m", "merge-commit"])
             .expect("Failed to describe merge");
         run_jj_command(&repo_path, &["bookmark", "create", "wip"])

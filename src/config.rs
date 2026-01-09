@@ -51,7 +51,7 @@ impl Config {
         let get_config = |key: &str| -> Result<Option<String>> {
             match run_jj_command(repo_path, &["config", "get", key]) {
                 Ok(value) => {
-                    let trimmed = value.trim();
+                    let trimmed = value.stdout.trim();
                     // jj config get might return empty string or the literal string "null" for unset values
                     if trimmed.is_empty() || trimmed == "null" {
                         Ok(None)

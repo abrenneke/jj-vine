@@ -30,8 +30,6 @@ pub async fn analyze(
         });
     }
 
-    // Build a revset that includes all target bookmarks and their ancestors
-    // Format: (::bookmark1 | ::bookmark2 | ...) & mine() & bookmarks()
     let bookmark_revsets: Vec<String> = target_bookmarks
         .iter()
         .map(|b| format!("::{}", b))

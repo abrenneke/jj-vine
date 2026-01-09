@@ -3,23 +3,17 @@ use crate::config::Config;
 use crate::error::{Error, Result};
 use crate::gitlab::GitLabClient;
 use crate::jj::Jujutsu;
-use crate::output::Output;
+use crate::output::{FlatOutput, InteractiveOutput, Output};
 use crate::submit::execute::{MRUpdate, MRUpdateType};
 use crate::submit::{analyze, execute, plan};
 use cli_table::format::{Border, Separator};
 use cli_table::{Cell, Table};
-use console::style;
 use itertools::Itertools;
+use owo_colors::OwoColorize;
 use std::path::PathBuf;
-use std::sync::Arc;
 use tracing::{debug, info};
 
 /// Submit bookmarks and their dependencies as GitLab MRs
-///
-/// This orchestrates the three-phase submission process for each bookmark:
-/// 1. Analyze - Identify the bookmark stack
-/// 2. Plan - Determine what actions are needed
-/// 3. Execute - Perform the actions
 pub async fn submit(
     repo_path: PathBuf,
     bookmarks: Vec<String>,
@@ -27,14 +21,17 @@ pub async fn submit(
     dry_run: bool,
     verbose: bool,
 ) -> Result<()> {
-    // Create output manager
-    let output = Arc::new(Output::new(verbose));
+    let output: Box<dyn Output> = if verbose {
+        Box::new(FlatOutput::new())
+    } else {
+        Box::new(InteractiveOutput::new())
+    };
 
-    output.log_message(format!(
+    output.log_message(&format!(
         "Submitting bookmarks: {}",
         bookmarks
             .iter()
-            .map(|b| style(b).magenta().to_string())
+            .map(|b| b.magenta().to_string())
             .collect::<Vec<_>>()
             .join(", ")
     ));
@@ -45,12 +42,10 @@ pub async fn submit(
         });
     }
 
-    // Load configuration
     debug!("Loading configuration");
     let config = Config::load(&repo_path)?;
     config.validate()?;
 
-    // Create jj and GitLab clients
     debug!("Creating Jujutsu and GitLab clients");
     let jj = Jujutsu::new(repo_path)?;
     let gitlab = GitLabClient::new(
@@ -61,14 +56,12 @@ pub async fn submit(
         config.tls_accept_non_compliant_certs,
     )?;
 
-    // Sort bookmarks topologically (dependencies first)
     debug!(
         "Using default branch from config: {}",
         config.default_branch
     );
     let default_branch = &config.default_branch;
 
-    // Build revset for only the bookmarks we're submitting and their ancestors
     let revset = format!(
         "({}) & mine() & bookmarks()",
         bookmarks
@@ -99,37 +92,45 @@ pub async fn submit(
         sorted_bookmarks.join(" → ")
     );
 
-    // Run the three-phase process ONCE for all bookmarks
     debug!("Analyzing {} bookmarks", sorted_bookmarks.len());
+    output.log_current("Analyzing bookmarks");
     let analysis = analyze::analyze(&jj, &config, &sorted_bookmarks).await?;
 
     debug!("Creating submission plan");
-    let submission_plan =
-        plan::plan(&analysis, &jj, &gitlab, &config, &bookmark_graph, dry_run).await?;
+    output.log_current("Planning submission");
+    let submission_plan = plan::plan(
+        &analysis,
+        &jj,
+        &gitlab,
+        &config,
+        &bookmark_graph,
+        dry_run,
+        &*output,
+    )
+    .await?;
 
     debug!("Executing submission plan");
-    let result = execute::execute(&submission_plan, &jj, &gitlab, &config, output.clone()).await?;
+    let result = execute::execute(&submission_plan, &jj, &gitlab, &config, &*output).await?;
 
-    // Finish spinner before showing summary
     output.finish();
 
-    // Display summary
     info!("\n═══════════════════════════════════════");
-    info!("{}", style("Summary").bold());
+    info!("{}", "Summary".bold());
     info!("═══════════════════════════════════════");
 
-    // Show bookmarks pushed
     if !result.bookmarks_pushed.is_empty() {
         let formatted_bookmarks: Vec<String> = result
             .bookmarks_pushed
             .iter()
-            .map(|b| style(b).magenta().to_string())
+            .map(|b| b.magenta().to_string())
             .collect();
         info!("Pushed: {}", formatted_bookmarks.join(", "));
+    } else {
+        info!("No bookmarks pushed");
     }
 
     if !result.merge_requests.is_empty() {
-        info!("\n{}\n", style("Merge Requests:").bold());
+        info!("\n{}\n", "Merge Requests:".bold());
 
         let mut table = vec![];
 
@@ -142,27 +143,27 @@ pub async fn submit(
             match update_type {
                 MRUpdateType::Created => {
                     table.push(vec![
-                        style(&bookmark).magenta().cell(),
+                        bookmark.magenta().cell(),
                         mr.title.clone().cell(),
-                        style(&mr.web_url).dim().cell(),
-                        style("[created]").green().cell(),
+                        mr.web_url.dimmed().cell(),
+                        "[created]".green().cell(),
                     ]);
                 }
                 MRUpdateType::Repointed { .. }
                 | MRUpdateType::Both { .. }
                 | MRUpdateType::DescriptionUpdated => {
                     table.push(vec![
-                        style(&bookmark).magenta().cell(),
+                        bookmark.magenta().cell(),
                         mr.title.clone().cell(),
-                        style(&mr.web_url).dim().cell(),
-                        style("[updated]").green().cell(),
+                        mr.web_url.dimmed().cell(),
+                        "[updated]".green().cell(),
                     ]);
                 }
                 MRUpdateType::Unchanged => {
                     table.push(vec![
-                        style(&bookmark).magenta().cell(),
+                        bookmark.magenta().cell(),
                         mr.title.clone().cell(),
-                        style(&mr.web_url).dim().cell(),
+                        mr.web_url.dimmed().cell(),
                         " ".cell(),
                     ]);
                 }
@@ -180,7 +181,6 @@ pub async fn submit(
         );
     }
 
-    // Show errors
     if !result.errors.is_empty() {
         info!("");
         info!("✗ {} error(s) occurred:", result.errors.len());
@@ -189,7 +189,6 @@ pub async fn submit(
         }
     }
 
-    // Return error if any errors occurred
     if !result.errors.is_empty() {
         return Err(Error::Config {
             message: format!(

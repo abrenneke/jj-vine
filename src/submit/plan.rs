@@ -2,6 +2,7 @@ use crate::config::Config;
 use crate::error::Result;
 use crate::gitlab::GitLabClient;
 use crate::jj::Jujutsu;
+use crate::output::Output;
 use crate::submit::analyze::SubmissionAnalysis;
 use std::collections::HashMap;
 
@@ -57,16 +58,20 @@ pub async fn plan(
     config: &Config,
     bookmark_graph: &crate::bookmark::BookmarkGraph,
     dry_run: bool,
+    output: &dyn Output,
 ) -> Result<SubmissionPlan> {
     let mut actions = Vec::new();
 
     // Query all existing MRs upfront (needed for description generation)
     let mut existing_mrs = HashMap::new();
     for bookmark in &analysis.bookmarks_to_submit {
+        output.set_substep(&format!("MRs for {}", bookmark));
         if let Some(mr) = gitlab.find_mr_by_source_branch(bookmark).await? {
             existing_mrs.insert(bookmark.clone(), mr);
         }
     }
+
+    output.set_substep("");
 
     for (idx, bookmark) in analysis.bookmarks_to_submit.iter().enumerate() {
         // Always push the bookmark
@@ -145,7 +150,11 @@ fn get_mr_title(jj: &Jujutsu, bookmark: &str, base: &str) -> Result<String> {
         r#"description.first_line() ++ "\n""#,
     ])?;
 
-    let descriptions: Vec<&str> = output.lines().filter(|l| !l.trim().is_empty()).collect();
+    let descriptions: Vec<&str> = output
+        .stdout
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .collect();
 
     if descriptions.len() == 1 {
         // Exactly one commit - use its description as title

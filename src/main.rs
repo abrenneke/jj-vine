@@ -5,6 +5,7 @@ use jj_mrs::jj::Jujutsu;
 use jj_mrs::tracing_formatter::PlainFormatter;
 use std::env;
 use std::path::PathBuf;
+use tracing::Level;
 use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
 #[derive(Parser)]
@@ -51,14 +52,12 @@ enum Commands {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    // Initialize tracing
-    let filter = if cli.verbose {
-        EnvFilter::new("debug")
-    } else {
-        EnvFilter::new("info")
-    };
+    let verbose = cli.verbose || std::env::var("RUST_LOG").is_ok_and(|v| !v.is_empty());
+    let filter = EnvFilter::builder()
+        .with_default_directive(Level::INFO.into())
+        .from_env_lossy();
 
-    if cli.verbose {
+    if verbose {
         // Verbose mode: Keep timestamps and level
         tracing_subscriber::registry()
             .with(filter)

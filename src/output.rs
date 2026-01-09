@@ -1,110 +1,124 @@
+use std::cell::RefCell;
+
 use indicatif::{ProgressBar, ProgressStyle};
-use std::sync::Mutex;
+use owo_colors::OwoColorize;
 use tracing::info;
 
-/// Centralized output manager that handles both spinner and flat logging modes
-pub struct Output {
-    mode: OutputMode,
-    spinner: Option<Mutex<ProgressBar>>,
+pub trait Output {
+    fn log_current(&self, message: &str);
+    fn set_substep(&self, message: &str);
+
+    fn log_message(&self, message: &str);
+    fn log_completed(&self, message: &str);
+
+    fn finish(&self) {}
 }
 
-enum OutputMode {
-    /// Interactive spinner mode (normal and dry-run)
-    Interactive,
-    /// Flat logging mode (verbose -v)
-    Flat,
+/// Interactive spinner mode implementation
+pub struct InteractiveOutput {
+    spinner: ProgressBar,
+    current_text: RefCell<String>,
 }
 
-impl Output {
-    /// Create new output manager
-    ///
-    /// # Arguments
-    /// * `verbose` - If true, uses flat logging mode; if false, uses interactive spinner mode
-    pub fn new(verbose: bool) -> Self {
-        let mode = if verbose {
-            OutputMode::Flat
-        } else {
-            OutputMode::Interactive
-        };
-
-        let spinner = match mode {
-            OutputMode::Interactive => {
-                let pb = ProgressBar::new_spinner();
-                pb.set_style(
-                    ProgressStyle::default_spinner()
-                        .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
-                        .template("{spinner:.green} {msg}")
-                        .expect("Failed to create spinner template"),
-                );
-                pb.enable_steady_tick(std::time::Duration::from_millis(80));
-                Some(Mutex::new(pb))
-            }
-            OutputMode::Flat => None,
-        };
-
-        Self { mode, spinner }
-    }
-
-    /// Log a current/in-progress action (shows in spinner)
-    pub fn log_current(&self, message: impl AsRef<str>) {
-        match self.mode {
-            OutputMode::Interactive => {
-                if let Some(ref spinner) = self.spinner {
-                    spinner
-                        .lock()
-                        .unwrap()
-                        .set_message(message.as_ref().to_string());
-                }
-            }
-            OutputMode::Flat => {
-                info!("{}", message.as_ref());
-            }
-        }
-    }
-
-    /// Log a static message (for banners, summaries, completions, etc.)
-    pub fn log_message(&self, message: impl AsRef<str>) {
-        match self.mode {
-            OutputMode::Interactive => {
-                if let Some(ref spinner) = self.spinner {
-                    spinner.lock().unwrap().println(message.as_ref());
-                }
-            }
-            OutputMode::Flat => {
-                info!("{}", message.as_ref());
-            }
-        }
-    }
-
-    /// Log a completion message and clear the current spinner status
-    pub fn log_completed(&self, message: impl AsRef<str>) {
-        self.log_message(message.as_ref());
-
-        // Clear spinner after completion
-        match self.mode {
-            OutputMode::Interactive => {
-                if let Some(ref spinner) = self.spinner {
-                    spinner.lock().unwrap().set_message("");
-                }
-            }
-            OutputMode::Flat => {
-                // Nothing to clear in flat mode
-            }
-        }
-    }
-
-    /// Finish and cleanup spinner
-    pub fn finish(&self) {
-        if let Some(ref spinner) = self.spinner {
-            spinner.lock().unwrap().finish_and_clear();
+impl InteractiveOutput {
+    pub fn new() -> Self {
+        let pb = ProgressBar::new_spinner();
+        pb.set_style(
+            ProgressStyle::default_spinner()
+                .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
+                .template("{spinner:.green} {msg}")
+                .expect("Failed to create spinner template"),
+        );
+        pb.enable_steady_tick(std::time::Duration::from_millis(80));
+        Self {
+            spinner: pb,
+            current_text: RefCell::new(String::new()),
         }
     }
 }
 
-impl Drop for Output {
+impl Default for InteractiveOutput {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Output for InteractiveOutput {
+    fn log_current(&self, message: &str) {
+        self.current_text.replace(message.to_string());
+        self.spinner
+            .set_message(format!("{}...", self.current_text.borrow().clone()));
+    }
+
+    fn set_substep(&self, message: &str) {
+        self.spinner.set_message(format!(
+            "{} {}...",
+            self.current_text.borrow(),
+            format!("({})", message).dimmed()
+        ));
+    }
+
+    fn log_message(&self, message: &str) {
+        self.spinner.println(message);
+    }
+
+    fn log_completed(&self, message: &str) {
+        self.log_message(message);
+        self.spinner.set_message(String::new());
+    }
+
+    fn finish(&self) {
+        self.spinner.finish_and_clear();
+    }
+}
+
+impl Drop for InteractiveOutput {
     fn drop(&mut self) {
-        if let Some(ref spinner) = self.spinner {
-            spinner.lock().unwrap().finish_and_clear();
+        self.spinner.finish_and_clear();
+    }
+}
+
+/// Flat logging mode implementation
+pub struct FlatOutput {
+    current_text: RefCell<String>,
+}
+
+impl FlatOutput {
+    pub fn new() -> Self {
+        Self {
+            current_text: RefCell::new(String::new()),
         }
+    }
+}
+
+impl Default for FlatOutput {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Output for FlatOutput {
+    fn log_current(&self, message: &str) {
+        self.current_text.replace(message.to_string());
+        info!("{}", message);
+    }
+
+    fn set_substep(&self, message: &str) {
+        info!(
+            "{}",
+            format!(
+                "{} {}",
+                self.current_text.borrow(),
+                format!("({})", message).dimmed()
+            )
+        );
+    }
+
+    fn log_message(&self, message: &str) {
+        info!("{}", message);
+    }
+
+    fn log_completed(&self, message: &str) {
+        info!("{}", message);
     }
 }

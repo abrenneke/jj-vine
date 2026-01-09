@@ -748,7 +748,6 @@ dependencies = [
  "chrono",
  "clap",
  "cli-table",
- "console",
  "dialoguer",
  "dotenv",
  "indicatif",

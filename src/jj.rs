@@ -1,12 +1,18 @@
 use crate::error::{Error, Result};
 use snafu::ResultExt;
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Command, ExitStatus};
 use tracing::{debug, trace};
 
 /// Jujutsu subprocess interface
 pub struct Jujutsu {
     repo_path: PathBuf,
+}
+
+pub struct CommandOutput {
+    pub status: ExitStatus,
+    pub stdout: String,
+    pub stderr: String,
 }
 
 impl Jujutsu {
@@ -17,7 +23,7 @@ impl Jujutsu {
     }
 
     /// Run a jj command and return the output
-    pub fn run_captured(&self, args: &[&str]) -> Result<String> {
+    pub fn run_captured(&self, args: &[&str]) -> Result<CommandOutput> {
         trace!("Running jj command: jj {}", args.join(" "));
         run_jj_command(&self.repo_path, args)
     }
@@ -37,7 +43,7 @@ impl Jujutsu {
         ])?;
 
         let mut bookmarks = Vec::new();
-        for line in output.lines() {
+        for line in output.stdout.lines() {
             let line = line.trim();
             if line.is_empty() {
                 continue;
@@ -89,7 +95,7 @@ impl Jujutsu {
         ])?;
 
         let mut bookmarks = Vec::new();
-        for line in output.lines() {
+        for line in output.stdout.lines() {
             let line = line.trim();
             if line.is_empty() {
                 continue;
@@ -139,6 +145,7 @@ impl Jujutsu {
         ])?;
 
         Ok(output
+            .stdout
             .lines()
             .filter(|line| !line.trim().is_empty())
             .count())
@@ -157,7 +164,7 @@ impl Jujutsu {
         ])?;
 
         let mut changes = Vec::new();
-        for line in output.lines() {
+        for line in output.stdout.lines() {
             if line.trim().is_empty() {
                 continue;
             }
@@ -194,7 +201,7 @@ impl Jujutsu {
             "commit_id",
         ])?;
 
-        Ok(output.trim().to_string())
+        Ok(output.stdout.trim().to_string())
     }
 
     /// Get the change ID for a commit
@@ -210,7 +217,7 @@ impl Jujutsu {
             "change_id",
         ])?;
 
-        Ok(output.trim().to_string())
+        Ok(output.stdout.trim().to_string())
     }
 
     /// Get the default branch name (trunk)
@@ -238,18 +245,21 @@ impl Jujutsu {
     /// Push a bookmark to a remote using jj git push
     ///
     /// This will automatically track the bookmark on the remote if it's not already tracked
-    pub fn push_bookmark(&self, bookmark: &str, remote: &str) -> Result<()> {
+    pub fn push_bookmark(&self, bookmark: &str, remote: &str) -> Result<bool> {
         // Try to track the bookmark first (ignore errors if already tracked)
         let _ = self.track_bookmark(bookmark, remote);
 
-        self.run_captured(&["git", "push", "--remote", remote, "--bookmark", bookmark])?;
-        Ok(())
+        let output =
+            self.run_captured(&["git", "push", "--remote", remote, "--bookmark", bookmark])?;
+
+        Ok(!output.stderr.contains("Nothing changed."))
     }
 
     /// List git remotes using jj git remote list
     pub fn list_remotes(&self) -> Result<Vec<String>> {
         let output = self.run_captured(&["git", "remote", "list"])?;
         Ok(output
+            .stdout
             .lines()
             .map(|line| line.trim().to_string())
             .filter(|line| !line.is_empty())
@@ -313,7 +323,7 @@ impl Jujutsu {
         debug!("Got bookmarks output, processing lines");
 
         let mut tracked = Vec::new();
-        for line in output.lines() {
+        for line in output.stdout.lines() {
             let line = line.trim();
             if line.is_empty() {
                 continue;
@@ -371,7 +381,7 @@ pub fn which_jj() -> Result<PathBuf> {
 }
 
 /// Run a jj command and return the output
-pub fn run_jj_command(repo_path: &PathBuf, args: &[&str]) -> Result<String> {
+pub fn run_jj_command(repo_path: &PathBuf, args: &[&str]) -> Result<CommandOutput> {
     let jj_bin = which_jj()?;
     let output = Command::new(&jj_bin)
         .current_dir(repo_path)
@@ -390,8 +400,20 @@ pub fn run_jj_command(repo_path: &PathBuf, args: &[&str]) -> Result<String> {
         });
     }
 
-    let stdout = String::from_utf8(output.stdout).context(crate::error::Utf8Snafu)?;
-    Ok(stdout)
+    // TODO combine
+    trace!(
+        "jj command output: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    trace!(
+        "jj command stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    Ok(CommandOutput {
+        status: output.status,
+        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+    })
 }
 
 #[derive(Debug, Clone, PartialEq)]

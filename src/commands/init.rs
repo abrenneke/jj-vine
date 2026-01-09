@@ -1,101 +1,90 @@
 use crate::error::Result;
 use crate::jj::run_jj_command;
-use console::{Term, style};
 use dialoguer::{Input, Password};
+use owo_colors::OwoColorize;
 use std::path::PathBuf;
 
 /// Initialize jj-mrs configuration for this repository
 pub async fn init(repo_path: PathBuf) -> Result<()> {
-    let term = Term::stdout();
-
-    term.write_line(&format!(
+    println!("This will configure jj-mrs for your GitLab instance.");
+    println!(
         "{}",
-        style("This will configure jj-mrs for your GitLab instance.")
-    ))?;
-    term.write_line(&format!(
-        "{}",
-        style("Configuration will be stored in .jj/repo/config.toml").dim()
-    ))?;
-    term.write_line("")?;
+        "Configuration will be stored in .jj/repo/config.toml".dimmed()
+    );
+    println!();
 
     let (detected_host, detected_project) = detect_from_remote(&repo_path)?;
 
     let gitlab_host = if let Some(host) = &detected_host {
         Input::<String>::new()
-            .with_prompt(format!("{}", style("GitLab instance URL").bold()))
+            .with_prompt(format!("{}", "GitLab instance URL".bold()))
             .default(host.clone())
             .interact_text()?
     } else {
         Input::<String>::new()
             .with_prompt(format!(
                 "{}",
-                style("GitLab instance URL (e.g. https://gitlab.example.com)").bold()
+                "GitLab instance URL (e.g. https://gitlab.example.com)".bold()
             ))
             .interact_text()?
     };
 
     let gitlab_project = if let Some(project) = &detected_project {
         Input::<String>::new()
-            .with_prompt(format!("{}", style("GitLab project ID").bold()))
+            .with_prompt(format!("{}", "GitLab project ID".bold()))
             .default(project.clone())
             .interact_text()?
     } else {
-        term.write_line(&format!("{}", style("Project ID can be either:").dim()))?;
-        term.write_line(&format!(
+        println!("{}", "Project ID can be either:".dimmed());
+        println!(
             "{}",
-            style("  - Group/project path (e.g., my-group/my-project)").dim()
-        ))?;
-        term.write_line(&format!(
-            "{}",
-            style("  - Numeric project ID (e.g., 12345)").dim()
-        ))?;
+            "  - Group/project path (e.g., my-group/my-project)".dimmed()
+        );
+        println!("{}", "  - Numeric project ID (e.g., 12345)".dimmed());
 
         Input::<String>::new()
-            .with_prompt(format!("{}", style("GitLab project ID").bold()))
+            .with_prompt(format!("{}", "GitLab project ID".bold()))
             .interact_text()?
     };
 
-    term.write_line("")?;
-    term.write_line(&format!(
-        "{}",
-        style("Personal Access Token required scopes:").yellow()
-    ))?;
-    term.write_line(&format!(
+    println!();
+    println!("{}", "Personal Access Token required scopes:".yellow());
+    println!(
         "  {} {}",
-        style("•").yellow(),
-        style("api (for creating/updating merge requests)").dim()
-    ))?;
-    term.write_line("")?;
-    term.write_line(&format!(
+        "•".yellow(),
+        "api (for creating/updating merge requests)".dimmed()
+    );
+    println!();
+    println!(
         "{} {}",
-        style("⚠").yellow(),
-        style("Note: GitLab does not offer more granular scopes for MR operations.").dim()
-    ))?;
-    term.write_line(&format!(
+        "⚠".yellow(),
+        "Note: GitLab does not offer more granular scopes for MR operations.".dimmed()
+    );
+    println!(
         "  {}",
-        style("The 'api' scope grants full read/write API access.").dim()
-    ))?;
-    term.write_line(&format!(
+        "The 'api' scope grants full read/write API access.".dimmed()
+    );
+    println!(
         "  {}",
-        style(format!(
+        format!(
             "Create token at: {}/-/user_settings/personal_access_tokens",
             gitlab_host
-        ))
-        .dim()
-    ))?;
-    term.write_line("")?;
+        )
+        .dimmed()
+    );
+    println!();
 
     let gitlab_token = Password::new()
-        .with_prompt(format!("{}", style("GitLab Personal Access Token").bold()))
+        .with_prompt(format!("{}", "GitLab Personal Access Token".bold()))
         .interact()?;
 
     let remote_name = Input::<String>::new()
-        .with_prompt(format!("{}", style("Remote name").bold()))
+        .with_prompt(format!("{}", "Remote name".bold()))
         .default("origin".to_string())
         .interact_text()?;
 
     let default_branch = Input::<String>::new()
-        .with_prompt(format!("{}", style("Default branch").bold()))
+        .with_prompt(format!("{}", "Default branch".bold()))
         .default("main".to_string())
         .interact_text()?;
 
@@ -105,16 +94,13 @@ pub async fn init(repo_path: PathBuf) -> Result<()> {
     set_config(&repo_path, "jj-mrs.remoteName", &remote_name)?;
     set_config(&repo_path, "jj-mrs.defaultBranch", &default_branch)?;
 
-    term.write_line("")?;
-    term.write_line(&format!(
+    println!();
+    println!(
         "{} {}",
-        style("✓").green().bold(),
-        style("Configuration complete!").green()
-    ))?;
-    term.write_line(&format!(
-        "{}",
-        style("You can now use: jj mr submit <bookmark>").cyan()
-    ))?;
+        "✓".green().bold(),
+        "Configuration complete!".green()
+    );
+    println!("{}", "You can now use: jj mr submit <bookmark>".cyan());
 
     Ok(())
 }
@@ -134,7 +120,7 @@ fn detect_from_remote(repo_path: &PathBuf) -> Result<(Option<String>, Option<Str
     };
 
     // Parse the first remote (typically origin)
-    for line in remote_output.lines() {
+    for line in remote_output.stdout.lines() {
         let parts: Vec<&str> = line.split_whitespace().collect();
         if parts.len() >= 2 {
             let url = parts[1];
