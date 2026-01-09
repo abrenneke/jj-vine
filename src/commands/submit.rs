@@ -98,8 +98,20 @@ pub async fn submit(
         match submit_bookmark_stack(bookmark, &jj, &gitlab, &config, &remote, dry_run).await {
             Ok(result) => {
                 all_merge_requests.extend(result.merge_requests);
-                all_errors.extend(result.errors);
-                successful_bookmarks.push(bookmark.clone());
+
+                if !result.errors.is_empty() {
+                    // Has errors = failed
+                    let error_msg = format!(
+                        "Failed to submit {}: {} error(s) occurred",
+                        bookmark,
+                        result.errors.len()
+                    );
+                    all_errors.extend(result.errors);
+                    failed_bookmarks.push((bookmark.clone(), error_msg));
+                } else {
+                    // No errors = success
+                    successful_bookmarks.push(bookmark.clone());
+                }
             }
             Err(e) => {
                 let error_msg = format!("Failed to submit {}: {}", bookmark, e);

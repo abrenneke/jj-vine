@@ -523,7 +523,7 @@ fn test_tracked_excludes_default_branch() {
     let repo = TestRepo::new().expect("Failed to create test repo");
 
     // Initialize config
-    repo.init_mrs_config("https://gitlab.example.com", "test/project", "test-token")
+    repo.init_mrs_config("https://gitlab.example.com", "test/project", "test-token", None, false)
         .expect("Failed to init MRS config");
 
     // Create a git remote (bare repo)
