@@ -56,10 +56,22 @@ async fn main() -> Result<()> {
     } else {
         EnvFilter::new("info")
     };
-    tracing_subscriber::fmt()
-        .with_env_filter(filter)
-        .with_target(false)
-        .init();
+
+    if cli.verbose {
+        // Verbose mode: Keep timestamps and level
+        tracing_subscriber::fmt()
+            .with_env_filter(filter)
+            .with_target(false)
+            .init();
+    } else {
+        // Default mode: Hide timestamps and level - just show log text
+        tracing_subscriber::fmt()
+            .with_env_filter(filter)
+            .with_target(false)
+            .with_level(false)
+            .without_time()
+            .init();
+    }
 
     // Determine repository path
     let repo_path = cli
