@@ -2,7 +2,9 @@ use crate::config::Config;
 use crate::error::Result;
 use crate::gitlab::{GitLabClient, MergeRequest};
 use crate::jj::Jujutsu;
+use crate::output::Output;
 use crate::submit::plan::{Action, SubmissionPlan};
+use std::sync::Arc;
 use tracing::{error as log_error, info};
 
 /// Result of executing a submission plan
@@ -22,6 +24,51 @@ pub struct SubmissionResult {
 
     /// Any errors that occurred (non-fatal)
     pub errors: Vec<String>,
+
+    /// Bookmarks that were successfully pushed
+    pub bookmarks_pushed: Vec<String>,
+
+    /// MRs that were created (with titles)
+    pub mrs_created_details: Vec<MRDetail>,
+
+    /// MRs that were updated (with update type)
+    pub mrs_updated_details: Vec<MRUpdateDetail>,
+}
+
+/// Details about a created MR
+#[derive(Debug, Clone)]
+pub struct MRDetail {
+    pub bookmark: String,
+    pub title: String,
+    pub iid: u64,
+    pub web_url: String,
+}
+
+/// Details about an updated MR
+#[derive(Debug, Clone)]
+pub struct MRUpdateDetail {
+    pub bookmark: String,
+    pub title: String,
+    pub iid: u64,
+    pub web_url: String,
+    pub update_type: MRUpdateType,
+}
+
+/// Type of MR update
+#[derive(Debug, Clone)]
+pub enum MRUpdateType {
+    /// Target branch was changed (repointed)
+    Repointed {
+        old_target: String,
+        new_target: String,
+    },
+    /// Description was updated
+    DescriptionUpdated,
+    /// Both target and description updated
+    Both {
+        old_target: String,
+        new_target: String,
+    },
 }
 
 /// Execute a submission plan
@@ -34,6 +81,7 @@ pub async fn execute(
     jj: &Jujutsu,
     gitlab: &GitLabClient,
     config: &Config,
+    output: Arc<Output>,
 ) -> Result<SubmissionResult> {
     let mut merge_requests = Vec::new();
     let mut errors = Vec::new();
@@ -41,6 +89,9 @@ pub async fn execute(
     let mut mrs_created = 0;
     let mut mrs_updated = 0;
     let mut mrs_unchanged = 0;
+    let mut bookmarks_pushed = Vec::new();
+    let mut mrs_created_details = Vec::new();
+    let mut mrs_updated_details = Vec::new();
 
     if plan.dry_run {
         info!("DRY RUN - No changes will be made");
@@ -50,17 +101,20 @@ pub async fn execute(
         match action {
             Action::Push { bookmark, remote } => {
                 if plan.dry_run {
-                    info!("Would push {} to {}", bookmark, remote);
+                    output.log_current(format!("Would push {} to {}", bookmark, remote));
+                    output.log_completed(format!("Would push {} to {}", bookmark, remote));
                 } else {
-                    info!("Pushing {} to {}...", bookmark, remote);
+                    output.log_current(format!("Pushing {}...", bookmark));
 
                     match jj.push_bookmark(bookmark, remote) {
                         Ok(_) => {
-                            info!("Pushed {}", bookmark);
+                            output.log_completed(format!("Pushed {}", bookmark));
+                            bookmarks_pushed.push(bookmark.clone());
                         }
                         Err(e) => {
                             let error_msg = format!("Failed to push {}: {}", bookmark, e);
-                            log_error!(error_msg);
+                            output.log_completed(&error_msg);
+                            log_error!("{}", error_msg);
                             errors.push(error_msg);
                             failed_pushes.insert(bookmark.clone());
                         }
@@ -78,18 +132,20 @@ pub async fn execute(
                 if failed_pushes.contains(bookmark) {
                     let error_msg =
                         format!("Skipping MR creation for {} because push failed", bookmark);
-                    info!(error_msg);
+                    output.log_completed(&error_msg);
                     errors.push(error_msg);
                     continue;
                 }
 
                 if plan.dry_run {
-                    info!(
+                    let msg = format!(
                         "Would create MR: {} -> {} (title: {})",
                         bookmark, target_branch, title
                     );
+                    output.log_current(&msg);
+                    output.log_completed(&msg);
                 } else {
-                    info!("Creating MR: {} -> {}", bookmark, target_branch);
+                    output.log_current(format!("Creating MR: {} -> {}", bookmark, target_branch));
 
                     let desc = if description.is_empty() {
                         None
@@ -102,13 +158,20 @@ pub async fn execute(
                         .await
                     {
                         Ok(mr) => {
-                            info!("Created MR !{}: {}", mr.iid, mr.web_url);
+                            output.log_completed(format!("Created MR !{}: {}", mr.iid, mr.web_url));
                             mrs_created += 1;
+                            mrs_created_details.push(MRDetail {
+                                bookmark: bookmark.clone(),
+                                title: mr.title.clone(),
+                                iid: mr.iid,
+                                web_url: mr.web_url.clone(),
+                            });
                             merge_requests.push(mr);
                         }
                         Err(e) => {
                             let error_msg = format!("Failed to create MR for {}: {}", bookmark, e);
-                            log_error!(error_msg);
+                            output.log_completed(&error_msg);
+                            log_error!("{}", error_msg);
                             errors.push(error_msg);
                         }
                     }
@@ -121,25 +184,45 @@ pub async fn execute(
                 new_target_branch,
             } => {
                 if plan.dry_run {
-                    info!(
+                    let msg = format!(
                         "Would update MR !{} base for {} to {}",
                         mr_iid, bookmark, new_target_branch
                     );
+                    output.log_current(&msg);
+                    output.log_completed(&msg);
                 } else {
-                    info!(
-                        "Updating MR !{} base for {} to {}",
-                        mr_iid, bookmark, new_target_branch
-                    );
+                    output.log_current(format!("Updating MR !{} base...", mr_iid));
+
+                    // Get old target before update
+                    let old_target = if let Ok(Some(existing_mr)) =
+                        gitlab.find_mr_by_source_branch(bookmark).await
+                    {
+                        existing_mr.target_branch.clone()
+                    } else {
+                        "unknown".to_string()
+                    };
 
                     match gitlab.update_mr_base(*mr_iid, new_target_branch).await {
                         Ok(mr) => {
-                            info!("Updated MR !{}", mr.iid);
+                            output.log_completed(format!("Updated MR !{}", mr.iid));
+                            mrs_updated += 1;
+                            mrs_updated_details.push(MRUpdateDetail {
+                                bookmark: bookmark.clone(),
+                                title: mr.title.clone(),
+                                iid: mr.iid,
+                                web_url: mr.web_url.clone(),
+                                update_type: MRUpdateType::Repointed {
+                                    old_target,
+                                    new_target: new_target_branch.clone(),
+                                },
+                            });
                             merge_requests.push(mr);
                         }
                         Err(e) => {
                             let error_msg =
                                 format!("Failed to update MR base for {}: {}", bookmark, e);
-                            log_error!(error_msg);
+                            output.log_completed(&error_msg);
+                            log_error!("{}", error_msg);
                             errors.push(error_msg);
                         }
                     }
@@ -152,10 +235,10 @@ pub async fn execute(
                 bookmarks_being_submitted: _,
             } => {
                 if plan.dry_run {
-                    info!("Would update MR description for {}", bookmark);
+                    let msg = format!("Would update MR description for {}", bookmark);
+                    output.log_current(&msg);
+                    output.log_completed(&msg);
                 } else {
-                    info!("Updating MR description for {}", bookmark);
-
                     // Find stacks that contain this bookmark
                     let containing_stacks: Vec<&crate::bookmark::BranchStack> = bookmark_graph
                         .stacks
@@ -209,20 +292,32 @@ pub async fn execute(
 
                                 // Diff check - only update if changed
                                 if existing_description == new_description {
-                                    info!(
-                                        "Skipping MR !{} description (unchanged)",
-                                        current_mr.iid
-                                    );
+                                    // Don't show any output for unchanged descriptions
                                     mrs_unchanged += 1;
                                     merge_requests.push(current_mr.clone());
                                 } else {
+                                    output.log_current(format!(
+                                        "Updating MR !{} description...",
+                                        current_mr.iid
+                                    ));
+
                                     match gitlab
                                         .update_mr_description(current_mr.iid, &new_description)
                                         .await
                                     {
                                         Ok(updated_mr) => {
-                                            info!("Updated MR !{} description", updated_mr.iid);
+                                            output.log_completed(format!(
+                                                "Updated MR !{} description",
+                                                updated_mr.iid
+                                            ));
                                             mrs_updated += 1;
+                                            mrs_updated_details.push(MRUpdateDetail {
+                                                bookmark: bookmark.clone(),
+                                                title: updated_mr.title.clone(),
+                                                iid: updated_mr.iid,
+                                                web_url: updated_mr.web_url.clone(),
+                                                update_type: MRUpdateType::DescriptionUpdated,
+                                            });
                                             merge_requests.push(updated_mr);
                                         }
                                         Err(e) => {
@@ -230,7 +325,8 @@ pub async fn execute(
                                                 "Failed to update MR description for {}: {}",
                                                 bookmark, e
                                             );
-                                            log_error!(error_msg);
+                                            output.log_completed(&error_msg);
+                                            log_error!("{}", error_msg);
                                             errors.push(error_msg);
                                         }
                                     }
@@ -241,7 +337,8 @@ pub async fn execute(
                                     "Failed to generate description for {}: {}",
                                     bookmark, e
                                 );
-                                log_error!(error_msg);
+                                output.log_completed(&error_msg);
+                                log_error!("{}", error_msg);
                                 errors.push(error_msg);
                             }
                         }
@@ -257,6 +354,9 @@ pub async fn execute(
         mrs_updated,
         mrs_unchanged,
         errors,
+        bookmarks_pushed,
+        mrs_created_details,
+        mrs_updated_details,
     })
 }
 
@@ -272,6 +372,9 @@ mod tests {
             mrs_updated: 0,
             mrs_unchanged: 0,
             errors: Vec::new(),
+            bookmarks_pushed: Vec::new(),
+            mrs_created_details: Vec::new(),
+            mrs_updated_details: Vec::new(),
         };
 
         assert_eq!(result.merge_requests.len(), 0);
@@ -279,6 +382,9 @@ mod tests {
         assert_eq!(result.mrs_updated, 0);
         assert_eq!(result.mrs_unchanged, 0);
         assert_eq!(result.errors.len(), 0);
+        assert_eq!(result.bookmarks_pushed.len(), 0);
+        assert_eq!(result.mrs_created_details.len(), 0);
+        assert_eq!(result.mrs_updated_details.len(), 0);
     }
 
     // Regression test for push failure handling:

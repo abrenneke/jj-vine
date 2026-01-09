@@ -3,8 +3,10 @@ use crate::config::Config;
 use crate::error::{Error, Result};
 use crate::gitlab::GitLabClient;
 use crate::jj::Jujutsu;
+use crate::output::Output;
 use crate::submit::{analyze, execute, plan};
 use std::path::PathBuf;
+use std::sync::Arc;
 use tracing::{debug, info};
 
 /// Submit bookmarks and their dependencies as GitLab MRs
@@ -18,8 +20,12 @@ pub async fn submit(
     bookmarks: Vec<String>,
     _remote: String,
     dry_run: bool,
+    verbose: bool,
 ) -> Result<()> {
-    info!("Starting submit for {} bookmarks", bookmarks.len());
+    // Create output manager
+    let output = Arc::new(Output::new(verbose));
+
+    output.log_message(format!("Submitting bookmarks: {}", bookmarks.join(", ")));
 
     if bookmarks.is_empty() {
         return Err(Error::Config {
@@ -76,80 +82,85 @@ pub async fn submit(
     debug!("Performing topological sort");
     let sorted_bookmarks = bookmark_graph.topological_sort(&bookmarks)?;
 
-    info!(
+    debug!(
         "Submission order (topological): {}",
         sorted_bookmarks.join(" → ")
     );
 
     // Run the three-phase process ONCE for all bookmarks
     debug!("Analyzing {} bookmarks", sorted_bookmarks.len());
-    info!("Analyzing {} bookmarks...", sorted_bookmarks.len());
     let analysis = analyze::analyze(&jj, &config, &sorted_bookmarks).await?;
 
     debug!("Creating submission plan");
-    info!("Creating submission plan...");
     let submission_plan =
         plan::plan(&analysis, &jj, &gitlab, &config, &bookmark_graph, dry_run).await?;
 
     debug!("Executing submission plan");
-    info!("Executing plan...");
-    let result = execute::execute(&submission_plan, &jj, &gitlab, &config).await?;
+    let result = execute::execute(&submission_plan, &jj, &gitlab, &config, output.clone()).await?;
+
+    // Finish spinner before showing summary
+    output.finish();
 
     // Display summary
     info!("\n═══════════════════════════════════════");
     info!("Summary");
     info!("═══════════════════════════════════════");
 
-    if result.errors.is_empty() {
-        info!(
-            "✓ {} bookmark{} submitted",
-            analysis.bookmarks_to_submit.len(),
-            if analysis.bookmarks_to_submit.len() == 1 {
-                ""
-            } else {
-                "s"
-            }
-        );
-    } else {
-        info!("✗ {} error(s) occurred", result.errors.len());
+    // Show bookmarks submitted
+    info!(
+        "Bookmarks submitted: {}",
+        analysis.bookmarks_to_submit.join(", ")
+    );
+
+    // Show bookmarks pushed
+    if !result.bookmarks_pushed.is_empty() {
+        info!("Pushed: {}", result.bookmarks_pushed.join(", "));
+    }
+
+    // Show created MRs with details
+    if !result.mrs_created_details.is_empty() {
+        info!("");
+        info!("Created MRs:");
+        for detail in &result.mrs_created_details {
+            info!(
+                "  {}: {} - !{}: {}",
+                detail.bookmark, detail.title, detail.iid, detail.web_url
+            );
+        }
+    }
+
+    // Show updated MRs with details and update type
+    if !result.mrs_updated_details.is_empty() {
+        info!("");
+        info!("Updated MRs:");
+        for detail in &result.mrs_updated_details {
+            let update_desc = match &detail.update_type {
+                execute::MRUpdateType::Repointed {
+                    old_target,
+                    new_target,
+                } => format!("repointed from {} to {}", old_target, new_target),
+                execute::MRUpdateType::DescriptionUpdated => "description updated".to_string(),
+                execute::MRUpdateType::Both {
+                    old_target,
+                    new_target,
+                } => format!(
+                    "repointed from {} to {} and description updated",
+                    old_target, new_target
+                ),
+            };
+            info!(
+                "  {}: {} - !{}: {} ({})",
+                detail.bookmark, detail.title, detail.iid, detail.web_url, update_desc
+            );
+        }
+    }
+
+    // Show errors
+    if !result.errors.is_empty() {
+        info!("");
+        info!("✗ {} error(s) occurred:", result.errors.len());
         for error in &result.errors {
             info!("  • {}", error);
-        }
-        info!("");
-    }
-
-    // Show MR status breakdown
-    if result.mrs_created > 0 {
-        info!(
-            "✓ {} MR{} created",
-            result.mrs_created,
-            if result.mrs_created == 1 { "" } else { "s" }
-        );
-    }
-    if result.mrs_updated > 0 {
-        info!(
-            "✓ {} MR{} updated",
-            result.mrs_updated,
-            if result.mrs_updated == 1 { "" } else { "s" }
-        );
-    }
-    if result.mrs_unchanged > 0 {
-        info!(
-            "✓ {} MR{} unchanged",
-            result.mrs_unchanged,
-            if result.mrs_unchanged == 1 { "" } else { "s" }
-        );
-    }
-
-    // Always show links (deduplicated by IID)
-    if !result.merge_requests.is_empty() {
-        info!("");
-        info!("Links:");
-        let mut seen_iids = std::collections::HashSet::new();
-        for mr in &result.merge_requests {
-            if seen_iids.insert(mr.iid) {
-                info!("  !{}: {}", mr.iid, mr.web_url);
-            }
         }
     }
 

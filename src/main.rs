@@ -116,7 +116,7 @@ async fn main() -> Result<()> {
                 }
             };
 
-            submit::submit(repo_path, bookmarks, remote, dry_run).await?;
+            submit::submit(repo_path, bookmarks, remote, dry_run, cli.verbose).await?;
             Ok(())
         }
         Commands::Init => {
