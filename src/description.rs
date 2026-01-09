@@ -1,3 +1,9 @@
+use crate::bookmark::BranchStack;
+use crate::config::StackFormat;
+use crate::error::Result;
+use crate::gitlab::MergeRequest;
+use std::collections::HashMap;
+
 /// Stack description management and formatting for MR descriptions
 /// Abstraction for different stack visualization formats
 pub trait DescriptionFormatter {
@@ -205,6 +211,88 @@ impl DescriptionManager {
 
         result
     }
+}
+
+/// Generate description for a bookmark that may be in multiple stacks
+pub fn generate_multi_stack_description(
+    bookmark: &str,
+    stacks: &[&BranchStack],
+    existing_mrs: &HashMap<String, MergeRequest>,
+    format: &StackFormat,
+    base_branch: &str,
+) -> Result<String> {
+    if stacks.is_empty() {
+        return Ok(String::new());
+    }
+
+    // Create formatter based on config
+    let formatter: Box<dyn DescriptionFormatter> = match format {
+        StackFormat::Linear => Box::new(LinearListFormatter),
+    };
+
+    if stacks.len() == 1 {
+        // Single stack - use existing format
+        let stack = stacks[0];
+        let stack_info: Vec<StackBookmarkInfo> = stack
+            .bookmarks
+            .iter()
+            .map(|bm| StackBookmarkInfo {
+                name: bm.clone(),
+                mr_iid: existing_mrs.get(bm).map(|mr| mr.iid),
+                mr_url: existing_mrs.get(bm).map(|mr| mr.web_url.clone()),
+            })
+            .collect();
+
+        let context = StackContext {
+            bookmarks: stack_info,
+            base_branch: base_branch.to_string(),
+        };
+
+        return Ok(formatter.format_stack(&context, bookmark));
+    }
+
+    // Multiple stacks - format each separately
+    let mut lines = Vec::new();
+    lines.push(format!("This MR is part of {} stacks:", stacks.len()));
+    lines.push("".to_string());
+
+    for (idx, stack) in stacks.iter().enumerate() {
+        lines.push(format!(
+            "Stack {} ({} MRs):",
+            idx + 1,
+            stack.bookmarks.len()
+        ));
+
+        // Build StackContext for this stack
+        let stack_info: Vec<StackBookmarkInfo> = stack
+            .bookmarks
+            .iter()
+            .map(|bm| StackBookmarkInfo {
+                name: bm.clone(),
+                mr_iid: existing_mrs.get(bm).map(|mr| mr.iid),
+                mr_url: existing_mrs.get(bm).map(|mr| mr.web_url.clone()),
+            })
+            .collect();
+
+        let context = StackContext {
+            bookmarks: stack_info,
+            base_branch: base_branch.to_string(),
+        };
+
+        // Format this stack
+        let stack_desc = formatter.format_stack(&context, bookmark);
+
+        // Add indented stack lines (skip the header line "This MR is part of...")
+        for line in stack_desc.lines().skip(2) {
+            lines.push(line.to_string());
+        }
+
+        if idx < stacks.len() - 1 {
+            lines.push("".to_string()); // Blank line between stacks
+        }
+    }
+
+    Ok(lines.join("\n"))
 }
 
 #[cfg(test)]

@@ -192,7 +192,7 @@ pub async fn execute(
                         let parsed = desc_manager.parse_description(existing_description);
 
                         // Generate new stack section (without markers)
-                        match crate::submit::plan::generate_multi_stack_description(
+                        match crate::description::generate_multi_stack_description(
                             bookmark,
                             &containing_stacks,
                             &all_mrs,

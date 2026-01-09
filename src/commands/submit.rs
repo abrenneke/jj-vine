@@ -120,13 +120,25 @@ pub async fn submit(
 
     // Show MR status breakdown
     if result.mrs_created > 0 {
-        info!("✓ {} MR{} created", result.mrs_created, if result.mrs_created == 1 { "" } else { "s" });
+        info!(
+            "✓ {} MR{} created",
+            result.mrs_created,
+            if result.mrs_created == 1 { "" } else { "s" }
+        );
     }
     if result.mrs_updated > 0 {
-        info!("✓ {} MR{} updated", result.mrs_updated, if result.mrs_updated == 1 { "" } else { "s" });
+        info!(
+            "✓ {} MR{} updated",
+            result.mrs_updated,
+            if result.mrs_updated == 1 { "" } else { "s" }
+        );
     }
     if result.mrs_unchanged > 0 {
-        info!("✓ {} MR{} unchanged", result.mrs_unchanged, if result.mrs_unchanged == 1 { "" } else { "s" });
+        info!(
+            "✓ {} MR{} unchanged",
+            result.mrs_unchanged,
+            if result.mrs_unchanged == 1 { "" } else { "s" }
+        );
     }
 
     // Always show links (deduplicated by IID)
@@ -152,10 +164,4 @@ pub async fn submit(
     }
 
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    // Note: Full integration testing would require setting up a test jj repo and GitLab instance
-    // For now, we verify the structure compiles
 }

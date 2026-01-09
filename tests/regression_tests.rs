@@ -447,7 +447,7 @@ async fn test_base_branch_not_pushed() {
         stack_format: jj_mrs::config::StackFormat::Linear,
     };
 
-    let analysis = analyze::analyze(&jj, &config, "feature-2")
+    let analysis = analyze::analyze(&jj, &config, &["feature-2".to_string()])
         .await
         .expect("Failed to analyze");
 
@@ -515,7 +515,7 @@ async fn test_single_bookmark_not_push_base() {
         stack_format: jj_mrs::config::StackFormat::Linear,
     };
 
-    let analysis = analyze::analyze(&jj, &config, "feature-1")
+    let analysis = analyze::analyze(&jj, &config, &["feature-1".to_string()])
         .await
         .expect("Failed to analyze");
 
@@ -566,7 +566,7 @@ async fn test_submit_base_branch_errors() {
     };
 
     // Attempting to submit main should error
-    let result = analyze::analyze(&jj, &config, "main").await;
+    let result = analyze::analyze(&jj, &config, &["main".to_string()]).await;
 
     assert!(result.is_err(), "Should error when submitting base branch");
 
