@@ -5,6 +5,7 @@ use crate::gitlab::GitLabClient;
 use crate::jj::Jujutsu;
 use crate::output::Output;
 use crate::submit::{analyze, execute, plan};
+use console::style;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::{debug, info};
@@ -103,54 +104,54 @@ pub async fn submit(
 
     // Display summary
     info!("\n═══════════════════════════════════════");
-    info!("Summary");
+    info!("{}", style("Summary").bold());
     info!("═══════════════════════════════════════");
-
-    // Show bookmarks submitted
-    info!(
-        "Bookmarks submitted: {}",
-        analysis.bookmarks_to_submit.join(", ")
-    );
 
     // Show bookmarks pushed
     if !result.bookmarks_pushed.is_empty() {
         info!("Pushed: {}", result.bookmarks_pushed.join(", "));
     }
 
-    // Show created MRs with details
-    if !result.mrs_created_details.is_empty() {
+    // Show all MRs in one unified list
+    if !result.mrs_created_details.is_empty()
+        || !result.mrs_updated_details.is_empty()
+        || !result.mrs_unchanged_details.is_empty()
+    {
         info!("");
-        info!("Created MRs:");
+        info!("{}", style("Merge Requests:").bold());
+
+        // Display created MRs
         for detail in &result.mrs_created_details {
             info!(
-                "  {}: {} - !{}: {}",
-                detail.bookmark, detail.title, detail.iid, detail.web_url
+                "  {}: {} - {} {}: {}",
+                detail.bookmark,
+                detail.title,
+                style(format!("!{}", detail.iid)).cyan(),
+                style("[created]").green(),
+                style(&detail.web_url).dim()
             );
         }
-    }
 
-    // Show updated MRs with details and update type
-    if !result.mrs_updated_details.is_empty() {
-        info!("");
-        info!("Updated MRs:");
+        // Display updated MRs
         for detail in &result.mrs_updated_details {
-            let update_desc = match &detail.update_type {
-                execute::MRUpdateType::Repointed {
-                    old_target,
-                    new_target,
-                } => format!("repointed from {} to {}", old_target, new_target),
-                execute::MRUpdateType::DescriptionUpdated => "description updated".to_string(),
-                execute::MRUpdateType::Both {
-                    old_target,
-                    new_target,
-                } => format!(
-                    "repointed from {} to {} and description updated",
-                    old_target, new_target
-                ),
-            };
             info!(
-                "  {}: {} - !{}: {} ({})",
-                detail.bookmark, detail.title, detail.iid, detail.web_url, update_desc
+                "  {}: {} - {} {}: {}",
+                detail.bookmark,
+                detail.title,
+                style(format!("!{}", detail.iid)).cyan(),
+                style("[updated]").green(),
+                style(&detail.web_url).dim()
+            );
+        }
+
+        // Display unchanged MRs (no status label)
+        for detail in &result.mrs_unchanged_details {
+            info!(
+                "  {}: {} - {}: {}",
+                detail.bookmark,
+                detail.title,
+                style(format!("!{}", detail.iid)).cyan(),
+                style(&detail.web_url).dim()
             );
         }
     }

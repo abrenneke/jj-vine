@@ -739,7 +739,7 @@ async fn test_submit_tracked_ignores_untracked_merge_commits() {
         repo.path.clone(),
         vec![tracked_feature],
         "origin".to_string(),
-        true, // dry_run
+        true,  // dry_run
         false, // verbose
     )
     .await;

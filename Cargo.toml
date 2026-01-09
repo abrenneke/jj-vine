@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+chrono = "0.4.42"
 clap = { version = "4.5.54", features = ["derive"] }
 console = "0.16.2"
 dialoguer = "0.12.0"

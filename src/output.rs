@@ -62,21 +62,7 @@ impl Output {
         }
     }
 
-    /// Log a completed action (persists above spinner)
-    pub fn log_completed(&self, message: impl AsRef<str>) {
-        match self.mode {
-            OutputMode::Interactive => {
-                if let Some(ref spinner) = self.spinner {
-                    spinner.lock().unwrap().println(message.as_ref());
-                }
-            }
-            OutputMode::Flat => {
-                info!("{}", message.as_ref());
-            }
-        }
-    }
-
-    /// Log a static message (for banners, summaries, etc.)
+    /// Log a static message (for banners, summaries, completions, etc.)
     pub fn log_message(&self, message: impl AsRef<str>) {
         match self.mode {
             OutputMode::Interactive => {

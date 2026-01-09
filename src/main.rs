@@ -2,9 +2,10 @@ use clap::{Parser, Subcommand};
 use jj_mrs::commands::{init, submit};
 use jj_mrs::error::{Error, Result};
 use jj_mrs::jj::Jujutsu;
+use jj_mrs::tracing_formatter::PlainFormatter;
 use std::env;
 use std::path::PathBuf;
-use tracing_subscriber::EnvFilter;
+use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 #[derive(Parser)]
 #[command(name = "jj-mrs")]
@@ -59,17 +60,15 @@ async fn main() -> Result<()> {
 
     if cli.verbose {
         // Verbose mode: Keep timestamps and level
-        tracing_subscriber::fmt()
-            .with_env_filter(filter)
-            .with_target(false)
+        tracing_subscriber::registry()
+            .with(filter)
+            .with(fmt::layer().event_format(PlainFormatter::new().with_level(true).with_timestamp(true)))
             .init();
     } else {
         // Default mode: Hide timestamps and level - just show log text
-        tracing_subscriber::fmt()
-            .with_env_filter(filter)
-            .with_target(false)
-            .with_level(false)
-            .without_time()
+        tracing_subscriber::registry()
+            .with(filter)
+            .with(fmt::layer().event_format(PlainFormatter::new()))
             .init();
     }
 

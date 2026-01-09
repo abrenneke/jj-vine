@@ -7,3 +7,4 @@ pub mod gitlab;
 pub mod jj;
 pub mod output;
 pub mod submit;
+pub mod tracing_formatter;
