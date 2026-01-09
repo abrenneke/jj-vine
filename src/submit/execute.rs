@@ -162,41 +162,75 @@ pub async fn execute(
                         }
                     }
 
-                    // Generate description showing ALL stacks this bookmark is part of
-                    match crate::submit::plan::generate_multi_stack_description(
-                        bookmark,
-                        &containing_stacks,
-                        &all_mrs,
-                        &config.stack_format,
-                        &config.default_branch,
-                    ) {
-                        Ok(description) => {
-                            // Update the MR description if we found the MR
-                            if let Some(mr) = all_mrs.get(bookmark) {
-                                match gitlab.update_mr_description(mr.iid, &description).await {
-                                    Ok(updated_mr) => {
-                                        output::output(&format!(
-                                            "Updated MR !{} description",
-                                            updated_mr.iid
-                                        ))?;
-                                        merge_requests.push(updated_mr);
-                                    }
-                                    Err(e) => {
-                                        let error_msg = format!(
-                                            "Failed to update MR description for {}: {}",
-                                            bookmark, e
-                                        );
-                                        output::error(&error_msg)?;
-                                        errors.push(error_msg);
+                    // Get current MR (which contains existing description)
+                    if let Some(current_mr) = all_mrs.get(bookmark) {
+                        let existing_description = current_mr.description.as_deref().unwrap_or("");
+
+                        // Create DescriptionManager
+                        let formatter: Box<dyn crate::description::DescriptionFormatter> =
+                            match config.stack_format {
+                                crate::config::StackFormat::Linear => {
+                                    Box::new(crate::description::LinearListFormatter)
+                                }
+                            };
+                        let desc_manager = crate::description::DescriptionManager::new(formatter);
+
+                        // Parse existing description to extract user content before and after
+                        let parsed = desc_manager.parse_description(existing_description);
+
+                        // Generate new stack section (without markers)
+                        match crate::submit::plan::generate_multi_stack_description(
+                            bookmark,
+                            &containing_stacks,
+                            &all_mrs,
+                            &config.stack_format,
+                            &config.default_branch,
+                        ) {
+                            Ok(stack_content) => {
+                                // Build complete description with preserved user content
+                                let new_description = desc_manager.build_description(
+                                    parsed.content_before.as_deref(),
+                                    parsed.content_after.as_deref(),
+                                    &stack_content,
+                                );
+
+                                // Diff check - only update if changed
+                                if existing_description == new_description {
+                                    output::output(&format!(
+                                        "Skipping MR !{} description (unchanged)",
+                                        current_mr.iid
+                                    ))?;
+                                } else {
+                                    match gitlab
+                                        .update_mr_description(current_mr.iid, &new_description)
+                                        .await
+                                    {
+                                        Ok(updated_mr) => {
+                                            output::output(&format!(
+                                                "Updated MR !{} description",
+                                                updated_mr.iid
+                                            ))?;
+                                            merge_requests.push(updated_mr);
+                                        }
+                                        Err(e) => {
+                                            let error_msg = format!(
+                                                "Failed to update MR description for {}: {}",
+                                                bookmark, e
+                                            );
+                                            output::error(&error_msg)?;
+                                            errors.push(error_msg);
+                                        }
                                     }
                                 }
                             }
-                        }
-                        Err(e) => {
-                            let error_msg =
-                                format!("Failed to generate description for {}: {}", bookmark, e);
-                            output::error(&error_msg)?;
-                            errors.push(error_msg);
+                            Err(e) => {
+                                let error_msg = format!(
+                                    "Failed to generate description for {}: {}",
+                                    bookmark, e
+                                );
+                                output::error(&error_msg)?;
+                                errors.push(error_msg);
+                            }
                         }
                     }
                 }

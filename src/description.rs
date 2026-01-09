@@ -76,8 +76,10 @@ pub struct StackBookmarkInfo {
 
 /// Result of parsing a description
 pub struct ParsedDescription {
-    /// User-provided content (everything outside the stack section)
-    pub user_content: Option<String>,
+    /// User-provided content before the stack section
+    pub content_before: Option<String>,
+    /// User-provided content after the stack section
+    pub content_after: Option<String>,
 }
 
 /// Manager for parsing and generating MR descriptions
@@ -91,58 +93,114 @@ impl DescriptionManager {
         Self { formatter }
     }
 
-    /// Parse an existing description and extract user content
+    /// Parse an existing description and extract user content before and after markers
     pub fn parse_description(&self, description: &str) -> ParsedDescription {
         if description.is_empty() {
-            return ParsedDescription { user_content: None };
+            return ParsedDescription {
+                content_before: None,
+                content_after: None,
+            };
         }
 
         let start_marker = self.formatter.start_marker();
         let end_marker = self.formatter.end_marker();
 
-        // If no stack section markers, entire description is user content
+        // If no stack section markers, entire description is content before
         if !description.contains(start_marker) {
             return ParsedDescription {
-                user_content: Some(description.to_string()),
+                content_before: Some(description.to_string()),
+                content_after: None,
             };
         }
 
-        // Find the end marker and extract content after it
-        if let Some(end_pos) = description.find(end_marker) {
-            let after_marker = &description[end_pos + end_marker.len()..];
-            let trimmed = after_marker.trim();
+        // Find start and end markers
+        let start_pos = description.find(start_marker);
+        let end_pos = description.find(end_marker);
 
-            let user_content = if trimmed.is_empty() {
-                None
-            } else {
-                Some(trimmed.to_string())
-            };
+        match (start_pos, end_pos) {
+            (Some(start), Some(end)) if start < end => {
+                // Both markers found in correct order
+                let before = &description[..start];
+                let after = &description[end + end_marker.len()..];
 
-            return ParsedDescription { user_content };
+                let content_before = if before.trim().is_empty() {
+                    None
+                } else {
+                    Some(before.trim().to_string())
+                };
+
+                let content_after = if after.trim().is_empty() {
+                    None
+                } else {
+                    Some(after.trim().to_string())
+                };
+
+                ParsedDescription {
+                    content_before,
+                    content_after,
+                }
+            }
+            _ => {
+                // Malformed markers - treat entire description as content before
+                ParsedDescription {
+                    content_before: Some(description.to_string()),
+                    content_after: None,
+                }
+            }
         }
+    }
 
-        // If end marker not found, malformed description - treat entire thing as user content
-        ParsedDescription {
-            user_content: Some(description.to_string()),
-        }
+    /// Get the start marker for this formatter
+    pub fn start_marker(&self) -> &'static str {
+        self.formatter.start_marker()
+    }
+
+    /// Get the end marker for this formatter
+    pub fn end_marker(&self) -> &'static str {
+        self.formatter.end_marker()
     }
 
     /// Generate a new description with stack visualization and user content
     pub fn generate_description(
         &self,
-        user_content: Option<&str>,
+        content_before: Option<&str>,
+        content_after: Option<&str>,
         stack_context: &StackContext,
         current_bookmark: &str,
     ) -> String {
+        let stack_section = self.formatter.format_stack(stack_context, current_bookmark);
+        self.build_description(content_before, content_after, &stack_section)
+    }
+
+    /// Build a description with pre-formatted stack content and user content
+    pub fn build_description(
+        &self,
+        content_before: Option<&str>,
+        content_after: Option<&str>,
+        stack_content: &str,
+    ) -> String {
         let start_marker = self.formatter.start_marker();
         let end_marker = self.formatter.end_marker();
-        let stack_section = self.formatter.format_stack(stack_context, current_bookmark);
 
-        let mut result = format!("{}\n{}\n{}", start_marker, stack_section, end_marker);
+        let mut result = String::new();
 
-        if let Some(content) = user_content {
+        // Add content before markers
+        if let Some(before) = content_before {
+            result.push_str(before);
             result.push_str("\n\n");
-            result.push_str(content);
+        }
+
+        // Add stack section with markers
+        result.push_str(start_marker);
+        result.push('\n');
+        result.push_str(stack_content);
+        result.push('\n');
+        result.push_str(end_marker);
+
+        // Add content after markers
+        if let Some(after) = content_after {
+            result.push_str("\n\n");
+            result.push_str(after);
         }
 
         result
@@ -157,7 +215,8 @@ mod tests {
     fn test_parse_empty_description() {
         let manager = DescriptionManager::new(Box::new(LinearListFormatter));
         let parsed = manager.parse_description("");
-        assert!(parsed.user_content.is_none());
+        assert!(parsed.content_before.is_none());
+        assert!(parsed.content_after.is_none());
     }
 
     #[test]
@@ -165,9 +224,10 @@ mod tests {
         let manager = DescriptionManager::new(Box::new(LinearListFormatter));
         let parsed = manager.parse_description("User's description here");
         assert_eq!(
-            parsed.user_content,
+            parsed.content_before,
             Some("User's description here".to_string())
         );
+        assert!(parsed.content_after.is_none());
     }
 
     #[test]
@@ -176,7 +236,8 @@ mod tests {
             "<!-- start jj-mrs stack -->\nStack info\n<!-- end jj-mrs stack -->\n\nUser content";
         let manager = DescriptionManager::new(Box::new(LinearListFormatter));
         let parsed = manager.parse_description(desc);
-        assert_eq!(parsed.user_content, Some("User content".to_string()));
+        assert!(parsed.content_before.is_none());
+        assert_eq!(parsed.content_after, Some("User content".to_string()));
     }
 
     #[test]
@@ -199,7 +260,7 @@ mod tests {
             base_branch: "main".to_string(),
         };
 
-        let desc = manager.generate_description(None, &stack, "bookmark-b");
+        let desc = manager.generate_description(None, None, &stack, "bookmark-b");
 
         assert!(desc.contains("<!-- start jj-mrs stack -->"));
         assert!(desc.contains("<!-- end jj-mrs stack -->"));
@@ -219,7 +280,7 @@ mod tests {
             base_branch: "main".to_string(),
         };
 
-        let desc = manager.generate_description(Some("User stuff"), &stack, "bookmark-a");
+        let desc = manager.generate_description(None, Some("User stuff"), &stack, "bookmark-a");
         assert!(desc.ends_with("User stuff"));
     }
 
@@ -297,5 +358,90 @@ mod tests {
         // Other MR with link should also use !{iid} format
         assert!(output.contains("3. alt-feature - !19"));
         assert!(!output.contains("[alt-feature](https://gitlab"));
+    }
+
+    #[test]
+    fn test_parse_no_end_marker_malformed() {
+        let desc = "<!-- start jj-mrs stack -->\nStack info without end";
+        let manager = DescriptionManager::new(Box::new(LinearListFormatter));
+        let parsed = manager.parse_description(desc);
+        assert_eq!(parsed.content_before, Some(desc.to_string()));
+        assert!(parsed.content_after.is_none());
+    }
+
+    #[test]
+    fn test_round_trip_preserves_user_content() {
+        let manager = DescriptionManager::new(Box::new(LinearListFormatter));
+        let original =
+            "<!-- start jj-mrs stack -->\nOld stack\n<!-- end jj-mrs stack -->\n\nMy notes";
+        let parsed = manager.parse_description(original);
+
+        let stack = StackContext {
+            bookmarks: vec![StackBookmarkInfo {
+                name: "feature".to_string(),
+                mr_iid: Some(100),
+                mr_url: Some("url".to_string()),
+            }],
+            base_branch: "main".to_string(),
+        };
+
+        let new_desc = manager.generate_description(
+            parsed.content_before.as_deref(),
+            parsed.content_after.as_deref(),
+            &stack,
+            "feature",
+        );
+        assert!(new_desc.contains("My notes"));
+    }
+
+    #[test]
+    fn test_generate_no_trailing_whitespace_when_no_user_content() {
+        let manager = DescriptionManager::new(Box::new(LinearListFormatter));
+        let stack = StackContext {
+            bookmarks: vec![StackBookmarkInfo {
+                name: "f".to_string(),
+                mr_iid: Some(1),
+                mr_url: Some("u".to_string()),
+            }],
+            base_branch: "main".to_string(),
+        };
+
+        let desc = manager.generate_description(None, None, &stack, "f");
+        assert!(desc.ends_with("<!-- end jj-mrs stack -->"));
+    }
+
+    #[test]
+    fn test_parse_content_before_and_after_markers() {
+        let manager = DescriptionManager::new(Box::new(LinearListFormatter));
+        let desc = "Content before\n\n<!-- start jj-mrs stack -->\nStack info\n<!-- end jj-mrs stack -->\n\nContent after";
+        let parsed = manager.parse_description(desc);
+
+        assert_eq!(parsed.content_before, Some("Content before".to_string()));
+        assert_eq!(parsed.content_after, Some("Content after".to_string()));
+    }
+
+    #[test]
+    fn test_generate_with_content_before_and_after() {
+        let manager = DescriptionManager::new(Box::new(LinearListFormatter));
+        let stack = StackContext {
+            bookmarks: vec![StackBookmarkInfo {
+                name: "feature".to_string(),
+                mr_iid: Some(100),
+                mr_url: Some("url".to_string()),
+            }],
+            base_branch: "main".to_string(),
+        };
+
+        let desc = manager.generate_description(
+            Some("Before content"),
+            Some("After content"),
+            &stack,
+            "feature",
+        );
+
+        assert!(desc.starts_with("Before content"));
+        assert!(desc.contains("<!-- start jj-mrs stack -->"));
+        assert!(desc.contains("<!-- end jj-mrs stack -->"));
+        assert!(desc.ends_with("After content"));
     }
 }
