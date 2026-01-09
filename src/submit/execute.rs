@@ -6,68 +6,46 @@ use crate::output::Output;
 use crate::submit::plan::{Action, SubmissionPlan};
 use console::style;
 use std::sync::Arc;
-use tracing::{error as log_error, info};
+use tracing::error;
 
 /// Result of executing a submission plan
 #[derive(Debug, Clone)]
 pub struct SubmissionResult {
     /// All MRs (created, updated, and unchanged)
-    pub merge_requests: Vec<MergeRequest>,
-
-    /// Number of MRs created
-    pub mrs_created: usize,
-
-    /// Number of MRs updated
-    pub mrs_updated: usize,
-
-    /// Number of MRs unchanged
-    pub mrs_unchanged: usize,
+    pub merge_requests: Vec<MRUpdate>,
 
     /// Any errors that occurred (non-fatal)
     pub errors: Vec<String>,
 
     /// Bookmarks that were successfully pushed
     pub bookmarks_pushed: Vec<String>,
-
-    /// MRs that were created (with titles)
-    pub mrs_created_details: Vec<MRDetail>,
-
-    /// MRs that were updated (with update type)
-    pub mrs_updated_details: Vec<MRUpdateDetail>,
-
-    /// MRs that were unchanged
-    pub mrs_unchanged_details: Vec<MRDetail>,
 }
 
-/// Details about a created MR
 #[derive(Debug, Clone)]
-pub struct MRDetail {
+pub struct MRUpdate {
+    pub mr: MergeRequest,
     pub bookmark: String,
-    pub title: String,
-    pub iid: u64,
-    pub web_url: String,
-}
-
-/// Details about an updated MR
-#[derive(Debug, Clone)]
-pub struct MRUpdateDetail {
-    pub bookmark: String,
-    pub title: String,
-    pub iid: u64,
-    pub web_url: String,
     pub update_type: MRUpdateType,
 }
 
 /// Type of MR update
 #[derive(Debug, Clone)]
 pub enum MRUpdateType {
+    /// MR was unchanged
+    Unchanged,
+
+    /// MR was created
+    Created,
+
     /// Target branch was changed (repointed)
     Repointed {
         old_target: String,
         new_target: String,
     },
+
     /// Description was updated
     DescriptionUpdated,
+
     /// Both target and description updated
     Both {
         old_target: String,
@@ -90,16 +68,10 @@ pub async fn execute(
     let mut merge_requests = Vec::new();
     let mut errors = Vec::new();
     let mut failed_pushes = std::collections::HashSet::new();
-    let mut mrs_created = 0;
-    let mut mrs_updated = 0;
-    let mut mrs_unchanged = 0;
     let mut bookmarks_pushed = Vec::new();
-    let mut mrs_created_details = Vec::new();
-    let mut mrs_updated_details = Vec::new();
-    let mut mrs_unchanged_details = Vec::new();
 
     if plan.dry_run {
-        info!("DRY RUN - No changes will be made");
+        output.log_message("DRY RUN - No changes will be made");
     }
 
     output.log_current("Preparing submission...");
@@ -111,17 +83,17 @@ pub async fn execute(
                     output.log_current(format!("Would push {} to {}", bookmark, remote));
                     output.log_message(format!("Would push {} to {}", bookmark, remote));
                 } else {
-                    output.log_current(format!("Pushing {}...", bookmark));
+                    output.log_current(format!("Pushing {}...", style(bookmark).magenta()));
 
                     match jj.push_bookmark(bookmark, remote) {
                         Ok(_) => {
-                            output.log_message(format!("Pushed {}", style(bookmark).green()));
+                            output.log_completed(format!("Pushed {}", style(bookmark).magenta()));
                             bookmarks_pushed.push(bookmark.clone());
                         }
                         Err(e) => {
                             let error_msg = format!("Failed to push {}: {}", bookmark, e);
                             output.log_message(&error_msg);
-                            log_error!("{}", error_msg);
+                            error!("{}", error_msg);
                             errors.push(error_msg);
                             failed_pushes.insert(bookmark.clone());
                         }
@@ -152,7 +124,11 @@ pub async fn execute(
                     output.log_current(&msg);
                     output.log_message(&msg);
                 } else {
-                    output.log_current(format!("Creating MR: {} -> {}", bookmark, target_branch));
+                    output.log_current(format!(
+                        "Creating MR: {} -> {}",
+                        style(bookmark).green(),
+                        target_branch
+                    ));
 
                     let desc = if description.is_empty() {
                         None
@@ -165,24 +141,21 @@ pub async fn execute(
                         .await
                     {
                         Ok(mr) => {
-                            output.log_message(format!(
+                            output.log_completed(format!(
                                 "Created MR {}: {}",
                                 style(format!("!{}", mr.iid)).cyan(),
                                 style(&mr.web_url).dim()
                             ));
-                            mrs_created += 1;
-                            mrs_created_details.push(MRDetail {
+                            merge_requests.push(MRUpdate {
+                                mr,
                                 bookmark: bookmark.clone(),
-                                title: mr.title.clone(),
-                                iid: mr.iid,
-                                web_url: mr.web_url.clone(),
+                                update_type: MRUpdateType::Created,
                             });
-                            merge_requests.push(mr);
                         }
                         Err(e) => {
                             let error_msg = format!("Failed to create MR for {}: {}", bookmark, e);
                             output.log_message(&error_msg);
-                            log_error!("{}", error_msg);
+                            error!("{}", error_msg);
                             errors.push(error_msg);
                         }
                     }
@@ -202,7 +175,10 @@ pub async fn execute(
                     output.log_current(&msg);
                     output.log_message(&msg);
                 } else {
-                    output.log_current(format!("Updating MR !{} base...", mr_iid));
+                    output.log_current(format!(
+                        "Updating MR {} base...",
+                        style(format!("!{}", mr_iid)).cyan()
+                    ));
 
                     // Get old target before update
                     let old_target = if let Ok(Some(existing_mr)) =
@@ -215,28 +191,24 @@ pub async fn execute(
 
                     match gitlab.update_mr_base(*mr_iid, new_target_branch).await {
                         Ok(mr) => {
-                            output.log_message(format!(
+                            output.log_completed(format!(
                                 "Updated MR {}",
                                 style(format!("!{}", mr.iid)).cyan()
                             ));
-                            mrs_updated += 1;
-                            mrs_updated_details.push(MRUpdateDetail {
+                            merge_requests.push(MRUpdate {
+                                mr,
                                 bookmark: bookmark.clone(),
-                                title: mr.title.clone(),
-                                iid: mr.iid,
-                                web_url: mr.web_url.clone(),
                                 update_type: MRUpdateType::Repointed {
                                     old_target,
                                     new_target: new_target_branch.clone(),
                                 },
                             });
-                            merge_requests.push(mr);
                         }
                         Err(e) => {
                             let error_msg =
                                 format!("Failed to update MR base for {}: {}", bookmark, e);
                             output.log_message(&error_msg);
-                            log_error!("{}", error_msg);
+                            error!("{}", error_msg);
                             errors.push(error_msg);
                         }
                     }
@@ -307,18 +279,15 @@ pub async fn execute(
                                 // Diff check - only update if changed
                                 if existing_description == new_description {
                                     // Don't show any output for unchanged descriptions
-                                    mrs_unchanged += 1;
-                                    mrs_unchanged_details.push(MRDetail {
+                                    merge_requests.push(MRUpdate {
+                                        mr: current_mr.clone(),
                                         bookmark: bookmark.clone(),
-                                        title: current_mr.title.clone(),
-                                        iid: current_mr.iid,
-                                        web_url: current_mr.web_url.clone(),
+                                        update_type: MRUpdateType::Unchanged,
                                     });
-                                    merge_requests.push(current_mr.clone());
                                 } else {
                                     output.log_current(format!(
-                                        "Updating MR !{} description...",
-                                        current_mr.iid
+                                        "Updating MR {} description...",
+                                        style(format!("!{}", current_mr.iid)).cyan()
                                     ));
 
                                     match gitlab
@@ -326,19 +295,15 @@ pub async fn execute(
                                         .await
                                     {
                                         Ok(updated_mr) => {
-                                            output.log_message(format!(
+                                            output.log_completed(format!(
                                                 "Updated MR {} description",
                                                 style(format!("!{}", updated_mr.iid)).cyan()
                                             ));
-                                            mrs_updated += 1;
-                                            mrs_updated_details.push(MRUpdateDetail {
+                                            merge_requests.push(MRUpdate {
+                                                mr: updated_mr,
                                                 bookmark: bookmark.clone(),
-                                                title: updated_mr.title.clone(),
-                                                iid: updated_mr.iid,
-                                                web_url: updated_mr.web_url.clone(),
                                                 update_type: MRUpdateType::DescriptionUpdated,
                                             });
-                                            merge_requests.push(updated_mr);
                                         }
                                         Err(e) => {
                                             let error_msg = format!(
@@ -346,7 +311,7 @@ pub async fn execute(
                                                 bookmark, e
                                             );
                                             output.log_message(&error_msg);
-                                            log_error!("{}", error_msg);
+                                            error!("{}", error_msg);
                                             errors.push(error_msg);
                                         }
                                     }
@@ -358,7 +323,7 @@ pub async fn execute(
                                     bookmark, e
                                 );
                                 output.log_message(&error_msg);
-                                log_error!("{}", error_msg);
+                                error!("{}", error_msg);
                                 errors.push(error_msg);
                             }
                         }
@@ -370,48 +335,7 @@ pub async fn execute(
 
     Ok(SubmissionResult {
         merge_requests,
-        mrs_created,
-        mrs_updated,
-        mrs_unchanged,
         errors,
         bookmarks_pushed,
-        mrs_created_details,
-        mrs_updated_details,
-        mrs_unchanged_details,
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_submission_result_struct() {
-        let result = SubmissionResult {
-            merge_requests: Vec::new(),
-            mrs_created: 0,
-            mrs_updated: 0,
-            mrs_unchanged: 0,
-            errors: Vec::new(),
-            bookmarks_pushed: Vec::new(),
-            mrs_created_details: Vec::new(),
-            mrs_updated_details: Vec::new(),
-            mrs_unchanged_details: Vec::new(),
-        };
-
-        assert_eq!(result.merge_requests.len(), 0);
-        assert_eq!(result.mrs_created, 0);
-        assert_eq!(result.mrs_updated, 0);
-        assert_eq!(result.mrs_unchanged, 0);
-        assert_eq!(result.errors.len(), 0);
-        assert_eq!(result.bookmarks_pushed.len(), 0);
-        assert_eq!(result.mrs_created_details.len(), 0);
-        assert_eq!(result.mrs_updated_details.len(), 0);
-        assert_eq!(result.mrs_unchanged_details.len(), 0);
-    }
-
-    // Regression test for push failure handling:
-    // When a bookmark push fails, the corresponding MR creation should be skipped.
-    // This is tested through integration tests with actual jj commands.
-    // The fix adds failed_pushes HashSet tracking and checks it before CreateMR actions.
 }

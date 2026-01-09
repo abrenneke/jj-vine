@@ -4,8 +4,12 @@ use crate::error::{Error, Result};
 use crate::gitlab::GitLabClient;
 use crate::jj::Jujutsu;
 use crate::output::Output;
+use crate::submit::execute::{MRUpdate, MRUpdateType};
 use crate::submit::{analyze, execute, plan};
+use cli_table::format::{Border, Separator};
+use cli_table::{Cell, Table};
 use console::style;
+use itertools::Itertools;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::{debug, info};
@@ -26,7 +30,14 @@ pub async fn submit(
     // Create output manager
     let output = Arc::new(Output::new(verbose));
 
-    output.log_message(format!("Submitting bookmarks: {}", bookmarks.join(", ")));
+    output.log_message(format!(
+        "Submitting bookmarks: {}",
+        bookmarks
+            .iter()
+            .map(|b| style(b).magenta().to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    ));
 
     if bookmarks.is_empty() {
         return Err(Error::Config {
@@ -109,51 +120,64 @@ pub async fn submit(
 
     // Show bookmarks pushed
     if !result.bookmarks_pushed.is_empty() {
-        info!("Pushed: {}", result.bookmarks_pushed.join(", "));
+        let formatted_bookmarks: Vec<String> = result
+            .bookmarks_pushed
+            .iter()
+            .map(|b| style(b).magenta().to_string())
+            .collect();
+        info!("Pushed: {}", formatted_bookmarks.join(", "));
     }
 
-    // Show all MRs in one unified list
-    if !result.mrs_created_details.is_empty()
-        || !result.mrs_updated_details.is_empty()
-        || !result.mrs_unchanged_details.is_empty()
-    {
-        info!("");
-        info!("{}", style("Merge Requests:").bold());
+    if !result.merge_requests.is_empty() {
+        info!("\n{}\n", style("Merge Requests:").bold());
 
-        // Display created MRs
-        for detail in &result.mrs_created_details {
-            info!(
-                "  {}: {} - {} {}: {}",
-                detail.bookmark,
-                detail.title,
-                style(format!("!{}", detail.iid)).cyan(),
-                style("[created]").green(),
-                style(&detail.web_url).dim()
-            );
+        let mut table = vec![];
+
+        for MRUpdate {
+            mr,
+            bookmark,
+            update_type,
+        } in result.merge_requests.iter().sorted_by_key(|mr| mr.mr.iid)
+        {
+            match update_type {
+                MRUpdateType::Created => {
+                    table.push(vec![
+                        style(&bookmark).magenta().cell(),
+                        mr.title.clone().cell(),
+                        style(&mr.web_url).dim().cell(),
+                        style("[created]").green().cell(),
+                    ]);
+                }
+                MRUpdateType::Repointed { .. }
+                | MRUpdateType::Both { .. }
+                | MRUpdateType::DescriptionUpdated => {
+                    table.push(vec![
+                        style(&bookmark).magenta().cell(),
+                        mr.title.clone().cell(),
+                        style(&mr.web_url).dim().cell(),
+                        style("[updated]").green().cell(),
+                    ]);
+                }
+                MRUpdateType::Unchanged => {
+                    table.push(vec![
+                        style(&bookmark).magenta().cell(),
+                        mr.title.clone().cell(),
+                        style(&mr.web_url).dim().cell(),
+                        " ".cell(),
+                    ]);
+                }
+            }
         }
 
-        // Display updated MRs
-        for detail in &result.mrs_updated_details {
-            info!(
-                "  {}: {} - {} {}: {}",
-                detail.bookmark,
-                detail.title,
-                style(format!("!{}", detail.iid)).cyan(),
-                style("[updated]").green(),
-                style(&detail.web_url).dim()
-            );
-        }
-
-        // Display unchanged MRs (no status label)
-        for detail in &result.mrs_unchanged_details {
-            info!(
-                "  {}: {} - {}: {}",
-                detail.bookmark,
-                detail.title,
-                style(format!("!{}", detail.iid)).cyan(),
-                style(&detail.web_url).dim()
-            );
-        }
+        info!(
+            "{}",
+            table
+                .table()
+                .border(Border::builder().build())
+                .separator(Separator::builder().build())
+                .display()
+                .expect("Failed to display table")
+        );
     }
 
     // Show errors

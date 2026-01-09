@@ -76,6 +76,23 @@ impl Output {
         }
     }
 
+    /// Log a completion message and clear the current spinner status
+    pub fn log_completed(&self, message: impl AsRef<str>) {
+        self.log_message(message.as_ref());
+
+        // Clear spinner after completion
+        match self.mode {
+            OutputMode::Interactive => {
+                if let Some(ref spinner) = self.spinner {
+                    spinner.lock().unwrap().set_message("");
+                }
+            }
+            OutputMode::Flat => {
+                // Nothing to clear in flat mode
+            }
+        }
+    }
+
     /// Finish and cleanup spinner
     pub fn finish(&self) {
         if let Some(ref spinner) = self.spinner {

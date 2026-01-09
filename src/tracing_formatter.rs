@@ -1,8 +1,8 @@
 use std::fmt;
-use tracing::field::Visit;
 use tracing::Event;
-use tracing_subscriber::fmt::format::{FormatEvent, FormatFields, Writer};
+use tracing::field::Visit;
 use tracing_subscriber::fmt::FmtContext;
+use tracing_subscriber::fmt::format::{FormatEvent, FormatFields, Writer};
 use tracing_subscriber::registry::LookupSpan;
 
 /// Simple formatter that prints the message field without applying level-based coloring.

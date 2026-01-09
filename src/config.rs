@@ -360,7 +360,7 @@ mod tests {
 
         let config = Config::load(&repo_path).expect("Failed to load config");
 
-        assert_eq!(config.enable_stack_visualization, true);
+        assert!(config.enable_stack_visualization);
         assert!(matches!(config.stack_format, StackFormat::Linear));
     }
 
@@ -414,7 +414,7 @@ mod tests {
 
         let config = Config::load(&repo_path).expect("Failed to load config");
 
-        assert_eq!(config.enable_stack_visualization, false);
+        assert!(!config.enable_stack_visualization);
         assert!(matches!(config.stack_format, StackFormat::Linear)); // Still default
     }
 }

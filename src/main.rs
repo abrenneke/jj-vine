@@ -5,7 +5,7 @@ use jj_mrs::jj::Jujutsu;
 use jj_mrs::tracing_formatter::PlainFormatter;
 use std::env;
 use std::path::PathBuf;
-use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
 #[derive(Parser)]
 #[command(name = "jj-mrs")]
@@ -62,7 +62,10 @@ async fn main() -> Result<()> {
         // Verbose mode: Keep timestamps and level
         tracing_subscriber::registry()
             .with(filter)
-            .with(fmt::layer().event_format(PlainFormatter::new().with_level(true).with_timestamp(true)))
+            .with(
+                fmt::layer()
+                    .event_format(PlainFormatter::new().with_level(true).with_timestamp(true)),
+            )
             .init();
     } else {
         // Default mode: Hide timestamps and level - just show log text
