@@ -46,7 +46,10 @@ pub async fn submit(
     )?;
 
     // Sort bookmarks topologically (dependencies first)
-    debug!("Using default branch from config: {}", config.default_branch);
+    debug!(
+        "Using default branch from config: {}",
+        config.default_branch
+    );
     let default_branch = &config.default_branch;
 
     // Build revset for only the bookmarks we're submitting and their ancestors

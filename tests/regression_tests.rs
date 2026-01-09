@@ -672,7 +672,7 @@ async fn test_bookmark_graph_does_not_traverse_default_branch_history() {
 #[tokio::test]
 async fn test_submit_tracked_ignores_untracked_merge_commits() {
     use jj_mrs::commands::submit::submit;
-    use test_helpers::{unique_test_branch, GitLabTest};
+    use test_helpers::{GitLabTest, unique_test_branch};
 
     let test = match GitLabTest::setup().await {
         Some(t) => t,

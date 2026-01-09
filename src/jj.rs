@@ -125,6 +125,25 @@ impl Jujutsu {
         Ok(bookmarks)
     }
 
+    /// Count the number of commits in a revset
+    ///
+    /// Returns the count of commits that match the given revset expression.
+    pub fn count_commits_in_revset(&self, revset: &str) -> Result<usize> {
+        let output = self.run_captured(&[
+            "log",
+            "-r",
+            revset,
+            "--no-graph",
+            "--template",
+            "commit_id ++ \"\\n\"",
+        ])?;
+
+        Ok(output
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .count())
+    }
+
     /// Get changes between two revisions
     pub fn get_changes(&self, from: &str, to: &str) -> Result<Vec<Change>> {
         let revset = format!("{}::{}", from, to);

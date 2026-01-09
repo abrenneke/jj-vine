@@ -27,8 +27,14 @@ fn test_e2e_mrs_config() {
     let repo = TestRepo::new().expect("Failed to create test repo");
 
     // Initialize MRS config
-    repo.init_mrs_config("https://gitlab.example.com", "test/project", "test-token", None, false)
-        .expect("Failed to init MRS config");
+    repo.init_mrs_config(
+        "https://gitlab.example.com",
+        "test/project",
+        "test-token",
+        None,
+        false,
+    )
+    .expect("Failed to init MRS config");
 
     // Verify config was set
     let config = repo
@@ -43,8 +49,14 @@ fn test_tracked_and_bookmark_mutually_exclusive() {
     let repo = TestRepo::new().expect("Failed to create test repo");
 
     // Initialize config
-    repo.init_mrs_config("https://gitlab.example.com", "test/project", "test-token", None, false)
-        .expect("Failed to init MRS config");
+    repo.init_mrs_config(
+        "https://gitlab.example.com",
+        "test/project",
+        "test-token",
+        None,
+        false,
+    )
+    .expect("Failed to init MRS config");
 
     // Try to use both bookmark and --tracked
     let result = repo.jj_mrs_expect_error(&["submit", "feature-1", "--tracked"]);
@@ -67,8 +79,14 @@ fn test_submit_requires_bookmark_or_tracked() {
     let repo = TestRepo::new().expect("Failed to create test repo");
 
     // Initialize config
-    repo.init_mrs_config("https://gitlab.example.com", "test/project", "test-token", None, false)
-        .expect("Failed to init MRS config");
+    repo.init_mrs_config(
+        "https://gitlab.example.com",
+        "test/project",
+        "test-token",
+        None,
+        false,
+    )
+    .expect("Failed to init MRS config");
 
     // Try to submit without any arguments
     let result = repo.jj_mrs_expect_error(&["submit"]);
@@ -91,8 +109,14 @@ fn test_tracked_with_no_bookmarks() {
     let repo = TestRepo::new().expect("Failed to create test repo");
 
     // Initialize config
-    repo.init_mrs_config("https://gitlab.example.com", "test/project", "test-token", None, false)
-        .expect("Failed to init MRS config");
+    repo.init_mrs_config(
+        "https://gitlab.example.com",
+        "test/project",
+        "test-token",
+        None,
+        false,
+    )
+    .expect("Failed to init MRS config");
 
     // Create a git remote (bare repo)
     let remote_dir = repo.path.join("remote.git");
@@ -320,8 +344,14 @@ fn test_tracked_dry_run_end_to_end() {
     repo.jj(&["git", "fetch"]).expect("Failed to fetch");
 
     // Initialize jj-mrs config
-    repo.init_mrs_config("https://gitlab.example.com", "test/project", "test-token", None, false)
-        .expect("Failed to init MRS config");
+    repo.init_mrs_config(
+        "https://gitlab.example.com",
+        "test/project",
+        "test-token",
+        None,
+        false,
+    )
+    .expect("Failed to init MRS config");
 
     // Create and push multiple bookmarks
     repo.create_file("a.txt", "a")
@@ -523,8 +553,14 @@ fn test_tracked_excludes_default_branch() {
     let repo = TestRepo::new().expect("Failed to create test repo");
 
     // Initialize config
-    repo.init_mrs_config("https://gitlab.example.com", "test/project", "test-token", None, false)
-        .expect("Failed to init MRS config");
+    repo.init_mrs_config(
+        "https://gitlab.example.com",
+        "test/project",
+        "test-token",
+        None,
+        false,
+    )
+    .expect("Failed to init MRS config");
 
     // Create a git remote (bare repo)
     let remote_dir = repo.path.join("remote.git");
@@ -553,8 +589,7 @@ fn test_tracked_excludes_default_branch() {
     // Create initial commit and set up main bookmark
     repo.create_file("README.md", "# Test repo\n")
         .expect("Failed to create file");
-    repo.commit("Initial commit")
-        .expect("Failed to commit");
+    repo.commit("Initial commit").expect("Failed to commit");
     // Create bookmark on the previous commit (@-), not the new empty working copy (@)
     repo.jj(&["bookmark", "create", "main", "-r", "@-"])
         .expect("Failed to create main bookmark");
@@ -568,8 +603,7 @@ fn test_tracked_excludes_default_branch() {
     // Create a feature bookmark
     repo.create_file("feature.txt", "feature content")
         .expect("Failed to create file");
-    repo.commit("Add feature")
-        .expect("Failed to commit");
+    repo.commit("Add feature").expect("Failed to commit");
     // Create bookmark on the previous commit (@-), not the new empty working copy (@)
     repo.jj(&["bookmark", "create", "feature-1", "-r", "@-"])
         .expect("Failed to create feature bookmark");

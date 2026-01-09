@@ -1,7 +1,7 @@
 use crate::error::{Error, Result};
 use crate::jj::{Bookmark, Jujutsu};
 use std::collections::{HashMap, HashSet};
-use tracing::{debug, trace, warn};
+use tracing::{debug, trace};
 
 /// Bookmark dependency graph
 ///
@@ -319,77 +319,89 @@ impl BookmarkGraph {
 
     /// Find the nearest bookmarked ancestor starting from a given commit
     ///
-    /// Traverses the commit ancestry until finding a commit with a bookmark.
-    /// Returns the name of the first bookmark found, or None if no bookmarked
-    /// ancestor exists.
+    /// Uses revset queries to efficiently find bookmarked ancestors that are not
+    /// part of trunk's history. Returns the name of the nearest bookmark found,
+    /// or None if the commit is based on trunk or has no bookmarked ancestors.
     fn find_nearest_bookmarked_ancestor(
         jj: &Jujutsu,
         start_commit_id: &str,
         bookmarks: &[Bookmark],
     ) -> Result<Option<String>> {
-        use std::collections::HashSet;
-        let mut visited = HashSet::new();
-        let bookmarked_commits: HashMap<&str, &str> = bookmarks
-            .iter()
-            .map(|b| (b.commit_id.as_str(), b.name.as_str()))
+        // Query for bookmarked ancestors that are not part of trunk's history
+        // Format: "ancestors of start_commit, excluding ancestors of trunk, that have bookmarks"
+        let revset = format!("::{} ~ ::trunk() & bookmarks()", start_commit_id);
+        debug!(
+            "find_nearest_bookmarked_ancestor: querying revset: {}",
+            revset
+        );
+
+        let candidates = jj.get_bookmarks_with_revset(&revset)?;
+
+        // Filter to only include bookmarks from our provided list
+        let bookmark_names: HashSet<_> = bookmarks.iter().map(|b| b.name.as_str()).collect();
+        let candidates: Vec<_> = candidates
+            .into_iter()
+            .filter(|b| bookmark_names.contains(b.name.as_str()))
             .collect();
 
-        let mut current_id = start_commit_id.to_string();
-        let mut steps = 0;
+        debug!(
+            "find_nearest_bookmarked_ancestor: found {} candidate bookmarks",
+            candidates.len()
+        );
 
-        loop {
-            steps += 1;
-            if steps % 100 == 0 {
-                warn!(
-                    "find_nearest_bookmarked_ancestor: {} steps traversed",
-                    steps
-                );
-            }
-
-            // Avoid infinite loops
-            if visited.contains(&current_id) {
+        match candidates.len() {
+            0 => {
                 debug!(
-                    "find_nearest_bookmarked_ancestor: reached cycle after {} steps",
-                    steps
+                    "find_nearest_bookmarked_ancestor: no bookmarked ancestors found (based on trunk)"
                 );
-                return Ok(None);
+                Ok(None)
             }
-            visited.insert(current_id.clone());
-
-            // Check if current commit has a bookmark
-            if let Some(bookmark_name) = bookmarked_commits.get(current_id.as_str()) {
+            1 => {
+                let bookmark_name = &candidates[0].name;
                 debug!(
-                    "find_nearest_bookmarked_ancestor: found bookmark '{}' after {} steps",
-                    bookmark_name, steps
+                    "find_nearest_bookmarked_ancestor: found single bookmark '{}'",
+                    bookmark_name
                 );
-                return Ok(Some(bookmark_name.to_string()));
+                Ok(Some(bookmark_name.clone()))
             }
+            _ => {
+                // Multiple candidates - find the nearest one by counting commits
+                debug!("find_nearest_bookmarked_ancestor: multiple candidates, finding nearest");
 
-            // Get parent commits
-            trace!(
-                "find_nearest_bookmarked_ancestor: getting changes for commit {} (step {})",
-                &current_id[..8],
-                steps
-            );
-            let changes = jj.get_changes(&current_id, &current_id)?;
-            if let Some(change) = changes.first() {
-                if change.parent_ids.is_empty() {
-                    // Reached root with no bookmark
-                    debug!(
-                        "find_nearest_bookmarked_ancestor: reached root after {} steps",
-                        steps
+                let mut nearest_bookmark: Option<(String, usize)> = None;
+
+                for candidate in &candidates {
+                    // Count commits between the candidate and start_commit
+                    // Using revset: "candidate..start_commit" (exclusive on left, inclusive on right)
+                    let distance_revset = format!("{}..{}", candidate.commit_id, start_commit_id);
+                    let distance = jj.count_commits_in_revset(&distance_revset)?;
+
+                    trace!(
+                        "find_nearest_bookmarked_ancestor: bookmark '{}' has distance {}",
+                        candidate.name, distance
                     );
-                    return Ok(None);
+
+                    match &nearest_bookmark {
+                        None => {
+                            nearest_bookmark = Some((candidate.name.clone(), distance));
+                        }
+                        Some((_, current_min_distance)) if distance < *current_min_distance => {
+                            nearest_bookmark = Some((candidate.name.clone(), distance));
+                        }
+                        _ => {}
+                    }
                 }
-                // Follow first parent
-                current_id = change.parent_ids[0].clone();
-            } else {
-                // No change found
-                debug!(
-                    "find_nearest_bookmarked_ancestor: no change found after {} steps",
-                    steps
-                );
-                return Ok(None);
+
+                if let Some((bookmark_name, distance)) = nearest_bookmark {
+                    debug!(
+                        "find_nearest_bookmarked_ancestor: nearest bookmark is '{}' at distance {}",
+                        bookmark_name, distance
+                    );
+                    Ok(Some(bookmark_name))
+                } else {
+                    debug!("find_nearest_bookmarked_ancestor: no nearest bookmark found");
+                    Ok(None)
+                }
             }
         }
     }
