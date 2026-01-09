@@ -72,7 +72,7 @@ pub async fn submit(
         "Building bookmark graph for default branch: {}",
         default_branch
     );
-    let bookmark_graph = BookmarkGraph::build(&jj, &default_branch, relevant_bookmarks).await?;
+    let bookmark_graph = BookmarkGraph::build(&jj, default_branch, relevant_bookmarks).await?;
     debug!("Validating bookmarks");
     bookmark_graph.validate_bookmarks(&jj, &bookmarks)?;
     debug!("Performing topological sort");

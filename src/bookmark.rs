@@ -122,8 +122,6 @@ impl BookmarkGraph {
     /// all bookmarks (including those with merge commits) while only validating
     /// the ones that need to follow MR submission rules.
     pub fn validate_bookmarks(&self, jj: &Jujutsu, bookmarks: &[String]) -> Result<()> {
-        let all_bookmarks: Vec<_> = self.bookmarks.values().cloned().collect();
-
         for bookmark_name in bookmarks {
             let bookmark =
                 self.bookmarks
@@ -132,31 +130,8 @@ impl BookmarkGraph {
                         name: bookmark_name.clone(),
                     })?;
 
-            // Get the commit for this bookmark
-            let changes = jj.get_changes(&bookmark.commit_id, &bookmark.commit_id)?;
-
-            if let Some(change) = changes.first() {
-                // Check if bookmark itself is a merge commit
-                if change.parent_ids.len() > 1 {
-                    return Err(Error::InvalidGraph {
-                        message: format!(
-                            "Bookmark '{}' points to a merge commit with {} parents. \
-                             Merge commits are not supported in bookmark stacks. \
-                             Please use a linear history for stacked MRs.",
-                            bookmark_name,
-                            change.parent_ids.len()
-                        ),
-                    });
-                }
-
-                // Check ancestors for merge commits
-                Self::validate_no_merges_in_ancestors(
-                    jj,
-                    bookmark_name,
-                    &change.parent_ids,
-                    &all_bookmarks,
-                )?;
-            }
+            // Check for merge commits in the new commits (not in trunk)
+            Self::validate_no_merges_in_ancestors(jj, bookmark_name, &bookmark.commit_id)?;
         }
 
         Ok(())
@@ -406,78 +381,38 @@ impl BookmarkGraph {
         }
     }
 
-    /// Validate that no merge commits exist in the ancestor chain
+    /// Validate that no merge commits exist in the new commits
     ///
-    /// Recursively checks all ancestor commits until reaching a bookmarked commit
-    /// or the root. This catches merge commits at any depth in the history.
+    /// Only checks commits in (::bookmark ~ ::trunk()), which are the new commits
+    /// not in trunk's history. This matches how jj-stack handles merge validation.
     fn validate_no_merges_in_ancestors(
         jj: &Jujutsu,
         bookmark_name: &str,
-        parent_ids: &[String],
-        bookmarks: &[Bookmark],
+        bookmark_commit_id: &str,
     ) -> Result<()> {
-        use std::collections::HashSet;
-        let mut visited = HashSet::new();
-        let bookmarked_commits: HashSet<_> =
-            bookmarks.iter().map(|b| b.commit_id.as_str()).collect();
+        // Query for merge commits in the new commits only
+        // Uses jj's built-in trunk() revset which resolves to the trunk branch
+        let revset = format!("(::{}  ~ ::trunk()) & merges()", bookmark_commit_id);
 
-        for parent_id in parent_ids {
-            Self::check_ancestors_recursive(
-                jj,
-                bookmark_name,
-                parent_id,
-                &bookmarked_commits,
-                &mut visited,
-            )?;
-        }
-        Ok(())
-    }
+        let output = jj.run_captured(&[
+            "log",
+            "-r",
+            &revset,
+            "--no-graph",
+            "-T",
+            r#"commit_id ++ " parents: " ++ parents.len()"#,
+        ])?;
 
-    /// Recursively check ancestors for merge commits
-    fn check_ancestors_recursive(
-        jj: &Jujutsu,
-        original_bookmark: &str,
-        commit_id: &str,
-        bookmarked_commits: &HashSet<&str>,
-        visited: &mut HashSet<String>,
-    ) -> Result<()> {
-        // Stop if we've already checked this commit
-        if visited.contains(commit_id) {
-            return Ok(());
-        }
-        visited.insert(commit_id.to_string());
-
-        // Stop if this commit has a bookmark (different stack)
-        if bookmarked_commits.contains(commit_id) {
-            return Ok(());
-        }
-
-        // Get the commit's parents
-        let changes = jj.get_changes(commit_id, commit_id)?;
-        if let Some(change) = changes.first() {
-            // Check if this is a merge commit
-            if change.parent_ids.len() > 1 {
-                return Err(Error::InvalidGraph {
-                    message: format!(
-                        "Bookmark '{}' has an ancestor commit that is a merge with {} parents. \
-                         Merge commits are not supported in bookmark stacks. \
-                         Please use a linear history for stacked MRs.",
-                        original_bookmark,
-                        change.parent_ids.len()
-                    ),
-                });
-            }
-
-            // Recursively check parents
-            for parent_id in &change.parent_ids {
-                Self::check_ancestors_recursive(
-                    jj,
-                    original_bookmark,
-                    parent_id,
-                    bookmarked_commits,
-                    visited,
-                )?;
-            }
+        if !output.trim().is_empty() {
+            // Found merge commits in the new commits
+            return Err(Error::InvalidGraph {
+                message: format!(
+                    "Bookmark '{}' has an ancestor commit that is a merge with multiple parents. \
+                     Merge commits are not supported in bookmark stacks. \
+                     Please use a linear history for stacked MRs.",
+                    bookmark_name
+                ),
+            });
         }
 
         Ok(())
