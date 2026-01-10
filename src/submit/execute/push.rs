@@ -32,9 +32,6 @@ impl ExecuteAction for PushAction {
                 pushed: true,
             })
         } else {
-            ctx.output
-                .log_current(&format!("Pushing {}", self.bookmark.magenta()));
-
             match ctx.jj.push_bookmark(&self.bookmark, &self.remote) {
                 Ok(pushed) => {
                     if pushed {

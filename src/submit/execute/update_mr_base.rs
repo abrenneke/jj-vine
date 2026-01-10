@@ -34,15 +34,9 @@ impl ExecuteAction for UpdateMRBaseAction {
                 self.bookmark.magenta(),
                 self.new_target_branch.magenta()
             );
-            ctx.output.log_current(&msg);
             ctx.output.log_message(&msg);
             Ok(ActionResultData::DryRun)
         } else {
-            ctx.output.log_current(&format!(
-                "Updating MR {} base",
-                format!("!{}", self.mr_iid).cyan()
-            ));
-
             // Get old target before update
             let old_target = if let Ok(Some(existing_mr)) =
                 ctx.gitlab.find_mr_by_source_branch(&self.bookmark).await

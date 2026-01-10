@@ -4,6 +4,8 @@ mod update_mr_base;
 mod update_mr_description;
 
 use async_trait::async_trait;
+use futures::StreamExt;
+use futures::stream::FuturesUnordered;
 use itertools::Itertools;
 use tracing::debug;
 
@@ -113,8 +115,9 @@ pub async fn execute(
     output.log_current("Preparing submission");
 
     for batch in &plan.actions {
-        // Collect results from all actions in this batch
-        let mut batch_results = Vec::new();
+        output.log_current(&batch.first().unwrap().action.get_group_text());
+
+        let handles = FuturesUnordered::new();
 
         for action in batch {
             let failed_deps = action
@@ -180,22 +183,34 @@ pub async fn execute(
                 )),
             };
 
-            let result = execute_action
-                .execute(ExecutionActionContext {
-                    plan,
-                    jj,
-                    gitlab,
-                    config,
-                    output,
-                })
-                .await;
+            let action_id = action.id;
+            let ctx = ExecutionActionContext {
+                plan,
+                jj,
+                gitlab,
+                config,
+                output,
+            };
 
-            current_results.push(ActionResult {
-                id: action.id,
-                data: result.clone(),
+            handles.push(async move {
+                let action_text = action.action.get_substep_text();
+                let output = ctx.output;
+
+                output.add_substep(&action_text);
+                let result = execute_action.execute(ctx).await;
+                output.remove_substep(&action_text);
+
+                (action_id, result)
             });
+        }
 
-            batch_results.push(result);
+        let results = handles.collect::<Vec<_>>().await;
+
+        for (action_id, result) in results {
+            current_results.push(ActionResult {
+                id: action_id,
+                data: result,
+            });
         }
     }
 

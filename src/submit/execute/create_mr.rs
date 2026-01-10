@@ -41,17 +41,10 @@ impl ExecuteAction for CreateMRAction {
                 self.target_branch.magenta(),
                 self.title
             );
-            ctx.output.log_current(&msg);
             ctx.output.log_message(&msg);
 
             Ok(ActionResultData::DryRun)
         } else {
-            ctx.output.log_current(&format!(
-                "Creating MR: {} -> {}",
-                self.bookmark.magenta(),
-                self.target_branch.magenta()
-            ));
-
             let desc = if self.description.is_empty() {
                 None
             } else {

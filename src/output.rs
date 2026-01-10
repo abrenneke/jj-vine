@@ -6,7 +6,11 @@ use tracing::info;
 
 pub trait Output: Send + Sync {
     fn log_current(&self, message: &str);
+
     fn set_substep(&self, message: &str);
+
+    fn add_substep(&self, message: &str);
+    fn remove_substep(&self, message: &str);
 
     fn log_message(&self, message: &str);
     fn log_completed(&self, message: &str);
@@ -18,6 +22,7 @@ pub trait Output: Send + Sync {
 pub struct InteractiveOutput {
     spinner: ProgressBar,
     current_text: RwLock<String>,
+    substeps: RwLock<Vec<String>>,
 }
 
 impl InteractiveOutput {
@@ -33,6 +38,7 @@ impl InteractiveOutput {
         Self {
             spinner: pb,
             current_text: RwLock::new(String::new()),
+            substeps: RwLock::new(Vec::new()),
         }
     }
 }
@@ -59,6 +65,18 @@ impl Output for InteractiveOutput {
         ));
     }
 
+    fn add_substep(&self, message: &str) {
+        let mut substeps = self.substeps.write().unwrap();
+        substeps.push(message.to_string());
+        self.set_substep(&substeps.join(", "));
+    }
+
+    fn remove_substep(&self, message: &str) {
+        let mut substeps = self.substeps.write().unwrap();
+        substeps.retain(|s| s != message);
+        self.set_substep(&substeps.join(", "));
+    }
+
     fn log_message(&self, message: &str) {
         self.spinner.println(message);
     }
@@ -82,12 +100,14 @@ impl Drop for InteractiveOutput {
 /// Flat logging mode implementation
 pub struct FlatOutput {
     current_text: RwLock<String>,
+    substeps: RwLock<Vec<String>>,
 }
 
 impl FlatOutput {
     pub fn new() -> Self {
         Self {
             current_text: RwLock::new(String::new()),
+            substeps: RwLock::new(Vec::new()),
         }
     }
 }
@@ -114,6 +134,18 @@ impl Output for FlatOutput {
                 format!("({})", message).dimmed()
             )
         );
+    }
+
+    fn add_substep(&self, message: &str) {
+        let mut substeps = self.substeps.write().unwrap();
+        substeps.push(message.to_string());
+        self.set_substep(&substeps.join(", "));
+    }
+
+    fn remove_substep(&self, message: &str) {
+        let mut substeps = self.substeps.write().unwrap();
+        substeps.retain(|s| s != message);
+        self.set_substep(&substeps.join(", "));
     }
 
     fn log_message(&self, message: &str) {

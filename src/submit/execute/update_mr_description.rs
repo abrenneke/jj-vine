@@ -1,10 +1,19 @@
+use std::collections::{HashMap, HashSet};
+
 use async_trait::async_trait;
+use futures::StreamExt;
+use futures::stream::FuturesUnordered;
 use itertools::Itertools;
 use owo_colors::OwoColorize;
 use tracing::error;
 
 use crate::bookmark::BookmarkGraph;
+use crate::config::StackFormat;
+use crate::description::{
+    DescriptionFormatter, DescriptionManager, LinearListFormatter, generate_multi_stack_description,
+};
 use crate::error::{Error, Result};
+use crate::gitlab::MergeRequest;
 use crate::submit::execute::{
     ActionResultData, ExecuteAction, ExecutionActionContext, MRUpdate, MRUpdateType,
 };
@@ -32,7 +41,6 @@ impl ExecuteAction for UpdateMRDescriptionAction {
                 "update".yellow(),
                 self.bookmark.magenta()
             );
-            ctx.output.log_current(&msg);
             ctx.output.log_message(&msg);
             Ok(ActionResultData::DryRun)
         } else {
@@ -44,34 +52,42 @@ impl ExecuteAction for UpdateMRDescriptionAction {
                 .sorted_by(|a, b| a.bookmarks.cmp(&b.bookmarks))
                 .collect();
 
-            let mut all_mrs = std::collections::HashMap::new();
+            let mut to_check = HashSet::new();
             for stack in &containing_stacks {
                 for bm in &stack.bookmarks {
-                    if !all_mrs.contains_key(bm) {
-                        ctx.output
-                            .log_current(&format!("Checking description for {}", bm.magenta()));
-
-                        if let Ok(Some(mr)) = ctx.gitlab.find_mr_by_source_branch(bm).await {
-                            all_mrs.insert(bm.clone(), mr);
-                        }
-                    }
+                    to_check.insert(bm.clone());
                 }
             }
+
+            let handles = FuturesUnordered::new();
+            for bm in to_check {
+                handles.push(async move {
+                    if let Ok(Some(mr)) = ctx.gitlab.find_mr_by_source_branch(&bm).await {
+                        (bm, Some(mr))
+                    } else {
+                        (bm, None)
+                    }
+                });
+            }
+            let all_mrs: HashMap<String, MergeRequest> = handles
+                .collect::<Vec<_>>()
+                .await
+                .into_iter()
+                .filter_map(|(bm, mr)| mr.map(|mr| (bm, mr)))
+                .collect();
 
             if let Some(current_mr) = all_mrs.get(&self.bookmark) {
                 let existing_description = current_mr.description.as_deref().unwrap_or("");
 
-                let formatter: Box<dyn crate::description::DescriptionFormatter + Send + Sync> =
+                let formatter: Box<dyn DescriptionFormatter + Send + Sync> =
                     match ctx.config.stack_format {
-                        crate::config::StackFormat::Linear => {
-                            Box::new(crate::description::LinearListFormatter)
-                        }
+                        StackFormat::Linear => Box::new(LinearListFormatter),
                     };
-                let desc_manager = crate::description::DescriptionManager::new(formatter);
+                let desc_manager = DescriptionManager::new(formatter);
 
                 let parsed = desc_manager.parse_description(existing_description);
 
-                match crate::description::generate_multi_stack_description(
+                match generate_multi_stack_description(
                     &self.bookmark,
                     &containing_stacks,
                     &all_mrs,
@@ -92,11 +108,6 @@ impl ExecuteAction for UpdateMRDescriptionAction {
                                 update_type: MRUpdateType::Unchanged,
                             })))
                         } else {
-                            ctx.output.log_current(&format!(
-                                "Updating MR {} description",
-                                format!("!{}", current_mr.iid).cyan()
-                            ));
-
                             match ctx
                                 .gitlab
                                 .update_mr_description(current_mr.iid, &new_description)

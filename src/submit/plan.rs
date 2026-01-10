@@ -1,3 +1,5 @@
+use owo_colors::OwoColorize;
+
 use crate::bookmark::BookmarkGraph;
 use crate::config::Config;
 use crate::error::Result;
@@ -34,6 +36,46 @@ pub enum Action {
         bookmark_graph: crate::bookmark::BookmarkGraph,
         bookmarks_being_submitted: Vec<String>,
     },
+}
+
+impl Action {
+    pub fn get_group_text(&self) -> String {
+        match self {
+            Action::Push { .. } => "Pushing bookmarks".to_string(),
+            Action::CreateMR { .. } => "Creating MRs".to_string(),
+            Action::UpdateMRBase { .. } => "Updating MR bases".to_string(),
+            Action::UpdateMRDescription { .. } => "Updating MR descriptions".to_string(),
+        }
+    }
+
+    pub fn get_text(&self) -> String {
+        match self {
+            Action::Push { bookmark, .. } => format!("Pushing {}", bookmark.magenta()),
+            Action::CreateMR { bookmark, .. } => format!("Creating MR for {}", bookmark.magenta()),
+            Action::UpdateMRBase {
+                bookmark,
+                mr_iid,
+                new_target_branch,
+            } => format!(
+                "Updating MR {} base for {} to {}",
+                mr_iid.cyan(),
+                bookmark.magenta(),
+                new_target_branch.magenta()
+            ),
+            Action::UpdateMRDescription { bookmark, .. } => {
+                format!("Updating MR description for {}", bookmark.magenta())
+            }
+        }
+    }
+
+    pub fn get_substep_text(&self) -> String {
+        match self {
+            Action::Push { bookmark, .. } => format!("{}", bookmark.magenta()),
+            Action::CreateMR { bookmark, .. } => format!("{}", bookmark.magenta()),
+            Action::UpdateMRBase { bookmark, .. } => format!("{}", bookmark.magenta()),
+            Action::UpdateMRDescription { bookmark, .. } => format!("{}", bookmark.magenta()),
+        }
+    }
 }
 
 /// A planned action with ID and dependencies
