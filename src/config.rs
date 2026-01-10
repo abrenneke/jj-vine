@@ -42,6 +42,12 @@ pub struct Config {
 
     /// Stack visualization format (default: Linear)
     pub stack_format: StackFormat,
+
+    /// Delete source branch when MR is merged (default: true)
+    pub delete_source_branch: bool,
+
+    /// Squash commits when MR is merged (default: false)
+    pub squash_commits: bool,
 }
 
 impl Config {
@@ -105,6 +111,15 @@ impl Config {
             }
         };
 
+        // MR merge settings (optional with defaults)
+        let delete_source_branch = get_config("jj-mrs.deleteSourceBranch")?
+            .map(|v| v == "true" || v == "1" || v == "yes")
+            .unwrap_or(true); // Default: true
+
+        let squash_commits = get_config("jj-mrs.squashCommits")?
+            .map(|v| v == "true" || v == "1" || v == "yes")
+            .unwrap_or(false); // Default: false
+
         Ok(Config {
             gitlab_host,
             gitlab_project,
@@ -115,6 +130,8 @@ impl Config {
             tls_accept_non_compliant_certs,
             enable_stack_visualization,
             stack_format,
+            delete_source_branch,
+            squash_commits,
         })
     }
 
@@ -304,6 +321,8 @@ mod tests {
             tls_accept_non_compliant_certs: false,
             enable_stack_visualization: true,
             stack_format: StackFormat::Linear,
+            delete_source_branch: true,
+            squash_commits: false,
         };
 
         assert!(config.validate().is_ok());
@@ -318,6 +337,8 @@ mod tests {
             tls_accept_non_compliant_certs: false,
             enable_stack_visualization: true,
             stack_format: StackFormat::Linear,
+            delete_source_branch: true,
+            squash_commits: false,
         };
 
         assert!(invalid_config.validate().is_err());
@@ -416,5 +437,106 @@ mod tests {
 
         assert!(!config.enable_stack_visualization);
         assert!(matches!(config.stack_format, StackFormat::Linear)); // Still default
+    }
+
+    #[test]
+    fn test_config_default_mr_settings() {
+        let (_temp, repo_path) = create_test_repo();
+
+        // Set required config only, don't set MR settings
+        run_jj_command(
+            &repo_path,
+            &[
+                "config",
+                "set",
+                "--repo",
+                "jj-mrs.gitlabHost",
+                "https://gitlab.com",
+            ],
+        )
+        .expect("Failed to set config");
+
+        run_jj_command(
+            &repo_path,
+            &[
+                "config",
+                "set",
+                "--repo",
+                "jj-mrs.gitlabProject",
+                "test/proj",
+            ],
+        )
+        .expect("Failed to set config");
+
+        run_jj_command(
+            &repo_path,
+            &["config", "set", "--repo", "jj-mrs.gitlabToken", "token"],
+        )
+        .expect("Failed to set config");
+
+        let config = Config::load(&repo_path).expect("Failed to load config");
+
+        assert!(config.delete_source_branch);
+        assert!(!config.squash_commits);
+    }
+
+    #[test]
+    fn test_config_explicit_mr_settings() {
+        let (_temp, repo_path) = create_test_repo();
+
+        // Set required config
+        run_jj_command(
+            &repo_path,
+            &[
+                "config",
+                "set",
+                "--repo",
+                "jj-mrs.gitlabHost",
+                "https://gitlab.com",
+            ],
+        )
+        .expect("Failed to set config");
+
+        run_jj_command(
+            &repo_path,
+            &[
+                "config",
+                "set",
+                "--repo",
+                "jj-mrs.gitlabProject",
+                "test/proj",
+            ],
+        )
+        .expect("Failed to set config");
+
+        run_jj_command(
+            &repo_path,
+            &["config", "set", "--repo", "jj-mrs.gitlabToken", "token"],
+        )
+        .expect("Failed to set config");
+
+        // Set explicit MR settings (opposite of defaults)
+        run_jj_command(
+            &repo_path,
+            &[
+                "config",
+                "set",
+                "--repo",
+                "jj-mrs.deleteSourceBranch",
+                "false",
+            ],
+        )
+        .expect("Failed to set config");
+
+        run_jj_command(
+            &repo_path,
+            &["config", "set", "--repo", "jj-mrs.squashCommits", "true"],
+        )
+        .expect("Failed to set config");
+
+        let config = Config::load(&repo_path).expect("Failed to load config");
+
+        assert!(!config.delete_source_branch);
+        assert!(config.squash_commits);
     }
 }

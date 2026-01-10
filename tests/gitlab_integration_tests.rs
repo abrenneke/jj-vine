@@ -50,6 +50,8 @@ async fn test_create_simple_mr() {
             "main",
             &format!("Test MR: {}", branch_name),
             Some("This is a test MR created by integration tests"),
+            true,
+            false,
         )
         .await
         .expect("Failed to create merge request");
@@ -117,6 +119,8 @@ async fn test_find_mr_by_source_branch() {
             "main",
             &format!("Test MR for find: {}", branch_name),
             Some("Testing find_mr_by_source_branch"),
+            true,
+            false,
         )
         .await
         .expect("Failed to create merge request");
@@ -213,6 +217,8 @@ async fn test_update_mr_base() {
             "main",
             &format!("Test MR for update base: {}", branch_b),
             Some("Testing update_mr_base"),
+            true,
+            false,
         )
         .await
         .expect("Failed to create merge request");
@@ -270,6 +276,8 @@ async fn test_invalid_token_errors_clearly() {
             "main",
             "This should fail",
             Some("Testing invalid token"),
+            true,
+            false,
         )
         .await;
 
@@ -319,6 +327,8 @@ async fn test_nonexistent_project_errors_clearly() {
             "main",
             "This should fail",
             Some("Testing nonexistent project"),
+            true,
+            false,
         )
         .await;
 
@@ -399,6 +409,8 @@ async fn test_create_stacked_mrs() {
             "main",
             &format!("MR A: {}", branch_a),
             Some("Stack A"),
+            true,
+            false,
         )
         .await
         .expect("Failed to create MR A");
@@ -410,6 +422,8 @@ async fn test_create_stacked_mrs() {
             &branch_a,
             &format!("MR B: {}", branch_b),
             Some("Stack B"),
+            true,
+            false,
         )
         .await
         .expect("Failed to create MR B");
@@ -421,6 +435,8 @@ async fn test_create_stacked_mrs() {
             &branch_b,
             &format!("MR C: {}", branch_c),
             Some("Stack C"),
+            true,
+            false,
         )
         .await
         .expect("Failed to create MR C");
@@ -483,6 +499,8 @@ async fn test_idempotent_submission() {
             "main",
             &format!("Idempotent test: {}", branch_name),
             Some("First submission"),
+            true,
+            false,
         )
         .await
         .expect("Failed to create first MR");
@@ -545,6 +563,8 @@ async fn test_multiple_submissions_update_existing_mrs() {
             "main",
             &format!("Multi-submit test: {}", branch_name),
             Some("First version"),
+            true,
+            false,
         )
         .await
         .expect("Failed to create MR");
@@ -631,7 +651,7 @@ async fn test_mr_retarget_after_middle_bookmark_deleted() {
     // Create MRs: a→main, b→a, c→b
     gitlab
         .client
-        .create_merge_request(&branch_a, "main", &format!("MR A: {}", branch_a), Some("A"))
+        .create_merge_request(&branch_a, "main", &format!("MR A: {}", branch_a), Some("A"), true, false)
         .await
         .expect("Failed to create MR A");
 
@@ -642,6 +662,8 @@ async fn test_mr_retarget_after_middle_bookmark_deleted() {
             &branch_a,
             &format!("MR B: {}", branch_b),
             Some("B"),
+            true,
+            false,
         )
         .await
         .expect("Failed to create MR B");
@@ -653,6 +675,8 @@ async fn test_mr_retarget_after_middle_bookmark_deleted() {
             &branch_b,
             &format!("MR C: {}", branch_c),
             Some("C"),
+            true,
+            false,
         )
         .await
         .expect("Failed to create MR C");

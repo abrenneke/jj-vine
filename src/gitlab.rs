@@ -102,6 +102,8 @@ impl GitLabClient {
         target_branch: &str,
         title: &str,
         description: Option<&str>,
+        remove_source_branch: bool,
+        squash: bool,
     ) -> Result<MergeRequest> {
         let url = format!(
             "{}/api/v4/projects/{}/merge_requests",
@@ -113,6 +115,8 @@ impl GitLabClient {
             "source_branch": source_branch,
             "target_branch": target_branch,
             "title": title,
+            "remove_source_branch": remove_source_branch,
+            "squash": squash,
         });
 
         if let Some(desc) = description {

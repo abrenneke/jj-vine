@@ -445,6 +445,8 @@ async fn test_base_branch_not_pushed() {
         tls_accept_non_compliant_certs: false,
         enable_stack_visualization: true,
         stack_format: jj_mrs::config::StackFormat::Linear,
+        delete_source_branch: true,
+        squash_commits: false,
     };
 
     let analysis = analyze::analyze(&jj, &config, &["feature-2".to_string()])
@@ -513,6 +515,8 @@ async fn test_single_bookmark_not_push_base() {
         tls_accept_non_compliant_certs: false,
         enable_stack_visualization: true,
         stack_format: jj_mrs::config::StackFormat::Linear,
+        delete_source_branch: true,
+        squash_commits: false,
     };
 
     let analysis = analyze::analyze(&jj, &config, &["feature-1".to_string()])
@@ -563,6 +567,8 @@ async fn test_submit_base_branch_errors() {
         tls_accept_non_compliant_certs: false,
         enable_stack_visualization: true,
         stack_format: jj_mrs::config::StackFormat::Linear,
+        delete_source_branch: true,
+        squash_commits: false,
     };
 
     // Attempting to submit main should error

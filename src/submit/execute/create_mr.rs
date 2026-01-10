@@ -53,7 +53,14 @@ impl ExecuteAction for CreateMRAction {
 
             match ctx
                 .gitlab
-                .create_merge_request(&self.bookmark, &self.target_branch, &self.title, desc)
+                .create_merge_request(
+                    &self.bookmark,
+                    &self.target_branch,
+                    &self.title,
+                    desc,
+                    ctx.config.delete_source_branch,
+                    ctx.config.squash_commits,
+                )
                 .await
             {
                 Ok(mr) => {
