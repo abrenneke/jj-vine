@@ -447,6 +447,8 @@ async fn test_base_branch_not_pushed() {
         stack_format: jj_mrs::config::StackFormat::Linear,
         delete_source_branch: true,
         squash_commits: false,
+        assign_to_self: false,
+        default_reviewers: vec![],
     };
 
     let analysis = analyze::analyze(&jj, &config, &["feature-2".to_string()])
@@ -517,6 +519,8 @@ async fn test_single_bookmark_not_push_base() {
         stack_format: jj_mrs::config::StackFormat::Linear,
         delete_source_branch: true,
         squash_commits: false,
+        assign_to_self: false,
+        default_reviewers: vec![],
     };
 
     let analysis = analyze::analyze(&jj, &config, &["feature-1".to_string()])
@@ -569,6 +573,8 @@ async fn test_submit_base_branch_errors() {
         stack_format: jj_mrs::config::StackFormat::Linear,
         delete_source_branch: true,
         squash_commits: false,
+        assign_to_self: false,
+        default_reviewers: vec![],
     };
 
     // Attempting to submit main should error

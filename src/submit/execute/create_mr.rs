@@ -51,6 +51,43 @@ impl ExecuteAction for CreateMRAction {
                 Some(self.description.as_str())
             };
 
+            let assignee_ids = if ctx.config.assign_to_self {
+                match ctx.gitlab.get_current_user().await {
+                    Ok(user) => Some(vec![user.id]),
+                    Err(e) => {
+                        let warning =
+                            format!("Warning: Failed to get current user for assignment: {}", e);
+                        ctx.output.log_message(&warning.yellow().to_string());
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+
+            let reviewer_ids = if !ctx.config.default_reviewers.is_empty() {
+                let mut ids = Vec::new();
+                for username in &ctx.config.default_reviewers {
+                    match ctx.gitlab.get_user_by_username(username).await {
+                        Ok(Some(user)) => ids.push(user.id),
+                        Ok(None) => {
+                            let warning = format!("Warning: Reviewer '{}' not found", username);
+                            ctx.output.log_message(&warning.yellow().to_string());
+                        }
+                        Err(e) => {
+                            let warning = format!(
+                                "Warning: Failed to look up reviewer '{}': {}",
+                                username, e
+                            );
+                            ctx.output.log_message(&warning.yellow().to_string());
+                        }
+                    }
+                }
+                if ids.is_empty() { None } else { Some(ids) }
+            } else {
+                None
+            };
+
             match ctx
                 .gitlab
                 .create_merge_request(
@@ -60,6 +97,8 @@ impl ExecuteAction for CreateMRAction {
                     desc,
                     ctx.config.delete_source_branch,
                     ctx.config.squash_commits,
+                    assignee_ids.as_deref(),
+                    reviewer_ids.as_deref(),
                 )
                 .await
             {

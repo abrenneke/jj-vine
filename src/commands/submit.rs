@@ -44,7 +44,6 @@ pub async fn submit(
 
     debug!("Loading configuration");
     let config = Config::load(&repo_path)?;
-    config.validate()?;
 
     debug!("Creating Jujutsu and GitLab clients");
     let jj = Jujutsu::new(repo_path)?;

@@ -95,18 +95,18 @@ async fn test_deferred_updates_linear_stack() {
         .expect("Failed to query MR C")
         .expect("MR C should exist");
 
-    // Verify A's description links to B and C
+    // Verify A's description links to B and C (using MR titles, not bookmark names)
     let desc_a = mr_a
         .description
         .as_ref()
         .expect("MR A should have description");
     assert!(
-        desc_a.contains(&format!("{} - !{}", branch_b, mr_b.iid)),
+        desc_a.contains(&format!("{} - !{}", mr_b.title, mr_b.iid)),
         "MR A should link to MR B. Description:\n{}",
         desc_a
     );
     assert!(
-        desc_a.contains(&format!("{} - !{}", branch_c, mr_c.iid)),
+        desc_a.contains(&format!("{} - !{}", mr_c.title, mr_c.iid)),
         "MR A should link to MR C. Description:\n{}",
         desc_a
     );
@@ -117,7 +117,7 @@ async fn test_deferred_updates_linear_stack() {
         .as_ref()
         .expect("MR B should have description");
     assert!(
-        desc_b.contains(&format!("{} - !{}", branch_c, mr_c.iid)),
+        desc_b.contains(&format!("{} - !{}", mr_c.title, mr_c.iid)),
         "MR B should link to MR C. Description:\n{}",
         desc_b
     );
@@ -128,12 +128,12 @@ async fn test_deferred_updates_linear_stack() {
         .as_ref()
         .expect("MR C should have description");
     assert!(
-        desc_c.contains(&format!("{} - !{}", branch_a, mr_a.iid)),
+        desc_c.contains(&format!("{} - !{}", mr_a.title, mr_a.iid)),
         "MR C should show MR A. Description:\n{}",
         desc_c
     );
     assert!(
-        desc_c.contains(&format!("{} - !{}", branch_b, mr_b.iid)),
+        desc_c.contains(&format!("{} - !{}", mr_b.title, mr_b.iid)),
         "MR C should show MR B. Description:\n{}",
         desc_c
     );
@@ -253,18 +253,18 @@ async fn test_deferred_updates_with_existing_mr() {
         .expect("Failed to query MR C")
         .expect("MR C should exist");
 
-    // Verify A's description was updated to include B and C
+    // Verify A's description was updated to include B and C (using MR titles)
     let desc_a_updated = mr_a_updated
         .description
         .as_ref()
         .expect("MR A should have description");
     assert!(
-        desc_a_updated.contains(&format!("{} - !{}", branch_b, mr_b.iid)),
+        desc_a_updated.contains(&format!("{} - !{}", mr_b.title, mr_b.iid)),
         "Updated MR A should link to MR B. Description:\n{}",
         desc_a_updated
     );
     assert!(
-        desc_a_updated.contains(&format!("{} - !{}", branch_c, mr_c.iid)),
+        desc_a_updated.contains(&format!("{} - !{}", mr_c.title, mr_c.iid)),
         "Updated MR A should link to MR C. Description:\n{}",
         desc_a_updated
     );
@@ -395,7 +395,7 @@ async fn test_deferred_updates_multiple_stacks() {
         .expect("Failed to query MR D")
         .expect("MR D should exist");
 
-    // Verify A's description shows both stacks
+    // Verify A's description shows both stacks (using MR titles)
     let desc_a = mr_a
         .description
         .as_ref()
@@ -406,12 +406,12 @@ async fn test_deferred_updates_multiple_stacks() {
         desc_a
     );
     assert!(
-        desc_a.contains(&format!("{} - !{}", branch_c, mr_c.iid)),
+        desc_a.contains(&format!("{} - !{}", mr_c.title, mr_c.iid)),
         "MR A should link to MR C. Description:\n{}",
         desc_a
     );
     assert!(
-        desc_a.contains(&format!("{} - !{}", branch_d, mr_d.iid)),
+        desc_a.contains(&format!("{} - !{}", mr_d.title, mr_d.iid)),
         "MR A should link to MR D. Description:\n{}",
         desc_a
     );
@@ -427,12 +427,12 @@ async fn test_deferred_updates_multiple_stacks() {
         desc_b
     );
     assert!(
-        desc_b.contains(&format!("{} - !{}", branch_c, mr_c.iid)),
+        desc_b.contains(&format!("{} - !{}", mr_c.title, mr_c.iid)),
         "MR B should link to MR C. Description:\n{}",
         desc_b
     );
     assert!(
-        desc_b.contains(&format!("{} - !{}", branch_d, mr_d.iid)),
+        desc_b.contains(&format!("{} - !{}", mr_d.title, mr_d.iid)),
         "MR B should link to MR D. Description:\n{}",
         desc_b
     );
@@ -448,18 +448,18 @@ async fn test_deferred_updates_multiple_stacks() {
         desc_c
     );
     assert!(
-        desc_c.contains(&format!("{} - !{}", branch_a, mr_a.iid)),
+        desc_c.contains(&format!("{} - !{}", mr_a.title, mr_a.iid)),
         "MR C should show MR A. Description:\n{}",
         desc_c
     );
     assert!(
-        desc_c.contains(&format!("{} - !{}", branch_b, mr_b.iid)),
+        desc_c.contains(&format!("{} - !{}", mr_b.title, mr_b.iid)),
         "MR C should show MR B. Description:\n{}",
         desc_c
     );
     assert!(
-        !desc_c.contains(&branch_d),
-        "MR C should not mention branch D. Description:\n{}",
+        !desc_c.contains(&mr_d.title),
+        "MR C should not mention MR D. Description:\n{}",
         desc_c
     );
 
@@ -474,18 +474,18 @@ async fn test_deferred_updates_multiple_stacks() {
         desc_d
     );
     assert!(
-        desc_d.contains(&format!("{} - !{}", branch_a, mr_a.iid)),
+        desc_d.contains(&format!("{} - !{}", mr_a.title, mr_a.iid)),
         "MR D should show MR A. Description:\n{}",
         desc_d
     );
     assert!(
-        desc_d.contains(&format!("{} - !{}", branch_b, mr_b.iid)),
+        desc_d.contains(&format!("{} - !{}", mr_b.title, mr_b.iid)),
         "MR D should show MR B. Description:\n{}",
         desc_d
     );
     assert!(
-        !desc_d.contains(&branch_c),
-        "MR D should not mention branch C. Description:\n{}",
+        !desc_d.contains(&mr_c.title),
+        "MR D should not mention MR C. Description:\n{}",
         desc_d
     );
 }

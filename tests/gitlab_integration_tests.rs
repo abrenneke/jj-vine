@@ -52,6 +52,8 @@ async fn test_create_simple_mr() {
             Some("This is a test MR created by integration tests"),
             true,
             false,
+            None,
+            None,
         )
         .await
         .expect("Failed to create merge request");
@@ -121,6 +123,8 @@ async fn test_find_mr_by_source_branch() {
             Some("Testing find_mr_by_source_branch"),
             true,
             false,
+            None,
+            None,
         )
         .await
         .expect("Failed to create merge request");
@@ -219,6 +223,8 @@ async fn test_update_mr_base() {
             Some("Testing update_mr_base"),
             true,
             false,
+            None,
+            None,
         )
         .await
         .expect("Failed to create merge request");
@@ -278,6 +284,8 @@ async fn test_invalid_token_errors_clearly() {
             Some("Testing invalid token"),
             true,
             false,
+            None,
+            None,
         )
         .await;
 
@@ -329,6 +337,8 @@ async fn test_nonexistent_project_errors_clearly() {
             Some("Testing nonexistent project"),
             true,
             false,
+            None,
+            None,
         )
         .await;
 
@@ -411,6 +421,8 @@ async fn test_create_stacked_mrs() {
             Some("Stack A"),
             true,
             false,
+            None,
+            None,
         )
         .await
         .expect("Failed to create MR A");
@@ -424,6 +436,8 @@ async fn test_create_stacked_mrs() {
             Some("Stack B"),
             true,
             false,
+            None,
+            None,
         )
         .await
         .expect("Failed to create MR B");
@@ -437,6 +451,8 @@ async fn test_create_stacked_mrs() {
             Some("Stack C"),
             true,
             false,
+            None,
+            None,
         )
         .await
         .expect("Failed to create MR C");
@@ -501,6 +517,8 @@ async fn test_idempotent_submission() {
             Some("First submission"),
             true,
             false,
+            None,
+            None,
         )
         .await
         .expect("Failed to create first MR");
@@ -565,6 +583,8 @@ async fn test_multiple_submissions_update_existing_mrs() {
             Some("First version"),
             true,
             false,
+            None,
+            None,
         )
         .await
         .expect("Failed to create MR");
@@ -651,7 +671,16 @@ async fn test_mr_retarget_after_middle_bookmark_deleted() {
     // Create MRs: a→main, b→a, c→b
     gitlab
         .client
-        .create_merge_request(&branch_a, "main", &format!("MR A: {}", branch_a), Some("A"), true, false)
+        .create_merge_request(
+            &branch_a,
+            "main",
+            &format!("MR A: {}", branch_a),
+            Some("A"),
+            true,
+            false,
+            None,
+            None,
+        )
         .await
         .expect("Failed to create MR A");
 
@@ -664,6 +693,8 @@ async fn test_mr_retarget_after_middle_bookmark_deleted() {
             Some("B"),
             true,
             false,
+            None,
+            None,
         )
         .await
         .expect("Failed to create MR B");
@@ -677,6 +708,8 @@ async fn test_mr_retarget_after_middle_bookmark_deleted() {
             Some("C"),
             true,
             false,
+            None,
+            None,
         )
         .await
         .expect("Failed to create MR C");
@@ -698,5 +731,207 @@ async fn test_mr_retarget_after_middle_bookmark_deleted() {
     println!(
         "Successfully retargeted MR C from {} to {}",
         branch_b, branch_a
+    );
+}
+
+#[tokio::test]
+async fn test_get_current_user() {
+    let gitlab = match GitLabTestHelper::from_env().await {
+        Some(g) => g,
+        None => return,
+    };
+
+    let user = gitlab
+        .client
+        .get_current_user()
+        .await
+        .expect("Failed to get current user");
+
+    assert!(user.id > 0, "User ID should be positive");
+    assert!(!user.username.is_empty(), "Username should not be empty");
+    assert!(!user.name.is_empty(), "Name should not be empty");
+
+    println!(
+        "Current user: {} (ID: {}, username: {})",
+        user.name, user.id, user.username
+    );
+}
+
+#[tokio::test]
+async fn test_create_mr_with_assignee() {
+    let gitlab = match GitLabTestHelper::from_env().await {
+        Some(g) => g,
+        None => return,
+    };
+
+    let config = match GitLabConfig::from_env() {
+        Some(c) => c,
+        None => return,
+    };
+
+    let repo = TestRepo::with_gitlab_remote(&config)
+        .expect("Failed to create test repository with GitLab remote");
+
+    let branch_name = unique_test_branch("with-assignee");
+
+    // Create a file and bookmark
+    repo.create_file("test.txt", "Hello from assignee test")
+        .expect("Failed to create file");
+
+    repo.jj(&["describe", "-m", "Test commit for MR with assignee"])
+        .expect("Failed to set commit description");
+
+    repo.create_bookmark(&branch_name)
+        .expect("Failed to create bookmark");
+
+    repo.jj(&["bookmark", "track", &format!("{}@origin", branch_name)])
+        .expect("Failed to track bookmark");
+
+    repo.jj(&["git", "push", "--bookmark", &branch_name])
+        .expect("Failed to push bookmark");
+
+    let user = gitlab
+        .client
+        .get_current_user()
+        .await
+        .expect("Failed to get current user");
+
+    let mr = gitlab
+        .client
+        .create_merge_request(
+            &branch_name,
+            "main",
+            &format!("Test MR with assignee: {}", branch_name),
+            Some("This MR should be assigned to the current user"),
+            true,
+            false,
+            Some(&[user.id]),
+            None,
+        )
+        .await
+        .expect("Failed to create merge request with assignee");
+
+    assert_eq!(mr.source_branch, branch_name);
+    assert_eq!(mr.target_branch, "main");
+    assert_eq!(mr.state, "opened");
+
+    println!(
+        "Created MR with assignee {}: {} (IID: {})",
+        user.username, mr.web_url, mr.iid
+    );
+}
+
+#[tokio::test]
+async fn test_get_user_by_username() {
+    let gitlab = match GitLabTestHelper::from_env().await {
+        Some(g) => g,
+        None => return,
+    };
+
+    let current_user = gitlab
+        .client
+        .get_current_user()
+        .await
+        .expect("Failed to get current user");
+
+    let found_user = gitlab
+        .client
+        .get_user_by_username(&current_user.username)
+        .await
+        .expect("Failed to get user by username");
+
+    assert!(found_user.is_some(), "Should find user by username");
+    let found_user = found_user.unwrap();
+    assert_eq!(found_user.id, current_user.id);
+    assert_eq!(found_user.username, current_user.username);
+
+    println!(
+        "Found user by username '{}': {} (ID: {})",
+        current_user.username, found_user.name, found_user.id
+    );
+}
+
+#[tokio::test]
+async fn test_get_user_by_username_not_found() {
+    let gitlab = match GitLabTestHelper::from_env().await {
+        Some(g) => g,
+        None => return,
+    };
+
+    let nonexistent_user = gitlab
+        .client
+        .get_user_by_username("nonexistent-user-12345678")
+        .await
+        .expect("Should not error for nonexistent user");
+
+    assert!(
+        nonexistent_user.is_none(),
+        "Should not find nonexistent user"
+    );
+
+    println!("Correctly returned None for nonexistent user");
+}
+
+#[tokio::test]
+async fn test_create_mr_with_reviewers() {
+    let gitlab = match GitLabTestHelper::from_env().await {
+        Some(g) => g,
+        None => return,
+    };
+
+    let config = match GitLabConfig::from_env() {
+        Some(c) => c,
+        None => return,
+    };
+
+    let repo = TestRepo::with_gitlab_remote(&config)
+        .expect("Failed to create test repository with GitLab remote");
+
+    let branch_name = unique_test_branch("with-reviewers");
+
+    // Create a file and bookmark
+    repo.create_file("test.txt", "Hello from reviewer test")
+        .expect("Failed to create file");
+
+    repo.jj(&["describe", "-m", "Test commit for MR with reviewers"])
+        .expect("Failed to set commit description");
+
+    repo.create_bookmark(&branch_name)
+        .expect("Failed to create bookmark");
+
+    repo.jj(&["bookmark", "track", &format!("{}@origin", branch_name)])
+        .expect("Failed to track bookmark");
+
+    repo.jj(&["git", "push", "--bookmark", &branch_name])
+        .expect("Failed to push bookmark");
+
+    let user = gitlab
+        .client
+        .get_current_user()
+        .await
+        .expect("Failed to get current user");
+
+    let mr = gitlab
+        .client
+        .create_merge_request(
+            &branch_name,
+            "main",
+            &format!("Test MR with reviewers: {}", branch_name),
+            Some("This MR should have the current user as a reviewer"),
+            true,
+            false,
+            None,
+            Some(&[user.id]),
+        )
+        .await
+        .expect("Failed to create merge request with reviewers");
+
+    assert_eq!(mr.source_branch, branch_name);
+    assert_eq!(mr.target_branch, "main");
+    assert_eq!(mr.state, "opened");
+
+    println!(
+        "Created MR with reviewer {}: {} (IID: {})",
+        user.username, mr.web_url, mr.iid
     );
 }

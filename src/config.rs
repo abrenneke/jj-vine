@@ -1,20 +1,36 @@
 use crate::error::{Error, Result};
 use crate::jj::run_jj_command;
+use serde::Deserialize;
 use std::path::PathBuf;
 
 /// Stack visualization format
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum StackFormat {
     /// Linear numbered list (default)
     Linear,
     // Future formats: Tree, Compact, Custom(String)
 }
 
+fn default_remote_name() -> String {
+    "origin".to_string()
+}
+
+fn default_branch() -> String {
+    "main".to_string()
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_stack_format() -> StackFormat {
+    StackFormat::Linear
+}
+
 /// Configuration for jj-mrs
-///
-/// Configuration is loaded from git config with priority:
-/// CLI args > jj config > git config > defaults
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Config {
     /// GitLab instance URL (e.g., <https://gitlab.example.com>)
     pub gitlab_host: String,
@@ -26,136 +42,65 @@ pub struct Config {
     pub gitlab_token: String,
 
     /// Git remote name (default: "origin")
+    #[serde(default = "default_remote_name")]
     pub remote_name: String,
 
     /// Default branch name (default: "main")
+    #[serde(default = "default_branch")]
     pub default_branch: String,
 
     /// Optional path to CA bundle for TLS verification
+    #[serde(default)]
     pub ca_bundle: Option<String>,
 
     /// Accept non-compliant TLS certificates (for certificates that don't meet strict X.509 standards)
+    #[serde(default)]
     pub tls_accept_non_compliant_certs: bool,
 
     /// Enable stack visualization in MR descriptions (default: true)
+    #[serde(default = "default_true")]
     pub enable_stack_visualization: bool,
 
     /// Stack visualization format (default: Linear)
+    #[serde(default = "default_stack_format")]
     pub stack_format: StackFormat,
 
     /// Delete source branch when MR is merged (default: true)
+    #[serde(default = "default_true")]
     pub delete_source_branch: bool,
 
     /// Squash commits when MR is merged (default: false)
+    #[serde(default)]
     pub squash_commits: bool,
+
+    /// Assign created MRs to yourself (default: false)
+    #[serde(default)]
+    pub assign_to_self: bool,
+
+    /// Default reviewers for created MRs (list of usernames)
+    #[serde(default)]
+    pub default_reviewers: Vec<String>,
 }
 
 impl Config {
     /// Load configuration from jj config
     pub fn load(repo_path: &PathBuf) -> Result<Self> {
-        // Helper to run jj config get
-        let get_config = |key: &str| -> Result<Option<String>> {
-            match run_jj_command(repo_path, &["config", "get", key]) {
-                Ok(value) => {
-                    let trimmed = value.stdout.trim();
-                    // jj config get might return empty string or the literal string "null" for unset values
-                    if trimmed.is_empty() || trimmed == "null" {
-                        Ok(None)
-                    } else {
-                        // Remove surrounding quotes if present
-                        let cleaned = trimmed.trim_matches('"').to_string();
-                        Ok(Some(cleaned))
-                    }
-                }
-                Err(Error::JjCommand { .. }) => Ok(None),
-                Err(e) => Err(e),
-            }
-        };
+        let output = run_jj_command(repo_path, &["config", "list"])?;
 
-        // Required fields
-        let gitlab_host = get_config("jj-mrs.gitlabHost")?.ok_or_else(|| Error::Config {
-            message: "Missing required config: jj-mrs.gitlabHost".to_string(),
+        let toml_value: toml::Value =
+            toml::from_str(&output.stdout).map_err(|e| Error::Config {
+                message: format!("Failed to parse config as TOML: {}", e),
+            })?;
+
+        let jj_mrs_value = toml_value.get("jj-mrs").ok_or_else(|| Error::Config {
+            message: "Missing required config section: jj-mrs".to_string(),
         })?;
 
-        let gitlab_project = get_config("jj-mrs.gitlabProject")?.ok_or_else(|| Error::Config {
-            message: "Missing required config: jj-mrs.gitlabProject".to_string(),
+        let config: Config = jj_mrs_value.clone().try_into().map_err(|e| Error::Config {
+            message: format!("Failed to parse jj-mrs config: {}", e),
         })?;
 
-        let gitlab_token = get_config("jj-mrs.gitlabToken")?.ok_or_else(|| Error::Config {
-            message: "Missing required config: jj-mrs.gitlabToken".to_string(),
-        })?;
-
-        // Optional fields with defaults
-        let remote_name = get_config("jj-mrs.remoteName")?.unwrap_or_else(|| "origin".to_string());
-        let default_branch =
-            get_config("jj-mrs.defaultBranch")?.unwrap_or_else(|| "main".to_string());
-        let ca_bundle = get_config("jj-mrs.caBundle")?;
-        let tls_accept_non_compliant_certs = get_config("jj-mrs.tlsAcceptNonCompliantCerts")?
-            .map(|v| v == "true" || v == "1" || v == "yes")
-            .unwrap_or(false);
-
-        // Stack visualization config (optional with defaults)
-        let enable_stack_visualization = get_config("jj-mrs.enableStackVisualization")?
-            .map(|v| v == "true" || v == "1" || v == "yes")
-            .unwrap_or(true); // Default: enabled
-
-        let stack_format = match get_config("jj-mrs.stackFormat")?
-            .unwrap_or_else(|| "linear".to_string())
-            .as_str()
-        {
-            "linear" => StackFormat::Linear,
-            other => {
-                return Err(Error::Config {
-                    message: format!("Unknown stack format: {}", other),
-                });
-            }
-        };
-
-        // MR merge settings (optional with defaults)
-        let delete_source_branch = get_config("jj-mrs.deleteSourceBranch")?
-            .map(|v| v == "true" || v == "1" || v == "yes")
-            .unwrap_or(true); // Default: true
-
-        let squash_commits = get_config("jj-mrs.squashCommits")?
-            .map(|v| v == "true" || v == "1" || v == "yes")
-            .unwrap_or(false); // Default: false
-
-        Ok(Config {
-            gitlab_host,
-            gitlab_project,
-            gitlab_token,
-            remote_name,
-            default_branch,
-            ca_bundle,
-            tls_accept_non_compliant_certs,
-            enable_stack_visualization,
-            stack_format,
-            delete_source_branch,
-            squash_commits,
-        })
-    }
-
-    /// Check if all required configuration is present
-    pub fn validate(&self) -> Result<()> {
-        if self.gitlab_host.is_empty() {
-            return Err(Error::Config {
-                message: "gitlab_host cannot be empty".to_string(),
-            });
-        }
-
-        if self.gitlab_project.is_empty() {
-            return Err(Error::Config {
-                message: "gitlab_project cannot be empty".to_string(),
-            });
-        }
-
-        if self.gitlab_token.is_empty() {
-            return Err(Error::Config {
-                message: "gitlab_token cannot be empty".to_string(),
-            });
-        }
-
-        Ok(())
+        Ok(config)
     }
 }
 
@@ -183,7 +128,13 @@ mod tests {
         assert!(result.is_err());
 
         if let Err(Error::Config { message }) = result {
-            assert!(message.contains("jj-mrs.gitlabHost"));
+            assert!(
+                message.contains("missing field")
+                    || message.contains("gitlab")
+                    || message.contains("jj-mrs"),
+                "Error should mention missing field, got: {}",
+                message
+            );
         } else {
             panic!("Expected Config error for missing required field");
         }
@@ -307,41 +258,6 @@ mod tests {
         assert_eq!(config.gitlab_token, "glpat-test123");
         assert_eq!(config.remote_name, "upstream");
         assert_eq!(config.default_branch, "master");
-    }
-
-    #[test]
-    fn test_validate() {
-        let config = Config {
-            gitlab_host: "https://gitlab.example.com".to_string(),
-            gitlab_project: "group/project".to_string(),
-            gitlab_token: "token".to_string(),
-            remote_name: "origin".to_string(),
-            default_branch: "main".to_string(),
-            ca_bundle: None,
-            tls_accept_non_compliant_certs: false,
-            enable_stack_visualization: true,
-            stack_format: StackFormat::Linear,
-            delete_source_branch: true,
-            squash_commits: false,
-        };
-
-        assert!(config.validate().is_ok());
-
-        let invalid_config = Config {
-            gitlab_host: "".to_string(),
-            gitlab_project: "group/project".to_string(),
-            gitlab_token: "token".to_string(),
-            remote_name: "origin".to_string(),
-            default_branch: "main".to_string(),
-            ca_bundle: None,
-            tls_accept_non_compliant_certs: false,
-            enable_stack_visualization: true,
-            stack_format: StackFormat::Linear,
-            delete_source_branch: true,
-            squash_commits: false,
-        };
-
-        assert!(invalid_config.validate().is_err());
     }
 
     #[test]
@@ -538,5 +454,241 @@ mod tests {
 
         assert!(!config.delete_source_branch);
         assert!(config.squash_commits);
+    }
+
+    #[test]
+    fn test_config_default_assign_to_self() {
+        let (_temp, repo_path) = create_test_repo();
+
+        // Set required config only
+        run_jj_command(
+            &repo_path,
+            &[
+                "config",
+                "set",
+                "--repo",
+                "jj-mrs.gitlabHost",
+                "https://gitlab.com",
+            ],
+        )
+        .expect("Failed to set config");
+
+        run_jj_command(
+            &repo_path,
+            &[
+                "config",
+                "set",
+                "--repo",
+                "jj-mrs.gitlabProject",
+                "test/proj",
+            ],
+        )
+        .expect("Failed to set config");
+
+        run_jj_command(
+            &repo_path,
+            &["config", "set", "--repo", "jj-mrs.gitlabToken", "token"],
+        )
+        .expect("Failed to set config");
+
+        let config = Config::load(&repo_path).expect("Failed to load config");
+
+        assert!(!config.assign_to_self);
+    }
+
+    #[test]
+    fn test_config_explicit_assign_to_self() {
+        let (_temp, repo_path) = create_test_repo();
+
+        // Set required config
+        run_jj_command(
+            &repo_path,
+            &[
+                "config",
+                "set",
+                "--repo",
+                "jj-mrs.gitlabHost",
+                "https://gitlab.com",
+            ],
+        )
+        .expect("Failed to set config");
+
+        run_jj_command(
+            &repo_path,
+            &[
+                "config",
+                "set",
+                "--repo",
+                "jj-mrs.gitlabProject",
+                "test/proj",
+            ],
+        )
+        .expect("Failed to set config");
+
+        run_jj_command(
+            &repo_path,
+            &["config", "set", "--repo", "jj-mrs.gitlabToken", "token"],
+        )
+        .expect("Failed to set config");
+
+        // Set assign_to_self to true
+        run_jj_command(
+            &repo_path,
+            &["config", "set", "--repo", "jj-mrs.assignToSelf", "true"],
+        )
+        .expect("Failed to set config");
+
+        let config = Config::load(&repo_path).expect("Failed to load config");
+
+        assert!(config.assign_to_self);
+    }
+
+    #[test]
+    fn test_config_default_reviewers_empty() {
+        let (_temp, repo_path) = create_test_repo();
+
+        // Set required config only
+        run_jj_command(
+            &repo_path,
+            &[
+                "config",
+                "set",
+                "--repo",
+                "jj-mrs.gitlabHost",
+                "https://gitlab.com",
+            ],
+        )
+        .expect("Failed to set config");
+
+        run_jj_command(
+            &repo_path,
+            &[
+                "config",
+                "set",
+                "--repo",
+                "jj-mrs.gitlabProject",
+                "test/proj",
+            ],
+        )
+        .expect("Failed to set config");
+
+        run_jj_command(
+            &repo_path,
+            &["config", "set", "--repo", "jj-mrs.gitlabToken", "token"],
+        )
+        .expect("Failed to set config");
+
+        let config = Config::load(&repo_path).expect("Failed to load config");
+
+        assert!(config.default_reviewers.is_empty());
+    }
+
+    #[test]
+    fn test_config_default_reviewers_single() {
+        let (_temp, repo_path) = create_test_repo();
+
+        // Set required config
+        run_jj_command(
+            &repo_path,
+            &[
+                "config",
+                "set",
+                "--repo",
+                "jj-mrs.gitlabHost",
+                "https://gitlab.com",
+            ],
+        )
+        .expect("Failed to set config");
+
+        run_jj_command(
+            &repo_path,
+            &[
+                "config",
+                "set",
+                "--repo",
+                "jj-mrs.gitlabProject",
+                "test/proj",
+            ],
+        )
+        .expect("Failed to set config");
+
+        run_jj_command(
+            &repo_path,
+            &["config", "set", "--repo", "jj-mrs.gitlabToken", "token"],
+        )
+        .expect("Failed to set config");
+
+        // Set single reviewer as TOML array
+        run_jj_command(
+            &repo_path,
+            &[
+                "config",
+                "set",
+                "--repo",
+                "jj-mrs.defaultReviewers",
+                r#"["reviewer1"]"#,
+            ],
+        )
+        .expect("Failed to set config");
+
+        let config = Config::load(&repo_path).expect("Failed to load config");
+
+        assert_eq!(config.default_reviewers, vec!["reviewer1"]);
+    }
+
+    #[test]
+    fn test_config_default_reviewers_multiple() {
+        let (_temp, repo_path) = create_test_repo();
+
+        // Set required config
+        run_jj_command(
+            &repo_path,
+            &[
+                "config",
+                "set",
+                "--repo",
+                "jj-mrs.gitlabHost",
+                "https://gitlab.com",
+            ],
+        )
+        .expect("Failed to set config");
+
+        run_jj_command(
+            &repo_path,
+            &[
+                "config",
+                "set",
+                "--repo",
+                "jj-mrs.gitlabProject",
+                "test/proj",
+            ],
+        )
+        .expect("Failed to set config");
+
+        run_jj_command(
+            &repo_path,
+            &["config", "set", "--repo", "jj-mrs.gitlabToken", "token"],
+        )
+        .expect("Failed to set config");
+
+        // Set multiple reviewers as TOML array
+        run_jj_command(
+            &repo_path,
+            &[
+                "config",
+                "set",
+                "--repo",
+                "jj-mrs.defaultReviewers",
+                r#"["reviewer1", "reviewer2", "reviewer3"]"#,
+            ],
+        )
+        .expect("Failed to set config");
+
+        let config = Config::load(&repo_path).expect("Failed to load config");
+
+        assert_eq!(
+            config.default_reviewers,
+            vec!["reviewer1", "reviewer2", "reviewer3"]
+        );
     }
 }

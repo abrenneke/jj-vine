@@ -65,6 +65,56 @@ impl GitLabClient {
         urlencoding::encode(&self.project_id).to_string()
     }
 
+    /// Get the current authenticated user
+    pub async fn get_current_user(&self) -> Result<User> {
+        let url = format!("{}/api/v4/user", self.base_url);
+
+        let response = self
+            .client
+            .get(&url)
+            .header("PRIVATE-TOKEN", &self.token)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let text = response.text().await?;
+            return Err(Error::GitLabApi {
+                message: format!("Failed to get current user: {} - {}", status, text),
+            });
+        }
+
+        let user: User = response.json().await?;
+        Ok(user)
+    }
+
+    /// Get user by username
+    pub async fn get_user_by_username(&self, username: &str) -> Result<Option<User>> {
+        let url = format!(
+            "{}/api/v4/users?username={}",
+            self.base_url,
+            urlencoding::encode(username)
+        );
+
+        let response = self
+            .client
+            .get(&url)
+            .header("PRIVATE-TOKEN", &self.token)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let text = response.text().await?;
+            return Err(Error::GitLabApi {
+                message: format!("Failed to get user by username: {} - {}", status, text),
+            });
+        }
+
+        let users: Vec<User> = response.json().await?;
+        Ok(users.into_iter().next())
+    }
+
     /// Find merge request by source branch name
     ///
     /// Returns the first MR found with the given source branch, or None if not found
@@ -104,6 +154,8 @@ impl GitLabClient {
         description: Option<&str>,
         remove_source_branch: bool,
         squash: bool,
+        assignee_ids: Option<&[u64]>,
+        reviewer_ids: Option<&[u64]>,
     ) -> Result<MergeRequest> {
         let url = format!(
             "{}/api/v4/projects/{}/merge_requests",
@@ -121,6 +173,18 @@ impl GitLabClient {
 
         if let Some(desc) = description {
             payload["description"] = serde_json::json!(desc);
+        }
+
+        if let Some(assignees) = assignee_ids
+            && !assignees.is_empty()
+        {
+            payload["assignee_ids"] = serde_json::json!(assignees);
+        }
+
+        if let Some(reviewers) = reviewer_ids
+            && !reviewers.is_empty()
+        {
+            payload["reviewer_ids"] = serde_json::json!(reviewers);
         }
 
         let response = self
@@ -246,6 +310,22 @@ impl GitLabClient {
     }
 }
 
+/// GitLab User
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct User {
+    /// User ID
+    pub id: u64,
+
+    /// Username
+    pub username: String,
+
+    /// User's name
+    pub name: String,
+
+    /// User's email
+    pub email: Option<String>,
+}
+
 /// GitLab Merge Request
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MergeRequest {
@@ -307,6 +387,21 @@ mod tests {
 
         let encoded = client.encode_project_id();
         assert_eq!(encoded, "group%2Fproject");
+    }
+
+    #[test]
+    fn test_user_struct() {
+        let user = User {
+            id: 123,
+            username: "testuser".to_string(),
+            name: "Test User".to_string(),
+            email: Some("test@example.com".to_string()),
+        };
+
+        assert_eq!(user.id, 123);
+        assert_eq!(user.username, "testuser");
+        assert_eq!(user.name, "Test User");
+        assert_eq!(user.email, Some("test@example.com".to_string()));
     }
 
     #[test]
