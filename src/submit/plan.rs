@@ -120,7 +120,6 @@ pub async fn plan(
         id
     };
 
-    // Query all existing MRs upfront (needed for description generation)
     let mut existing_mrs = HashMap::new();
     for bookmark in &analysis.bookmarks_to_submit {
         output.set_substep(&format!("MRs for {}", bookmark));
@@ -133,7 +132,6 @@ pub async fn plan(
 
     let mut push_action_ids: HashMap<String, usize> = HashMap::new();
 
-    // All pushes in parallel
     let mut push_batch = Vec::new();
     for bookmark in &analysis.bookmarks_to_submit {
         let action_id = get_id();
@@ -155,17 +153,12 @@ pub async fn plan(
 
     let mut mr_action_ids: Vec<usize> = Vec::new();
 
-    // CreateMR/UpdateMRBase, one per batch (serial execution)
-    for (idx, bookmark) in analysis.bookmarks_to_submit.iter().enumerate() {
-        let target_branch = if idx == 0 {
-            // First bookmark in stack -> target the base branch
-            analysis.base_branch.clone()
-        } else {
-            // Other bookmarks -> target the previous bookmark
-            analysis.bookmarks_to_submit[idx - 1].clone()
-        };
+    for bookmark in &analysis.bookmarks_to_submit {
+        let target_branch = bookmark_graph
+            .get_parent(bookmark)
+            .cloned()
+            .unwrap_or_else(|| analysis.base_branch.clone());
 
-        // Get the push action ID for this bookmark as a dependency
         let push_dependency = push_action_ids
             .get(bookmark)
             .copied()
@@ -208,7 +201,6 @@ pub async fn plan(
         }
     }
 
-    // All UpdateMRDescription in parallel
     if config.enable_stack_visualization && analysis.bookmarks_to_submit.len() > 1 {
         let mut description_batch = Vec::new();
         for bookmark in &analysis.bookmarks_to_submit {
