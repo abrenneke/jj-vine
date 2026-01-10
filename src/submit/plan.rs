@@ -201,22 +201,35 @@ pub async fn plan(
         }
     }
 
-    if config.enable_stack_visualization && analysis.bookmarks_to_submit.len() > 1 {
-        let mut description_batch = Vec::new();
-        for bookmark in &analysis.bookmarks_to_submit {
-            let action_id = get_id();
+    if config.enable_stack_visualization {
+        let bookmarks_needing_descriptions: Vec<String> = analysis
+            .bookmarks_to_submit
+            .iter()
+            .filter(|bookmark| {
+                if let Some(stack) = bookmark_graph.find_stack_for_bookmark(bookmark) {
+                    stack.bookmarks.len() >= 2
+                } else {
+                    false
+                }
+            })
+            .cloned()
+            .collect();
 
-            description_batch.push(PlannedAction {
-                id: action_id,
-                action: Action::UpdateMRDescription {
-                    bookmark: bookmark.clone(),
-                    bookmark_graph: bookmark_graph.clone(),
-                    bookmarks_being_submitted: analysis.bookmarks_to_submit.clone(),
-                },
-                dependencies: mr_action_ids.clone(),
-            });
-        }
-        if !description_batch.is_empty() {
+        if !bookmarks_needing_descriptions.is_empty() {
+            let mut description_batch = Vec::new();
+            for bookmark in &bookmarks_needing_descriptions {
+                let action_id = get_id();
+
+                description_batch.push(PlannedAction {
+                    id: action_id,
+                    action: Action::UpdateMRDescription {
+                        bookmark: bookmark.clone(),
+                        bookmark_graph: bookmark_graph.clone(),
+                        bookmarks_being_submitted: analysis.bookmarks_to_submit.clone(),
+                    },
+                    dependencies: mr_action_ids.clone(),
+                });
+            }
             batches.push(description_batch);
         }
     }
