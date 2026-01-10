@@ -3,7 +3,7 @@ use std::process::Output;
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
-#[derive(Debug, Snafu)]
+#[derive(Debug, Snafu, Clone)]
 #[snafu(visibility(pub))]
 pub enum Error {
     #[snafu(display("jj command failed: {message}"))]
@@ -30,14 +30,14 @@ pub enum Error {
     #[snafu(display("Invalid bookmark graph: {message}"))]
     InvalidGraph { message: String },
 
-    #[snafu(display("IO error: {source}"))]
-    Io { source: std::io::Error },
+    #[snafu(display("IO error: {message}"))]
+    Io { message: String },
 
-    #[snafu(display("HTTP request failed: {source}"))]
-    Http { source: reqwest::Error },
+    #[snafu(display("HTTP request failed: {message}"))]
+    Http { message: String },
 
-    #[snafu(display("JSON error: {source}"))]
-    Json { source: serde_json::Error },
+    #[snafu(display("JSON error: {message}"))]
+    Json { message: String },
 
     #[snafu(display("UTF-8 decoding error: {source}"))]
     Utf8 { source: std::string::FromUtf8Error },
@@ -60,19 +60,25 @@ impl Error {
 // Implement From for common error types
 impl From<std::io::Error> for Error {
     fn from(source: std::io::Error) -> Self {
-        Error::Io { source }
+        Error::Io {
+            message: source.to_string(),
+        }
     }
 }
 
 impl From<reqwest::Error> for Error {
     fn from(source: reqwest::Error) -> Self {
-        Error::Http { source }
+        Error::Http {
+            message: source.to_string(),
+        }
     }
 }
 
 impl From<serde_json::Error> for Error {
     fn from(source: serde_json::Error) -> Self {
-        Error::Json { source }
+        Error::Json {
+            message: source.to_string(),
+        }
     }
 }
 
@@ -85,7 +91,7 @@ impl From<std::string::FromUtf8Error> for Error {
 impl From<dialoguer::Error> for Error {
     fn from(source: dialoguer::Error) -> Self {
         Error::Io {
-            source: std::io::Error::other(source),
+            message: source.to_string(),
         }
     }
 }

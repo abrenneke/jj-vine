@@ -90,12 +90,12 @@ pub struct ParsedDescription {
 
 /// Manager for parsing and generating MR descriptions
 pub struct DescriptionManager {
-    formatter: Box<dyn DescriptionFormatter>,
+    formatter: Box<dyn DescriptionFormatter + Send + Sync>,
 }
 
 impl DescriptionManager {
     /// Create a new description manager with the given formatter
-    pub fn new(formatter: Box<dyn DescriptionFormatter>) -> Self {
+    pub fn new(formatter: Box<dyn DescriptionFormatter + Send + Sync>) -> Self {
         Self { formatter }
     }
 

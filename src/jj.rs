@@ -1,5 +1,4 @@
 use crate::error::{Error, Result};
-use snafu::ResultExt;
 use std::path::PathBuf;
 use std::process::{Command, ExitStatus};
 use tracing::{debug, trace};
@@ -386,8 +385,7 @@ pub fn run_jj_command(repo_path: &PathBuf, args: &[&str]) -> Result<CommandOutpu
     let output = Command::new(&jj_bin)
         .current_dir(repo_path)
         .args(args)
-        .output()
-        .context(crate::error::IoSnafu)?;
+        .output()?;
 
     if !output.status.success() {
         return Err(Error::JjCommand {

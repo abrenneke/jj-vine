@@ -1,10 +1,10 @@
-use std::cell::RefCell;
+use std::sync::RwLock;
 
 use indicatif::{ProgressBar, ProgressStyle};
 use owo_colors::OwoColorize;
 use tracing::info;
 
-pub trait Output {
+pub trait Output: Send + Sync {
     fn log_current(&self, message: &str);
     fn set_substep(&self, message: &str);
 
@@ -17,7 +17,7 @@ pub trait Output {
 /// Interactive spinner mode implementation
 pub struct InteractiveOutput {
     spinner: ProgressBar,
-    current_text: RefCell<String>,
+    current_text: RwLock<String>,
 }
 
 impl InteractiveOutput {
@@ -32,7 +32,7 @@ impl InteractiveOutput {
         pb.enable_steady_tick(std::time::Duration::from_millis(80));
         Self {
             spinner: pb,
-            current_text: RefCell::new(String::new()),
+            current_text: RwLock::new(String::new()),
         }
     }
 }
@@ -45,15 +45,16 @@ impl Default for InteractiveOutput {
 
 impl Output for InteractiveOutput {
     fn log_current(&self, message: &str) {
-        self.current_text.replace(message.to_string());
+        let mut current_text = self.current_text.write().unwrap();
+        *current_text = message.to_string();
         self.spinner
-            .set_message(format!("{}...", self.current_text.borrow().clone()));
+            .set_message(format!("{}...", current_text.clone()));
     }
 
     fn set_substep(&self, message: &str) {
         self.spinner.set_message(format!(
             "{} {}...",
-            self.current_text.borrow(),
+            self.current_text.read().unwrap(),
             format!("({})", message).dimmed()
         ));
     }
@@ -80,13 +81,13 @@ impl Drop for InteractiveOutput {
 
 /// Flat logging mode implementation
 pub struct FlatOutput {
-    current_text: RefCell<String>,
+    current_text: RwLock<String>,
 }
 
 impl FlatOutput {
     pub fn new() -> Self {
         Self {
-            current_text: RefCell::new(String::new()),
+            current_text: RwLock::new(String::new()),
         }
     }
 }
@@ -99,7 +100,8 @@ impl Default for FlatOutput {
 
 impl Output for FlatOutput {
     fn log_current(&self, message: &str) {
-        self.current_text.replace(message.to_string());
+        let mut current_text = self.current_text.write().unwrap();
+        *current_text = message.to_string();
         info!("{}", message);
     }
 
@@ -108,7 +110,7 @@ impl Output for FlatOutput {
             "{}",
             format!(
                 "{} {}",
-                self.current_text.borrow(),
+                self.current_text.read().unwrap(),
                 format!("({})", message).dimmed()
             )
         );

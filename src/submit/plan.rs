@@ -1,3 +1,4 @@
+use crate::bookmark::BookmarkGraph;
 use crate::config::Config;
 use crate::error::Result;
 use crate::gitlab::GitLabClient;
@@ -35,32 +36,47 @@ pub enum Action {
     },
 }
 
+/// A planned action with ID and dependencies
+#[derive(Debug, Clone, PartialEq)]
+pub struct PlannedAction {
+    /// Sequential ID for this action
+    pub id: usize,
+
+    /// The actual action to perform
+    pub action: Action,
+
+    /// IDs of actions that must complete successfully before this action can run
+    pub dependencies: Vec<usize>,
+}
+
 /// Plan for submission execution
 #[derive(Debug, Clone)]
 pub struct SubmissionPlan {
-    /// Actions to perform, in order
-    pub actions: Vec<Action>,
+    /// Actions organized into batches. Each batch's actions execute in parallel,
+    /// and batches execute sequentially.
+    pub actions: Vec<Vec<PlannedAction>>,
 
     /// Whether this is a dry run (don't actually execute)
     pub dry_run: bool,
 }
 
 /// Create a submission plan based on analysis
-///
-/// Phase 2 of the three-phase submission process:
-/// - Query GitLab for existing MRs
-/// - Check remote bookmark status
-/// - Determine what actions are needed
 pub async fn plan(
     analysis: &SubmissionAnalysis,
     jj: &Jujutsu,
     gitlab: &GitLabClient,
     config: &Config,
-    bookmark_graph: &crate::bookmark::BookmarkGraph,
+    bookmark_graph: &BookmarkGraph,
     dry_run: bool,
     output: &dyn Output,
 ) -> Result<SubmissionPlan> {
-    let mut actions = Vec::new();
+    let mut batches = Vec::new();
+    let mut current_id = 1;
+    let get_id = &mut || {
+        let id = current_id;
+        current_id += 1;
+        id
+    };
 
     // Query all existing MRs upfront (needed for description generation)
     let mut existing_mrs = HashMap::new();
@@ -73,14 +89,32 @@ pub async fn plan(
 
     output.set_substep("");
 
-    for (idx, bookmark) in analysis.bookmarks_to_submit.iter().enumerate() {
-        // Always push the bookmark
-        actions.push(Action::Push {
-            bookmark: bookmark.clone(),
-            remote: config.remote_name.clone(),
-        });
+    let mut push_action_ids: HashMap<String, usize> = HashMap::new();
 
-        // Determine the target branch for this bookmark's MR
+    // All pushes in parallel
+    let mut push_batch = Vec::new();
+    for bookmark in &analysis.bookmarks_to_submit {
+        let action_id = get_id();
+
+        push_action_ids.insert(bookmark.clone(), action_id);
+
+        push_batch.push(PlannedAction {
+            id: action_id,
+            action: Action::Push {
+                bookmark: bookmark.clone(),
+                remote: config.remote_name.clone(),
+            },
+            dependencies: vec![],
+        });
+    }
+    if !push_batch.is_empty() {
+        batches.push(push_batch);
+    }
+
+    let mut mr_action_ids: Vec<usize> = Vec::new();
+
+    // CreateMR/UpdateMRBase, one per batch (serial execution)
+    for (idx, bookmark) in analysis.bookmarks_to_submit.iter().enumerate() {
         let target_branch = if idx == 0 {
             // First bookmark in stack -> target the base branch
             analysis.base_branch.clone()
@@ -89,47 +123,74 @@ pub async fn plan(
             analysis.bookmarks_to_submit[idx - 1].clone()
         };
 
-        // Check if an MR already exists
+        // Get the push action ID for this bookmark as a dependency
+        let push_dependency = push_action_ids
+            .get(bookmark)
+            .copied()
+            .map(|id| vec![id])
+            .unwrap_or_default();
+
         match existing_mrs.get(bookmark) {
             Some(existing_mr) => {
-                // MR exists - check if we need to update the target branch
                 if existing_mr.target_branch != target_branch {
-                    actions.push(Action::UpdateMRBase {
-                        bookmark: bookmark.clone(),
-                        mr_iid: existing_mr.iid,
-                        new_target_branch: target_branch.clone(),
-                    });
+                    let action_id = get_id();
+                    mr_action_ids.push(action_id);
+
+                    batches.push(vec![PlannedAction {
+                        id: action_id,
+                        action: Action::UpdateMRBase {
+                            bookmark: bookmark.clone(),
+                            mr_iid: existing_mr.iid,
+                            new_target_branch: target_branch.clone(),
+                        },
+                        dependencies: push_dependency,
+                    }]);
                 }
-                // Description will be updated via deferred action
             }
             None => {
-                // No MR exists - create one with empty description
-                // Description will be set via deferred action
                 let title = get_mr_title(jj, bookmark, &target_branch)?;
+                let action_id = get_id();
+                mr_action_ids.push(action_id);
 
-                actions.push(Action::CreateMR {
-                    bookmark: bookmark.clone(),
-                    target_branch,
-                    title,
-                    description: String::new(),
-                });
+                batches.push(vec![PlannedAction {
+                    id: action_id,
+                    action: Action::CreateMR {
+                        bookmark: bookmark.clone(),
+                        target_branch,
+                        title,
+                        description: String::new(),
+                    },
+                    dependencies: push_dependency,
+                }]);
             }
         }
     }
 
-    // Add description updates for ALL bookmarks in a stack
-    // These will execute AFTER all MRs are created, ensuring all descriptions have MR IIDs
+    // All UpdateMRDescription in parallel
     if config.enable_stack_visualization && analysis.bookmarks_to_submit.len() > 1 {
+        let mut description_batch = Vec::new();
         for bookmark in &analysis.bookmarks_to_submit {
-            actions.push(Action::UpdateMRDescription {
-                bookmark: bookmark.clone(),
-                bookmark_graph: bookmark_graph.clone(),
-                bookmarks_being_submitted: analysis.bookmarks_to_submit.clone(),
+            let action_id = get_id();
+
+            description_batch.push(PlannedAction {
+                id: action_id,
+                action: Action::UpdateMRDescription {
+                    bookmark: bookmark.clone(),
+                    bookmark_graph: bookmark_graph.clone(),
+                    bookmarks_being_submitted: analysis.bookmarks_to_submit.clone(),
+                },
+                dependencies: mr_action_ids.clone(),
             });
+        }
+        if !description_batch.is_empty() {
+            batches.push(description_batch);
         }
     }
 
-    Ok(SubmissionPlan { actions, dry_run })
+    Ok(SubmissionPlan {
+        actions: batches,
+        dry_run,
+    })
 }
 
 /// Determine the title for an MR based on the number of commits
@@ -235,22 +296,33 @@ mod tests {
     fn test_submission_plan_struct() {
         let plan = SubmissionPlan {
             actions: vec![
-                Action::Push {
-                    bookmark: "feature".to_string(),
-                    remote: "origin".to_string(),
-                },
-                Action::CreateMR {
-                    bookmark: "feature".to_string(),
-                    target_branch: "main".to_string(),
-                    title: "[jj-mrs] feature".to_string(),
-                    description: "".to_string(),
-                },
+                vec![PlannedAction {
+                    id: 1,
+                    action: Action::Push {
+                        bookmark: "feature".to_string(),
+                        remote: "origin".to_string(),
+                    },
+                    dependencies: vec![],
+                }],
+                vec![PlannedAction {
+                    id: 2,
+                    action: Action::CreateMR {
+                        bookmark: "feature".to_string(),
+                        target_branch: "main".to_string(),
+                        title: "[jj-mrs] feature".to_string(),
+                        description: "".to_string(),
+                    },
+                    dependencies: vec![1],
+                }],
             ],
             dry_run: false,
         };
 
         assert_eq!(plan.actions.len(), 2);
         assert!(!plan.dry_run);
+        assert_eq!(plan.actions[0][0].id, 1);
+        assert_eq!(plan.actions[1][0].id, 2);
+        assert_eq!(plan.actions[1][0].dependencies, vec![1]);
     }
 
     #[test]
