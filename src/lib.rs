@@ -10,5 +10,5 @@ pub mod output;
 pub mod submit;
 pub mod tracing_formatter;
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "no-gitlab-tests")))]
 mod tests;

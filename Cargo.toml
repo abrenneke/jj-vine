@@ -3,6 +3,9 @@ name = "jj-vine"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+no-gitlab-tests = []
+
 [dependencies]
 async-trait = "0.1.89"
 bon = "3.8.2"
