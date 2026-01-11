@@ -6,7 +6,7 @@ check:
     cargo check
 
 # Lints the project
-lint: fmt clippy
+lint: fmt clippy check-readmes
 
 # Runs formatting on all files
 fmt:

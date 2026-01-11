@@ -8,6 +8,35 @@ Currently supports the following code forges:
 
 *The canonical location for `jj-vine` is [codeberg.org/abrenneke/jj-vine](https://codeberg.org/abrenneke/jj-vine). GitHub is used as a mirror and CI only.*
 
+## Table of Contents
+
+- [Overview](#overview)
+- [Main Features](#main-features)
+- [Planned Features](#planned-features)
+- [Installation](#installation)
+
+  - [Cargo Binstall](#cargo-binstall)
+  - [Pre-built Binaries](#pre-built-binaries)
+  - [Alias Setup](#alias-setup)
+- [Quick Start](#quick-start)
+- [Commands](#commands)
+
+  - [submit](#submit)
+  - [init](#init)
+- [Configuration](#configuration)
+
+  - [Required Settings](#required-settings)
+  - [Optional Settings](#optional-settings)
+- [Stack Visualization](#stack-visualization)
+- [Credits](#credits)
+- [FAQs](#faqs)
+
+  - [Is this vibe-coded slop?](#is-this-vibe-coded-slop)
+  - [Ok, but really?](#ok-but-really)
+  - [Why a new project?](#why-a-new-project)
+- [Contributing](#contributing)
+- [License](#license)
+
 ## Overview
 
 As `jj` is so flexible, it can sometimes be tedious to manage pull requests for a `jj` repository. Additionally, many people like the "stacked pull request" workflow, where a tool can manage your stack of pull requests for you, including modifying the base branch, description, and other settings. `jj-vine` aims to smooth out the process of managing pull requests for a `jj` repository.
@@ -68,13 +97,15 @@ Then you can use `jj vine` instead of `jj-vine`. You can of course use any alias
 2. Push up some bookmarks (auto-generated bookmarks work great!)
 
     ```bash
-    jj new -m "Add feature A"
-    # Make some changes
-    jj git push -c @
+    jj new main
 
-    jj new -m "Add feature B"
+    jj commit -m "Add feature A"
     # Make some changes
-    jj git push -c @
+    jj git push -c @-
+
+    jj commit -m "Add feature B"
+    # Make some changes
+    jj git push -c @-
     ```
 
 3. Submit all tracked bookmarks at once:
@@ -84,6 +115,7 @@ Then you can use `jj vine` instead of `jj-vine`. You can of course use any alias
     ```
 
     This creates two pull requests:
+    
     - `feature-a` targeting `main`
     - `feature-b` targeting `feature-a`
 
