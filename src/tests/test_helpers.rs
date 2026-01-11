@@ -7,6 +7,7 @@ use tempfile::TempDir;
 use crate::{
     cli::CliConfig,
     commands::submit::SubmitCommandConfig,
+    error::Result,
     gitlab::GitLabClient,
     jj::Jujutsu,
     output::BufferedOutput,
@@ -67,12 +68,12 @@ impl TestRepo {
 
         let mut repo = Self::new();
 
-        repo.jj(["config", "set", "--repo", "jj-mrs.gitlabHost", &host]);
-        repo.jj(["config", "set", "--repo", "jj-mrs.gitlabProject", &project]);
-        repo.jj(["config", "set", "--repo", "jj-mrs.gitlabToken", &token]);
+        repo.jj(["config", "set", "--repo", "jj-vine.gitlabHost", &host]);
+        repo.jj(["config", "set", "--repo", "jj-vine.gitlabProject", &project]);
+        repo.jj(["config", "set", "--repo", "jj-vine.gitlabToken", &token]);
 
         if let Some(ref bundle) = ca_bundle {
-            repo.jj(["config", "set", "--repo", "jj-mrs.caBundle", bundle]);
+            repo.jj(["config", "set", "--repo", "jj-vine.caBundle", bundle]);
         }
 
         if accept_non_compliant {
@@ -80,7 +81,7 @@ impl TestRepo {
                 "config",
                 "set",
                 "--repo",
-                "jj-mrs.tlsAcceptNonCompliantCerts",
+                "jj-vine.tlsAcceptNonCompliantCerts",
                 "true",
             ]);
         }
@@ -143,6 +144,18 @@ impl TestRepo {
         self
     }
 
+    /// Push a bookmark to origin, chainable
+    pub fn push_bookmark(&self, name: &str) -> &Self {
+        self.jj(["git", "push", "--bookmark", name]);
+        self
+    }
+
+    /// Create a bookmark and push it to origin, chainable
+    pub fn create_and_push_bookmark(&self, name: &str) -> &Self {
+        self.create_bookmark(name);
+        self.push_bookmark(name)
+    }
+
     /// Create a commit with a bookmark, then start new working copy
     pub fn commit_with_bookmark(
         &self,
@@ -164,6 +177,11 @@ impl TestRepo {
 
     /// Submit bookmarks with options
     pub async fn submit(&self, config: SubmitCommandConfig) -> String {
+        self.try_submit(config).await.unwrap()
+    }
+
+    /// Submit bookmarks with options, returning Result for error testing
+    pub async fn try_submit(&self, config: SubmitCommandConfig) -> Result<String> {
         let buffered_output = BufferedOutput::new();
         crate::commands::submit::submit(
             config,
@@ -172,10 +190,9 @@ impl TestRepo {
                 output: &buffered_output,
             },
         )
-        .await
-        .unwrap();
+        .await?;
 
-        strip_ansi_escapes::strip_str(buffered_output.get_buffer())
+        Ok(strip_ansi_escapes::strip_str(buffered_output.get_buffer()))
     }
 
     /// jj mr submit --bookmark <bookmark>

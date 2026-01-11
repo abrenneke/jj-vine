@@ -50,11 +50,11 @@ impl DescriptionFormatter for LinearListFormatter {
     }
 
     fn start_marker(&self) -> &'static str {
-        "<!-- start jj-mrs stack -->"
+        "<!-- start jj-vine stack -->"
     }
 
     fn end_marker(&self) -> &'static str {
-        "<!-- end jj-mrs stack -->"
+        "<!-- end jj-vine stack -->"
     }
 }
 
@@ -324,7 +324,7 @@ mod tests {
     #[test]
     fn test_parse_preserves_user_content_after_markers() {
         let desc =
-            "<!-- start jj-mrs stack -->\nStack info\n<!-- end jj-mrs stack -->\n\nUser content";
+            "<!-- start jj-vine stack -->\nStack info\n<!-- end jj-vine stack -->\n\nUser content";
         let manager = DescriptionManager::new(Box::new(LinearListFormatter));
         let parsed = manager.parse_description(desc);
         assert!(parsed.content_before.is_none());
@@ -355,8 +355,8 @@ mod tests {
 
         let desc = manager.generate_description(None, None, &stack, "bookmark-b");
 
-        assert!(desc.contains("<!-- start jj-mrs stack -->"));
-        assert!(desc.contains("<!-- end jj-mrs stack -->"));
+        assert!(desc.contains("<!-- start jj-vine stack -->"));
+        assert!(desc.contains("<!-- end jj-vine stack -->"));
         assert!(desc.contains("bookmark-b ← this MR"));
     }
 
@@ -461,7 +461,7 @@ mod tests {
 
     #[test]
     fn test_parse_no_end_marker_malformed() {
-        let desc = "<!-- start jj-mrs stack -->\nStack info without end";
+        let desc = "<!-- start jj-vine stack -->\nStack info without end";
         let manager = DescriptionManager::new(Box::new(LinearListFormatter));
         let parsed = manager.parse_description(desc);
         assert_eq!(parsed.content_before, Some(desc.to_string()));
@@ -472,7 +472,7 @@ mod tests {
     fn test_round_trip_preserves_user_content() {
         let manager = DescriptionManager::new(Box::new(LinearListFormatter));
         let original =
-            "<!-- start jj-mrs stack -->\nOld stack\n<!-- end jj-mrs stack -->\n\nMy notes";
+            "<!-- start jj-vine stack -->\nOld stack\n<!-- end jj-vine stack -->\n\nMy notes";
         let parsed = manager.parse_description(original);
 
         let stack = StackContext {
@@ -508,13 +508,13 @@ mod tests {
         };
 
         let desc = manager.generate_description(None, None, &stack, "f");
-        assert!(desc.ends_with("<!-- end jj-mrs stack -->"));
+        assert!(desc.ends_with("<!-- end jj-vine stack -->"));
     }
 
     #[test]
     fn test_parse_content_before_and_after_markers() {
         let manager = DescriptionManager::new(Box::new(LinearListFormatter));
-        let desc = "Content before\n\n<!-- start jj-mrs stack -->\nStack info\n<!-- end jj-mrs stack -->\n\nContent after";
+        let desc = "Content before\n\n<!-- start jj-vine stack -->\nStack info\n<!-- end jj-vine stack -->\n\nContent after";
         let parsed = manager.parse_description(desc);
 
         assert_eq!(parsed.content_before, Some("Content before".to_string()));
@@ -542,8 +542,8 @@ mod tests {
         );
 
         assert!(desc.starts_with("Before content"));
-        assert!(desc.contains("<!-- start jj-mrs stack -->"));
-        assert!(desc.contains("<!-- end jj-mrs stack -->"));
+        assert!(desc.contains("<!-- start jj-vine stack -->"));
+        assert!(desc.contains("<!-- end jj-vine stack -->"));
         assert!(desc.ends_with("After content"));
     }
 

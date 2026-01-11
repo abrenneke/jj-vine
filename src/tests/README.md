@@ -1,6 +1,6 @@
-# jj-mrs Testing Guide
+# jj-vine Testing Guide
 
-This directory contains tests for jj-mrs.
+This directory contains tests for jj-vine.
 
 ## Test Types
 
@@ -49,7 +49,7 @@ Real GitLab API integration tests are in `gitlab_integration_tests.rs`. These co
 2. Edit `.env` and fill in your values:
    ```bash
    GITLAB_HOST=https://gitlab.com
-   GITLAB_PROJECT=your-username/jj-mrs-test-repo
+   GITLAB_PROJECT=your-username/jj-vine-test-repo
    GITLAB_TOKEN=glpat-your-token-here
    ```
 

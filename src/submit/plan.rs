@@ -308,7 +308,7 @@ mod tests {
         let action = Action::CreateMR {
             bookmark: "feature".to_string(),
             target_branch: "main".to_string(),
-            title: "[jj-mrs] feature".to_string(),
+            title: "[jj-vine] feature".to_string(),
             description: "Stack visualization here".to_string(),
         };
 
@@ -327,7 +327,7 @@ mod tests {
         {
             assert_eq!(bookmark, "feature");
             assert_eq!(target_branch, "main");
-            assert_eq!(title, "[jj-mrs] feature");
+            assert_eq!(title, "[jj-vine] feature");
             assert_eq!(description, "Stack visualization here");
         }
     }
@@ -360,7 +360,7 @@ mod tests {
                     action: Action::CreateMR {
                         bookmark: "feature".to_string(),
                         target_branch: "main".to_string(),
-                        title: "[jj-mrs] feature".to_string(),
+                        title: "[jj-vine] feature".to_string(),
                         description: "".to_string(),
                     },
                     dependencies: vec![1],

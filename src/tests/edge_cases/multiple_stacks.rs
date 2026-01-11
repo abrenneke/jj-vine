@@ -14,22 +14,19 @@ async fn test_multiple_independent_stacks_dont_incorrectly_retarget() {
     repo.jj(["new", "main"]);
     let branch_1a = unique_branch("stack1-a");
     repo.create_change("file1.txt", "stack1-a content", "Stack 1 A")
-        .create_bookmark(&branch_1a);
-    repo.jj(["git", "push", "--bookmark", &branch_1a]);
+        .create_and_push_bookmark(&branch_1a);
 
     // Stack 1, bookmark B
     repo.jj(["new"]);
     let branch_1b = unique_branch("stack1-b");
     repo.create_change("file2.txt", "stack1-b content", "Stack 1 B")
-        .create_bookmark(&branch_1b);
-    repo.jj(["git", "push", "--bookmark", &branch_1b]);
+        .create_and_push_bookmark(&branch_1b);
 
     // Stack 2, bookmark A (independent from stack 1)
     repo.jj(["new", "main"]);
     let branch_2a = unique_branch("stack2-a");
     repo.create_change("file3.txt", "stack2-a content", "Stack 2 A")
-        .create_bookmark(&branch_2a);
-    repo.jj(["git", "push", "--bookmark", &branch_2a]);
+        .create_and_push_bookmark(&branch_2a);
 
     // Dry run submission to see what the tool wants to do
     let output = repo

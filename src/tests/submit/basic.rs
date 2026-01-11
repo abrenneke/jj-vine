@@ -7,8 +7,7 @@ async fn test_submit_dry_run_shows_would_create() {
     let branch = unique_branch("dry-run-test");
     repo.jj(["new", "main"]);
     repo.create_change("test.txt", "content", "Test commit")
-        .create_bookmark(&branch);
-    repo.jj(["git", "push", "--bookmark", &branch]);
+        .create_and_push_bookmark(&branch);
 
     let output = repo
         .submit(crate::commands::submit::SubmitCommandConfig {
@@ -37,18 +36,15 @@ async fn test_topological_ordering_in_stack() {
 
     repo.jj(["new", "main"]);
     repo.create_change("a.txt", "a", "Commit A")
-        .create_bookmark(&branch_a);
-    repo.jj(["git", "push", "--bookmark", &branch_a]);
+        .create_and_push_bookmark(&branch_a);
 
     repo.jj(["new"]);
     repo.create_change("b.txt", "b", "Commit B")
-        .create_bookmark(&branch_b);
-    repo.jj(["git", "push", "--bookmark", &branch_b]);
+        .create_and_push_bookmark(&branch_b);
 
     repo.jj(["new"]);
     repo.create_change("c.txt", "c", "Commit C")
-        .create_bookmark(&branch_c);
-    repo.jj(["git", "push", "--bookmark", &branch_c]);
+        .create_and_push_bookmark(&branch_c);
 
     // Submit C - should process A, B, C in order
     let output = repo

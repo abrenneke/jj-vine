@@ -32,7 +32,7 @@ fn default_stack_format() -> StackFormat {
     StackFormat::Linear
 }
 
-/// Configuration for jj-mrs
+/// Configuration for jj-vine
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Config {
@@ -97,13 +97,16 @@ impl Config {
                 message: format!("Failed to parse config as TOML: {}", e),
             })?;
 
-        let jj_mrs_value = toml_value.get("jj-mrs").ok_or_else(|| Error::Config {
-            message: "Missing required config section: jj-mrs".to_string(),
+        let jj_vine_value = toml_value.get("jj-vine").ok_or_else(|| Error::Config {
+            message: "Missing required config section: jj-vine".to_string(),
         })?;
 
-        let config: Config = jj_mrs_value.clone().try_into().map_err(|e| Error::Config {
-            message: format!("Failed to parse jj-mrs config: {}", e),
-        })?;
+        let config: Config = jj_vine_value
+            .clone()
+            .try_into()
+            .map_err(|e| Error::Config {
+                message: format!("Failed to parse jj-vine config: {}", e),
+            })?;
 
         Ok(config)
     }
@@ -137,7 +140,7 @@ mod tests {
             assert!(
                 message.contains("missing field")
                     || message.contains("gitlab")
-                    || message.contains("jj-mrs"),
+                    || message.contains("jj-vine"),
                 "Error should mention missing field, got: {}",
                 message
             );
@@ -157,7 +160,7 @@ mod tests {
                 "config",
                 "set",
                 "--repo",
-                "jj-mrs.gitlabHost",
+                "jj-vine.gitlabHost",
                 "https://gitlab.example.com",
             ],
         )
@@ -169,7 +172,7 @@ mod tests {
                 "config",
                 "set",
                 "--repo",
-                "jj-mrs.gitlabProject",
+                "jj-vine.gitlabProject",
                 "my-group/my-project",
             ],
         )
@@ -181,7 +184,7 @@ mod tests {
                 "config",
                 "set",
                 "--repo",
-                "jj-mrs.gitlabToken",
+                "jj-vine.gitlabToken",
                 "glpat-test123",
             ],
         )
@@ -208,7 +211,7 @@ mod tests {
                 "config",
                 "set",
                 "--repo",
-                "jj-mrs.gitlabHost",
+                "jj-vine.gitlabHost",
                 "https://gitlab.example.com",
             ],
         )
@@ -220,7 +223,7 @@ mod tests {
                 "config",
                 "set",
                 "--repo",
-                "jj-mrs.gitlabProject",
+                "jj-vine.gitlabProject",
                 "my-group/my-project",
             ],
         )
@@ -232,7 +235,7 @@ mod tests {
                 "config",
                 "set",
                 "--repo",
-                "jj-mrs.gitlabToken",
+                "jj-vine.gitlabToken",
                 "glpat-test123",
             ],
         )
@@ -240,19 +243,19 @@ mod tests {
 
         run_jj_command(
             &repo_path,
-            &["config", "set", "--repo", "jj-mrs.branchPrefix", "mrs/"],
+            &["config", "set", "--repo", "jj-vine.branchPrefix", "mrs/"],
         )
         .expect("Failed to set config");
 
         run_jj_command(
             &repo_path,
-            &["config", "set", "--repo", "jj-mrs.remoteName", "upstream"],
+            &["config", "set", "--repo", "jj-vine.remoteName", "upstream"],
         )
         .expect("Failed to set config");
 
         run_jj_command(
             &repo_path,
-            &["config", "set", "--repo", "jj-mrs.defaultBranch", "master"],
+            &["config", "set", "--repo", "jj-vine.defaultBranch", "master"],
         )
         .expect("Failed to set config");
 
@@ -277,7 +280,7 @@ mod tests {
                 "config",
                 "set",
                 "--repo",
-                "jj-mrs.gitlabHost",
+                "jj-vine.gitlabHost",
                 "https://gitlab.com",
             ],
         )
@@ -289,7 +292,7 @@ mod tests {
                 "config",
                 "set",
                 "--repo",
-                "jj-mrs.gitlabProject",
+                "jj-vine.gitlabProject",
                 "test/proj",
             ],
         )
@@ -297,7 +300,7 @@ mod tests {
 
         run_jj_command(
             &repo_path,
-            &["config", "set", "--repo", "jj-mrs.gitlabToken", "token"],
+            &["config", "set", "--repo", "jj-vine.gitlabToken", "token"],
         )
         .expect("Failed to set config");
 
@@ -318,7 +321,7 @@ mod tests {
                 "config",
                 "set",
                 "--repo",
-                "jj-mrs.gitlabHost",
+                "jj-vine.gitlabHost",
                 "https://gitlab.com",
             ],
         )
@@ -330,7 +333,7 @@ mod tests {
                 "config",
                 "set",
                 "--repo",
-                "jj-mrs.gitlabProject",
+                "jj-vine.gitlabProject",
                 "test/proj",
             ],
         )
@@ -338,7 +341,7 @@ mod tests {
 
         run_jj_command(
             &repo_path,
-            &["config", "set", "--repo", "jj-mrs.gitlabToken", "token"],
+            &["config", "set", "--repo", "jj-vine.gitlabToken", "token"],
         )
         .expect("Failed to set config");
 
@@ -349,7 +352,7 @@ mod tests {
                 "config",
                 "set",
                 "--repo",
-                "jj-mrs.enableStackVisualization",
+                "jj-vine.enableStackVisualization",
                 "false",
             ],
         )
@@ -372,7 +375,7 @@ mod tests {
                 "config",
                 "set",
                 "--repo",
-                "jj-mrs.gitlabHost",
+                "jj-vine.gitlabHost",
                 "https://gitlab.com",
             ],
         )
@@ -384,7 +387,7 @@ mod tests {
                 "config",
                 "set",
                 "--repo",
-                "jj-mrs.gitlabProject",
+                "jj-vine.gitlabProject",
                 "test/proj",
             ],
         )
@@ -392,7 +395,7 @@ mod tests {
 
         run_jj_command(
             &repo_path,
-            &["config", "set", "--repo", "jj-mrs.gitlabToken", "token"],
+            &["config", "set", "--repo", "jj-vine.gitlabToken", "token"],
         )
         .expect("Failed to set config");
 
@@ -413,7 +416,7 @@ mod tests {
                 "config",
                 "set",
                 "--repo",
-                "jj-mrs.gitlabHost",
+                "jj-vine.gitlabHost",
                 "https://gitlab.com",
             ],
         )
@@ -425,7 +428,7 @@ mod tests {
                 "config",
                 "set",
                 "--repo",
-                "jj-mrs.gitlabProject",
+                "jj-vine.gitlabProject",
                 "test/proj",
             ],
         )
@@ -433,7 +436,7 @@ mod tests {
 
         run_jj_command(
             &repo_path,
-            &["config", "set", "--repo", "jj-mrs.gitlabToken", "token"],
+            &["config", "set", "--repo", "jj-vine.gitlabToken", "token"],
         )
         .expect("Failed to set config");
 
@@ -444,7 +447,7 @@ mod tests {
                 "config",
                 "set",
                 "--repo",
-                "jj-mrs.deleteSourceBranch",
+                "jj-vine.deleteSourceBranch",
                 "false",
             ],
         )
@@ -452,7 +455,7 @@ mod tests {
 
         run_jj_command(
             &repo_path,
-            &["config", "set", "--repo", "jj-mrs.squashCommits", "true"],
+            &["config", "set", "--repo", "jj-vine.squashCommits", "true"],
         )
         .expect("Failed to set config");
 
@@ -473,7 +476,7 @@ mod tests {
                 "config",
                 "set",
                 "--repo",
-                "jj-mrs.gitlabHost",
+                "jj-vine.gitlabHost",
                 "https://gitlab.com",
             ],
         )
@@ -485,7 +488,7 @@ mod tests {
                 "config",
                 "set",
                 "--repo",
-                "jj-mrs.gitlabProject",
+                "jj-vine.gitlabProject",
                 "test/proj",
             ],
         )
@@ -493,7 +496,7 @@ mod tests {
 
         run_jj_command(
             &repo_path,
-            &["config", "set", "--repo", "jj-mrs.gitlabToken", "token"],
+            &["config", "set", "--repo", "jj-vine.gitlabToken", "token"],
         )
         .expect("Failed to set config");
 
@@ -513,7 +516,7 @@ mod tests {
                 "config",
                 "set",
                 "--repo",
-                "jj-mrs.gitlabHost",
+                "jj-vine.gitlabHost",
                 "https://gitlab.com",
             ],
         )
@@ -525,7 +528,7 @@ mod tests {
                 "config",
                 "set",
                 "--repo",
-                "jj-mrs.gitlabProject",
+                "jj-vine.gitlabProject",
                 "test/proj",
             ],
         )
@@ -533,14 +536,14 @@ mod tests {
 
         run_jj_command(
             &repo_path,
-            &["config", "set", "--repo", "jj-mrs.gitlabToken", "token"],
+            &["config", "set", "--repo", "jj-vine.gitlabToken", "token"],
         )
         .expect("Failed to set config");
 
         // Set assign_to_self to true
         run_jj_command(
             &repo_path,
-            &["config", "set", "--repo", "jj-mrs.assignToSelf", "true"],
+            &["config", "set", "--repo", "jj-vine.assignToSelf", "true"],
         )
         .expect("Failed to set config");
 
@@ -560,7 +563,7 @@ mod tests {
                 "config",
                 "set",
                 "--repo",
-                "jj-mrs.gitlabHost",
+                "jj-vine.gitlabHost",
                 "https://gitlab.com",
             ],
         )
@@ -572,7 +575,7 @@ mod tests {
                 "config",
                 "set",
                 "--repo",
-                "jj-mrs.gitlabProject",
+                "jj-vine.gitlabProject",
                 "test/proj",
             ],
         )
@@ -580,7 +583,7 @@ mod tests {
 
         run_jj_command(
             &repo_path,
-            &["config", "set", "--repo", "jj-mrs.gitlabToken", "token"],
+            &["config", "set", "--repo", "jj-vine.gitlabToken", "token"],
         )
         .expect("Failed to set config");
 
@@ -600,7 +603,7 @@ mod tests {
                 "config",
                 "set",
                 "--repo",
-                "jj-mrs.gitlabHost",
+                "jj-vine.gitlabHost",
                 "https://gitlab.com",
             ],
         )
@@ -612,7 +615,7 @@ mod tests {
                 "config",
                 "set",
                 "--repo",
-                "jj-mrs.gitlabProject",
+                "jj-vine.gitlabProject",
                 "test/proj",
             ],
         )
@@ -620,7 +623,7 @@ mod tests {
 
         run_jj_command(
             &repo_path,
-            &["config", "set", "--repo", "jj-mrs.gitlabToken", "token"],
+            &["config", "set", "--repo", "jj-vine.gitlabToken", "token"],
         )
         .expect("Failed to set config");
 
@@ -631,7 +634,7 @@ mod tests {
                 "config",
                 "set",
                 "--repo",
-                "jj-mrs.defaultReviewers",
+                "jj-vine.defaultReviewers",
                 r#"["reviewer1"]"#,
             ],
         )
@@ -653,7 +656,7 @@ mod tests {
                 "config",
                 "set",
                 "--repo",
-                "jj-mrs.gitlabHost",
+                "jj-vine.gitlabHost",
                 "https://gitlab.com",
             ],
         )
@@ -665,7 +668,7 @@ mod tests {
                 "config",
                 "set",
                 "--repo",
-                "jj-mrs.gitlabProject",
+                "jj-vine.gitlabProject",
                 "test/proj",
             ],
         )
@@ -673,7 +676,7 @@ mod tests {
 
         run_jj_command(
             &repo_path,
-            &["config", "set", "--repo", "jj-mrs.gitlabToken", "token"],
+            &["config", "set", "--repo", "jj-vine.gitlabToken", "token"],
         )
         .expect("Failed to set config");
 
@@ -684,7 +687,7 @@ mod tests {
                 "config",
                 "set",
                 "--repo",
-                "jj-mrs.defaultReviewers",
+                "jj-vine.defaultReviewers",
                 r#"["reviewer1", "reviewer2", "reviewer3"]"#,
             ],
         )

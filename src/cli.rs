@@ -12,7 +12,7 @@ use crate::{
 };
 
 #[derive(Parser)]
-#[command(name = "jj-mrs")]
+#[command(name = "jj-vine")]
 #[command(about = "GitLab MR submission tool for Jujutsu workflows", long_about = None)]
 struct Cli {
     /// Repository path (defaults to current directory)
@@ -32,7 +32,7 @@ enum Commands {
     /// Submit a bookmark and its dependencies as GitLab MRs
     Submit(SubmitCommandConfig),
 
-    /// Initialize jj-mrs configuration for this repository
+    /// Initialize jj-vine configuration for this repository
     Init,
 }
 
