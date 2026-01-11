@@ -1,4 +1,10 @@
-use crate::{bookmark::BookmarkGraph, config::Config, jj::Jujutsu, submit::analyze, tests::TestRepo};
+use crate::{
+    bookmark::BookmarkGraph,
+    config::Config,
+    jj::Jujutsu,
+    submit::analyze,
+    tests::TestRepo,
+};
 
 /// Test that BookmarkGraph respects different default branch names
 #[tokio::test]
@@ -92,8 +98,16 @@ async fn test_base_branch_not_included_in_submission() {
     );
 
     // Feature bookmarks SHOULD be included
-    assert!(analysis.bookmarks_to_submit.contains(&"feature-1".to_string()));
-    assert!(analysis.bookmarks_to_submit.contains(&"feature-2".to_string()));
+    assert!(
+        analysis
+            .bookmarks_to_submit
+            .contains(&"feature-1".to_string())
+    );
+    assert!(
+        analysis
+            .bookmarks_to_submit
+            .contains(&"feature-2".to_string())
+    );
 }
 
 /// Test that attempting to submit the base branch errors

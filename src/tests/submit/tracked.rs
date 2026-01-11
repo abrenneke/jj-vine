@@ -1,4 +1,7 @@
-use crate::{commands::submit::SubmitCommandConfig, tests::{TestRepo, unique_branch}};
+use crate::{
+    commands::submit::SubmitCommandConfig,
+    tests::{TestRepo, unique_branch},
+};
 
 /// Test that --tracked identifies only pushed bookmarks
 #[tokio::test]

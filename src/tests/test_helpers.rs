@@ -21,6 +21,7 @@ pub fn unique_branch(name: &str) -> String {
 /// A test repository with jj initialized
 pub struct TestRepo {
     /// Temporary directory containing the repository
+    #[allow(dead_code)]
     pub dir: TempDir,
 
     /// Path to the repository
@@ -193,24 +194,6 @@ impl TestRepo {
         .await?;
 
         Ok(strip_ansi_escapes::strip_str(buffered_output.get_buffer()))
-    }
-
-    /// jj mr submit --bookmark <bookmark>
-    pub async fn submit_bookmark(&self, bookmark: String) -> String {
-        self.submit(SubmitCommandConfig {
-            bookmark: Some(bookmark),
-            ..Default::default()
-        })
-        .await
-    }
-
-    /// jj mr submit --tracked
-    pub async fn submit_tracked(&self) -> String {
-        self.submit(SubmitCommandConfig {
-            tracked: true,
-            ..Default::default()
-        })
-        .await
     }
 }
 

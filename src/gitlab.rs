@@ -1,3 +1,4 @@
+use bon::bon;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
@@ -10,6 +11,7 @@ pub struct GitLabClient {
     client: reqwest::Client,
 }
 
+#[bon]
 impl GitLabClient {
     /// Create a new GitLab client
     ///
@@ -148,14 +150,15 @@ impl GitLabClient {
     }
 
     /// Create a new merge request
+    #[builder]
     pub async fn create_merge_request(
         &self,
         source_branch: &str,
         target_branch: &str,
         title: &str,
         description: Option<&str>,
-        remove_source_branch: bool,
-        squash: bool,
+        remove_source_branch: Option<bool>,
+        squash: Option<bool>,
         assignee_ids: Option<&[u64]>,
         reviewer_ids: Option<&[u64]>,
     ) -> Result<MergeRequest> {
@@ -169,8 +172,8 @@ impl GitLabClient {
             "source_branch": source_branch,
             "target_branch": target_branch,
             "title": title,
-            "remove_source_branch": remove_source_branch,
-            "squash": squash,
+            "remove_source_branch": remove_source_branch.unwrap_or(true),
+            "squash": squash.unwrap_or(false),
         });
 
         if let Some(desc) = description {

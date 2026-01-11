@@ -1,4 +1,8 @@
-use crate::{commands::submit::SubmitCommandConfig, gitlab::GitLabClient, tests::{TestRepo, unique_branch}};
+use crate::{
+    commands::submit::SubmitCommandConfig,
+    gitlab::GitLabClient,
+    tests::{TestRepo, unique_branch},
+};
 
 /// Test that submit creates an MR via the GitLab API
 #[tokio::test]
@@ -217,16 +221,14 @@ async fn test_invalid_token_errors_clearly() {
 
     // Attempt to create MR with invalid token
     let result = client
-        .create_merge_request(
-            &branch_name,
-            "main",
-            "This should fail",
-            Some("Testing invalid token"),
-            true,
-            false,
-            None,
-            None,
-        )
+        .create_merge_request()
+        .source_branch(&branch_name)
+        .target_branch("main")
+        .title("This should fail")
+        .description("Testing invalid token")
+        .remove_source_branch(true)
+        .squash(false)
+        .call()
         .await;
 
     assert!(result.is_err(), "Should fail with invalid token");
@@ -265,16 +267,14 @@ async fn test_nonexistent_project_errors_clearly() {
 
     // Attempt to create MR with nonexistent project
     let result = client
-        .create_merge_request(
-            &branch_name,
-            "main",
-            "This should fail",
-            Some("Testing nonexistent project"),
-            true,
-            false,
-            None,
-            None,
-        )
+        .create_merge_request()
+        .source_branch(&branch_name)
+        .target_branch("main")
+        .title("This should fail")
+        .description("Testing nonexistent project")
+        .remove_source_branch(true)
+        .squash(false)
+        .call()
         .await;
 
     assert!(result.is_err(), "Should fail with nonexistent project");

@@ -96,16 +96,16 @@ impl ExecuteAction for CreateMRAction {
 
             match ctx
                 .gitlab
-                .create_merge_request(
-                    &self.bookmark,
-                    &self.target_branch,
-                    &self.title,
-                    desc,
-                    ctx.config.delete_source_branch,
-                    ctx.config.squash_commits,
-                    assignee_ids.as_deref(),
-                    reviewer_ids.as_deref(),
-                )
+                .create_merge_request()
+                .source_branch(&self.bookmark)
+                .target_branch(&self.target_branch)
+                .title(&self.title)
+                .remove_source_branch(ctx.config.delete_source_branch)
+                .squash(ctx.config.squash_commits)
+                .maybe_description(desc)
+                .maybe_assignee_ids(assignee_ids.as_deref())
+                .maybe_reviewer_ids(reviewer_ids.as_deref())
+                .call()
                 .await
             {
                 Ok(mr) => {

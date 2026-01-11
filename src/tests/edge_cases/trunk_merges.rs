@@ -1,6 +1,7 @@
 use crate::{bookmark::BookmarkGraph, jj::Jujutsu, tests::TestRepo};
 
-/// Test that merge commits in trunk history don't fail validation for linear bookmarks
+/// Test that merge commits in trunk history don't fail validation for linear
+/// bookmarks
 ///
 /// When a repository has old merge commits in its trunk/main history, creating
 /// a linear bookmark on top should be valid. The validation should only check
@@ -36,7 +37,14 @@ async fn test_linear_bookmark_on_trunk_with_merge_history() {
     repo.create_bookmark("trunk");
 
     // Verify trunk has a merge in its history
-    let merges = repo.jj(["log", "-r", "::trunk & merges()", "--no-graph", "-T", "description"]);
+    let merges = repo.jj([
+        "log",
+        "-r",
+        "::trunk & merges()",
+        "--no-graph",
+        "-T",
+        "description",
+    ]);
     assert!(
         merges.contains("Merge commit in trunk"),
         "Trunk should have merge commit in history"
@@ -49,7 +57,12 @@ async fn test_linear_bookmark_on_trunk_with_merge_history() {
     repo.create_bookmark("my-feature");
 
     // Verify the new commits are linear (no merges)
-    let new_merges = repo.jj(["log", "-r", "::my-feature ~ ::trunk & merges()", "--no-graph"]);
+    let new_merges = repo.jj([
+        "log",
+        "-r",
+        "::my-feature ~ ::trunk & merges()",
+        "--no-graph",
+    ]);
     assert!(
         new_merges.trim().is_empty(),
         "New commits should not contain merges"
