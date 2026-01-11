@@ -1,8 +1,4 @@
-/// Integration tests for jj-mrs
-#[path = "test_helpers.rs"]
-mod test_helpers;
-
-use test_helpers::TestRepo;
+use crate::tests::TestRepo;
 
 #[test]
 fn test_e2e_basic_repo_setup() {
@@ -431,9 +427,11 @@ fn test_tracked_dry_run_end_to_end() {
 /// MR creation is skipped and an error is properly reported.
 ///
 /// Before the fix: MR creation would proceed even when pushes failed,
-/// resulting in API errors when trying to create MRs for branches that don't exist on remote.
+/// resulting in API errors when trying to create MRs for branches that don't
+/// exist on remote.
 ///
-/// After the fix: Failed pushes are tracked and MR creation is skipped for those bookmarks.
+/// After the fix: Failed pushes are tracked and MR creation is skipped for
+/// those bookmarks.
 ///
 /// # Requirements
 ///
@@ -458,7 +456,8 @@ fn test_e2e_push_failure_skips_mr_creation() {
 
     let repo = TestRepo::new().expect("Failed to create test repo");
 
-    // Create a local bare repo with a main branch so get_default_branch() can succeed
+    // Create a local bare repo with a main branch so get_default_branch() can
+    // succeed
     let remote_dir = repo.path.join("remote.git");
     let temp_init = repo.path.join("temp_init");
     std::fs::create_dir(&temp_init).expect("Failed to create temp init dir");
@@ -521,7 +520,8 @@ fn test_e2e_push_failure_skips_mr_creation() {
     )
     .expect("Failed to init MRS config");
 
-    // Remove the bare repository to cause push failure while keeping main@origin in jj's view
+    // Remove the bare repository to cause push failure while keeping main@origin in
+    // jj's view
     std::fs::remove_dir_all(&remote_dir).expect("Failed to remove remote dir");
 
     // Try to submit - this should fail due to missing remote
@@ -594,7 +594,8 @@ fn test_tracked_excludes_default_branch() {
     repo.create_file("README.md", "# Test repo\n")
         .expect("Failed to create file");
     repo.commit("Initial commit").expect("Failed to commit");
-    // Create bookmark on the previous commit (@-), not the new empty working copy (@)
+    // Create bookmark on the previous commit (@-), not the new empty working copy
+    // (@)
     repo.jj(&["bookmark", "create", "main", "-r", "@-"])
         .expect("Failed to create main bookmark");
 
@@ -608,7 +609,8 @@ fn test_tracked_excludes_default_branch() {
     repo.create_file("feature.txt", "feature content")
         .expect("Failed to create file");
     repo.commit("Add feature").expect("Failed to commit");
-    // Create bookmark on the previous commit (@-), not the new empty working copy (@)
+    // Create bookmark on the previous commit (@-), not the new empty working copy
+    // (@)
     repo.jj(&["bookmark", "create", "feature-1", "-r", "@-"])
         .expect("Failed to create feature bookmark");
 

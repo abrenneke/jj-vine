@@ -4,21 +4,26 @@ mod update_mr_base;
 mod update_mr_description;
 
 use async_trait::async_trait;
-use futures::StreamExt;
-use futures::stream::FuturesUnordered;
+use futures::{StreamExt, stream::FuturesUnordered};
 use itertools::Itertools;
 use tracing::debug;
 
-use crate::config::Config;
-use crate::error::{Error, Result};
-use crate::gitlab::{GitLabClient, MergeRequest};
-use crate::jj::Jujutsu;
-use crate::output::Output;
-use crate::submit::execute::create_mr::CreateMRAction;
-use crate::submit::execute::push::PushAction;
-use crate::submit::execute::update_mr_base::UpdateMRBaseAction;
-use crate::submit::execute::update_mr_description::UpdateMRDescriptionAction;
-use crate::submit::plan::{Action, SubmissionPlan};
+use crate::{
+    config::Config,
+    error::{Error, Result},
+    gitlab::{GitLabClient, MergeRequest},
+    jj::Jujutsu,
+    output::Output,
+    submit::{
+        execute::{
+            create_mr::CreateMRAction,
+            push::PushAction,
+            update_mr_base::UpdateMRBaseAction,
+            update_mr_description::UpdateMRDescriptionAction,
+        },
+        plan::{Action, SubmissionPlan},
+    },
+};
 
 /// Result of executing a submission plan
 #[derive(Debug, Clone)]

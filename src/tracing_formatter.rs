@@ -1,12 +1,16 @@
 use std::fmt;
-use tracing::Event;
-use tracing::field::Visit;
-use tracing_subscriber::fmt::FmtContext;
-use tracing_subscriber::fmt::format::{FormatEvent, FormatFields, Writer};
-use tracing_subscriber::registry::LookupSpan;
 
-/// Simple formatter that prints the message field without applying level-based coloring.
-/// This preserves any ANSI codes already in the message.
+use tracing::{Event, field::Visit};
+use tracing_subscriber::{
+    fmt::{
+        FmtContext,
+        format::{FormatEvent, FormatFields, Writer},
+    },
+    registry::LookupSpan,
+};
+
+/// Simple formatter that prints the message field without applying level-based
+/// coloring. This preserves any ANSI codes already in the message.
 #[derive(Default)]
 pub struct PlainFormatter {
     display_level: bool,

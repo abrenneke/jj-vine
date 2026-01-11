@@ -1,7 +1,11 @@
-use crate::error::{Error, Result};
-use std::path::PathBuf;
-use std::process::{Command, ExitStatus};
+use std::{
+    path::PathBuf,
+    process::{Command, ExitStatus},
+};
+
 use tracing::{debug, trace};
+
+use crate::error::{Error, Result};
 
 /// Jujutsu subprocess interface
 pub struct Jujutsu {
@@ -50,7 +54,8 @@ impl Jujutsu {
 
             let parts: Vec<&str> = line.split('\t').collect();
             if parts.len() >= 3 {
-                // Parse bookmark name (might have @remote suffix and/or * suffix for tracking conflicts)
+                // Parse bookmark name (might have @remote suffix and/or * suffix for tracking
+                // conflicts)
                 let full_name = parts[0];
 
                 // Strip trailing * if present (indicates tracking conflict/divergence)
@@ -65,7 +70,8 @@ impl Jujutsu {
                 };
 
                 let is_local = remote.is_none();
-                // For now, assume local bookmarks might have remotes (we'd need git ls-remote to check)
+                // For now, assume local bookmarks might have remotes (we'd need git ls-remote
+                // to check)
                 let has_remote = false;
 
                 bookmarks.push(Bookmark {
@@ -243,7 +249,8 @@ impl Jujutsu {
 
     /// Push a bookmark to a remote using jj git push
     ///
-    /// This will automatically track the bookmark on the remote if it's not already tracked
+    /// This will automatically track the bookmark on the remote if it's not
+    /// already tracked
     pub fn push_bookmark(&self, bookmark: &str, remote: &str) -> Result<bool> {
         // Try to track the bookmark first (ignore errors if already tracked)
         let _ = self.track_bookmark(bookmark, remote);
@@ -297,7 +304,8 @@ impl Jujutsu {
         debug!("Getting tracked bookmarks for remote: {}", remote);
 
         // Get the default branch to filter it out
-        // If no default branch exists, we'll skip filtering (though this is an unusual case)
+        // If no default branch exists, we'll skip filtering (though this is an unusual
+        // case)
         let default_branch = match self.get_default_branch() {
             Ok(branch) => {
                 debug!("Default branch is '{}'", branch);
@@ -446,9 +454,11 @@ pub struct Change {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::process::Command as StdCommand;
+
     use tempfile::TempDir;
+
+    use super::*;
 
     /// Create a temporary jj repository for testing
     fn create_test_repo() -> (TempDir, PathBuf) {
@@ -675,14 +685,17 @@ mod tests {
         );
     }
 
-    /// Test: Bookmark parsing should strip asterisk suffix from diverged bookmarks
+    /// Test: Bookmark parsing should strip asterisk suffix from diverged
+    /// bookmarks
     ///
-    /// Problem: When a bookmark has diverged (local and remote point to different commits),
-    /// jj displays it with a trailing asterisk (e.g., "bookmark-a*"). The bookmark parser
-    /// was including this asterisk in the bookmark name, causing BookmarkNotFound errors
-    /// when trying to submit the bookmark by its actual name.
+    /// Problem: When a bookmark has diverged (local and remote point to
+    /// different commits), jj displays it with a trailing asterisk (e.g.,
+    /// "bookmark-a*"). The bookmark parser was including this asterisk in
+    /// the bookmark name, causing BookmarkNotFound errors when trying to
+    /// submit the bookmark by its actual name.
     ///
-    /// This test directly tests the parsing logic with sample input that includes asterisks.
+    /// This test directly tests the parsing logic with sample input that
+    /// includes asterisks.
     #[test]
     fn test_bookmark_parsing_strips_asterisk() {
         let (_temp_dir, repo_path) = create_test_repo();

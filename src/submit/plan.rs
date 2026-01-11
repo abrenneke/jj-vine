@@ -1,13 +1,16 @@
+use std::collections::HashMap;
+
 use owo_colors::OwoColorize;
 
-use crate::bookmark::BookmarkGraph;
-use crate::config::Config;
-use crate::error::Result;
-use crate::gitlab::GitLabClient;
-use crate::jj::Jujutsu;
-use crate::output::Output;
-use crate::submit::analyze::SubmissionAnalysis;
-use std::collections::HashMap;
+use crate::{
+    bookmark::BookmarkGraph,
+    config::Config,
+    error::Result,
+    gitlab::GitLabClient,
+    jj::Jujutsu,
+    output::Output,
+    submit::analyze::SubmissionAnalysis,
+};
 
 /// Action to perform during execution
 #[derive(Debug, Clone, PartialEq)]
@@ -87,15 +90,16 @@ pub struct PlannedAction {
     /// The actual action to perform
     pub action: Action,
 
-    /// IDs of actions that must complete successfully before this action can run
+    /// IDs of actions that must complete successfully before this action can
+    /// run
     pub dependencies: Vec<usize>,
 }
 
 /// Plan for submission execution
 #[derive(Debug, Clone)]
 pub struct SubmissionPlan {
-    /// Actions organized into batches. Each batch's actions execute in parallel,
-    /// and batches execute sequentially.
+    /// Actions organized into batches. Each batch's actions execute in
+    /// parallel, and batches execute sequentially.
     pub actions: Vec<Vec<PlannedAction>>,
 
     /// Whether this is a dry run (don't actually execute)
@@ -242,8 +246,8 @@ pub async fn plan(
 
 /// Determine the title for an MR based on the number of commits
 ///
-/// If the bookmark contains exactly one commit, use the commit's first line as the title.
-/// Otherwise, use the bookmark name.
+/// If the bookmark contains exactly one commit, use the commit's first line as
+/// the title. Otherwise, use the bookmark name.
 fn get_mr_title(jj: &Jujutsu, bookmark: &str, base: &str) -> Result<String> {
     // Build revset to get commits between base and bookmark (excluding base itself)
     let revset = format!("::{}  ~ ::{}", bookmark, base);
@@ -374,10 +378,11 @@ mod tests {
 
     #[test]
     fn test_get_mr_title_single_commit() {
-        use crate::jj::Jujutsu;
-        use std::fs;
-        use std::process::Command as StdCommand;
+        use std::{fs, process::Command as StdCommand};
+
         use tempfile::TempDir;
+
+        use crate::jj::Jujutsu;
 
         // Create test repo
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
@@ -431,10 +436,11 @@ mod tests {
 
     #[test]
     fn test_get_mr_title_multiple_commits() {
-        use crate::jj::Jujutsu;
-        use std::fs;
-        use std::process::Command as StdCommand;
+        use std::{fs, process::Command as StdCommand};
+
         use tempfile::TempDir;
+
+        use crate::jj::Jujutsu;
 
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
         let repo_path = temp_dir.path().to_path_buf();
@@ -497,10 +503,11 @@ mod tests {
 
     #[test]
     fn test_get_mr_title_empty_description() {
-        use crate::jj::Jujutsu;
-        use std::fs;
-        use std::process::Command as StdCommand;
+        use std::{fs, process::Command as StdCommand};
+
         use tempfile::TempDir;
+
+        use crate::jj::Jujutsu;
 
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
         let repo_path = temp_dir.path().to_path_buf();
@@ -550,10 +557,11 @@ mod tests {
 
     #[test]
     fn test_get_mr_title_stacked_bookmarks() {
-        use crate::jj::Jujutsu;
-        use std::fs;
-        use std::process::Command as StdCommand;
+        use std::{fs, process::Command as StdCommand};
+
         use tempfile::TempDir;
+
+        use crate::jj::Jujutsu;
 
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
         let repo_path = temp_dir.path().to_path_buf();

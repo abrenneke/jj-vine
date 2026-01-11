@@ -1,21 +1,29 @@
 use std::collections::{HashMap, HashSet};
 
 use async_trait::async_trait;
-use futures::StreamExt;
-use futures::stream::FuturesUnordered;
+use futures::{StreamExt, stream::FuturesUnordered};
 use itertools::Itertools;
 use owo_colors::OwoColorize;
 use tracing::error;
 
-use crate::bookmark::BookmarkGraph;
-use crate::config::StackFormat;
-use crate::description::{
-    DescriptionFormatter, DescriptionManager, LinearListFormatter, generate_multi_stack_description,
-};
-use crate::error::{Error, Result};
-use crate::gitlab::MergeRequest;
-use crate::submit::execute::{
-    ActionResultData, ExecuteAction, ExecutionActionContext, MRUpdate, MRUpdateType,
+use crate::{
+    bookmark::BookmarkGraph,
+    config::StackFormat,
+    description::{
+        DescriptionFormatter,
+        DescriptionManager,
+        LinearListFormatter,
+        generate_multi_stack_description,
+    },
+    error::{Error, Result},
+    gitlab::MergeRequest,
+    submit::execute::{
+        ActionResultData,
+        ExecuteAction,
+        ExecutionActionContext,
+        MRUpdate,
+        MRUpdateType,
+    },
 };
 
 pub struct UpdateMRDescriptionAction {

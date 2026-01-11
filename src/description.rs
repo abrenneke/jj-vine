@@ -1,8 +1,6 @@
-use crate::bookmark::BranchStack;
-use crate::config::StackFormat;
-use crate::error::Result;
-use crate::gitlab::MergeRequest;
 use std::collections::HashMap;
+
+use crate::{bookmark::BranchStack, config::StackFormat, error::Result, gitlab::MergeRequest};
 
 /// Stack description management and formatting for MR descriptions
 /// Abstraction for different stack visualization formats
@@ -103,7 +101,8 @@ impl DescriptionManager {
         Self { formatter }
     }
 
-    /// Parse an existing description and extract user content before and after markers
+    /// Parse an existing description and extract user content before and after
+    /// markers
     pub fn parse_description(&self, description: &str) -> ParsedDescription {
         if description.is_empty() {
             return ParsedDescription {

@@ -1,11 +1,9 @@
 /// Regression tests for problems identified in jj-spr and jj-stack
 ///
-/// These tests reproduce edge cases and problems that other stacked PR/MR tools have solved.
-/// Each test should fail before the fix is implemented and pass after.
-#[path = "test_helpers.rs"]
-mod test_helpers;
-
-use test_helpers::TestRepo;
+/// These tests reproduce edge cases and problems that other stacked PR/MR tools
+/// have solved. Each test should fail before the fix is implemented and pass
+/// after.
+use crate::tests::TestRepo;
 
 /// Test: Unnecessary MR updates when nothing changed (jj-spr problem)
 ///
@@ -14,9 +12,11 @@ use test_helpers::TestRepo;
 ///
 /// Expected behavior:
 /// - First submit: Creates MR
-/// - Second submit with no changes: Should detect no changes and skip push/update
+/// - Second submit with no changes: Should detect no changes and skip
+///   push/update
 ///
-/// This test currently fails because we don't check if the bookmark has changed.
+/// This test currently fails because we don't check if the bookmark has
+/// changed.
 #[test]
 fn test_no_op_submission_when_nothing_changed() {
     let repo = TestRepo::new().expect("Failed to create test repo");
@@ -288,8 +288,7 @@ async fn test_deleted_middle_bookmark() {
         .expect("Failed to delete bookmark");
 
     // Build the bookmark graph
-    use jj_mrs::bookmark::BookmarkGraph;
-    use jj_mrs::jj::Jujutsu;
+    use crate::{bookmark::BookmarkGraph, jj::Jujutsu};
 
     let jj = Jujutsu::new(repo.path.clone()).expect("Failed to create Jujutsu instance");
     let bookmarks = jj.get_bookmarks().expect("Failed to get bookmarks");
@@ -325,11 +324,11 @@ async fn test_deleted_middle_bookmark() {
 /// Expected behavior:
 /// - When building bookmark graph, the default_branch parameter should be used
 /// - Each stack's base should match the provided default_branch
-/// - This allows repositories using different default branches (e.g., "master", "develop")
+/// - This allows repositories using different default branches (e.g., "master",
+///   "develop")
 #[tokio::test]
 async fn test_default_branch_configuration() {
-    use jj_mrs::bookmark::BookmarkGraph;
-    use jj_mrs::jj::Jujutsu;
+    use crate::{bookmark::BookmarkGraph, jj::Jujutsu};
 
     let repo = TestRepo::new().expect("Failed to create test repo");
 
@@ -404,9 +403,7 @@ async fn test_default_branch_configuration() {
 /// - First MR should target the base branch
 #[tokio::test]
 async fn test_base_branch_not_pushed() {
-    use jj_mrs::config::Config;
-    use jj_mrs::jj::Jujutsu;
-    use jj_mrs::submit::analyze;
+    use crate::{config::Config, jj::Jujutsu, submit::analyze};
 
     let repo = TestRepo::new().expect("Failed to create test repo");
 
@@ -444,7 +441,7 @@ async fn test_base_branch_not_pushed() {
         ca_bundle: None,
         tls_accept_non_compliant_certs: false,
         enable_stack_visualization: true,
-        stack_format: jj_mrs::config::StackFormat::Linear,
+        stack_format: crate::config::StackFormat::Linear,
         delete_source_branch: true,
         squash_commits: false,
         assign_to_self: false,
@@ -485,9 +482,7 @@ async fn test_base_branch_not_pushed() {
 /// Test: Single feature bookmark (directly on base) should not push base
 #[tokio::test]
 async fn test_single_bookmark_not_push_base() {
-    use jj_mrs::config::Config;
-    use jj_mrs::jj::Jujutsu;
-    use jj_mrs::submit::analyze;
+    use crate::{config::Config, jj::Jujutsu, submit::analyze};
 
     let repo = TestRepo::new().expect("Failed to create test repo");
 
@@ -516,7 +511,7 @@ async fn test_single_bookmark_not_push_base() {
         ca_bundle: None,
         tls_accept_non_compliant_certs: false,
         enable_stack_visualization: true,
-        stack_format: jj_mrs::config::StackFormat::Linear,
+        stack_format: crate::config::StackFormat::Linear,
         delete_source_branch: true,
         squash_commits: false,
         assign_to_self: false,
@@ -548,9 +543,7 @@ async fn test_single_bookmark_not_push_base() {
 /// Test: Attempting to submit the base branch should error
 #[tokio::test]
 async fn test_submit_base_branch_errors() {
-    use jj_mrs::config::Config;
-    use jj_mrs::jj::Jujutsu;
-    use jj_mrs::submit::analyze;
+    use crate::{config::Config, jj::Jujutsu, submit::analyze};
 
     let repo = TestRepo::new().expect("Failed to create test repo");
 
@@ -570,7 +563,7 @@ async fn test_submit_base_branch_errors() {
         ca_bundle: None,
         tls_accept_non_compliant_certs: false,
         enable_stack_visualization: true,
-        stack_format: jj_mrs::config::StackFormat::Linear,
+        stack_format: crate::config::StackFormat::Linear,
         delete_source_branch: true,
         squash_commits: false,
         assign_to_self: false,
@@ -592,7 +585,8 @@ async fn test_submit_base_branch_errors() {
     }
 }
 
-/// Test: BookmarkGraph::build() should not traverse entire default branch history
+/// Test: BookmarkGraph::build() should not traverse entire default branch
+/// history
 ///
 /// Problem: When building a bookmark graph, the code was traversing the entire
 /// commit history of the default branch (master/main) looking for a bookmarked
@@ -602,7 +596,8 @@ async fn test_submit_base_branch_errors() {
 /// Expected behavior:
 /// - Building the graph should skip processing the default branch
 /// - The default branch has no parent bookmark by definition
-/// - Graph building should complete quickly even with long default branch history
+/// - Graph building should complete quickly even with long default branch
+///   history
 ///
 /// This test creates a repo with:
 /// - master bookmark with a long commit history (100+ commits)
@@ -611,8 +606,7 @@ async fn test_submit_base_branch_errors() {
 /// the entire master history.
 #[tokio::test]
 async fn test_bookmark_graph_does_not_traverse_default_branch_history() {
-    use jj_mrs::bookmark::BookmarkGraph;
-    use jj_mrs::jj::Jujutsu;
+    use crate::{bookmark::BookmarkGraph, jj::Jujutsu};
 
     // Initialize tracing for debugging
     let _ = tracing_subscriber::fmt()
@@ -683,15 +677,7 @@ async fn test_bookmark_graph_does_not_traverse_default_branch_history() {
 /// contains untracked bookmarks with merge commits.
 #[tokio::test]
 async fn test_submit_tracked_ignores_untracked_merge_commits() {
-    use jj_mrs::commands::submit::submit;
-    use test_helpers::{GitLabTest, unique_test_branch};
-
-    let test = match GitLabTest::setup().await {
-        Some(t) => t,
-        None => return,
-    };
-
-    let repo = test.repo;
+    let test = GitLabTest::setup().await;
 
     // Use unique branch name to avoid conflicts with previous test runs
     let tracked_feature = unique_test_branch("tracked-feature");

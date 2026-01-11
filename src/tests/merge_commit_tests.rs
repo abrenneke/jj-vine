@@ -1,3 +1,4 @@
+use crate::tests::test_helpers::TestRepo;
 /// Tests for merge commit handling
 ///
 /// jj-stack explicitly rejects merge commits. We should detect them and either:
@@ -5,12 +6,7 @@
 /// 2. Reject them with a clear error message (simple)
 ///
 /// This test will FAIL until we implement merge commit detection.
-#[path = "test_helpers.rs"]
-mod test_helpers;
-
-use jj_mrs::bookmark::BookmarkGraph;
-use jj_mrs::jj::Jujutsu;
-use test_helpers::TestRepo;
+use crate::{bookmark::BookmarkGraph, jj::Jujutsu};
 
 #[tokio::test]
 async fn test_merge_commit_detection_in_bookmark_graph() {
@@ -138,7 +134,8 @@ async fn test_submit_bookmark_with_merge_in_stack() {
         .await
         .expect("Failed to build graph");
 
-    // Now validate the merged-top bookmark - should fail due to merge commit in its history
+    // Now validate the merged-top bookmark - should fail due to merge commit in its
+    // history
     let result = graph.validate_bookmarks(&jj, &["merged-top".to_string()]);
 
     // The validation should fail because we detect the merge in the stack

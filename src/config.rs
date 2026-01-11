@@ -1,7 +1,11 @@
-use crate::error::{Error, Result};
-use crate::jj::run_jj_command;
-use serde::Deserialize;
 use std::path::PathBuf;
+
+use serde::Deserialize;
+
+use crate::{
+    error::{Error, Result},
+    jj::run_jj_command,
+};
 
 /// Stack visualization format
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -53,7 +57,8 @@ pub struct Config {
     #[serde(default)]
     pub ca_bundle: Option<String>,
 
-    /// Accept non-compliant TLS certificates (for certificates that don't meet strict X.509 standards)
+    /// Accept non-compliant TLS certificates (for certificates that don't meet
+    /// strict X.509 standards)
     #[serde(default)]
     pub tls_accept_non_compliant_certs: bool,
 
@@ -106,8 +111,9 @@ impl Config {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use tempfile::TempDir;
+
+    use super::*;
 
     fn create_test_repo() -> (TempDir, PathBuf) {
         let temp_dir = TempDir::new().expect("Failed to create temp dir");

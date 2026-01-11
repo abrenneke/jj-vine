@@ -2,9 +2,7 @@
 ///
 /// These tests verify that earlier MR descriptions are automatically updated
 /// with links to later MRs after all MRs are created.
-mod test_helpers;
-
-use test_helpers::{GitLabConfig, GitLabTestHelper, TestRepo, unique_test_branch};
+use crate::tests::{GitLabConfig, GitLabTestHelper, TestRepo, unique_test_branch};
 
 #[tokio::test]
 async fn test_deferred_updates_linear_stack() {
@@ -59,7 +57,8 @@ async fn test_deferred_updates_linear_stack() {
     repo.create_bookmark(&branch_c)
         .expect("Failed to create bookmark C");
 
-    // Submit all bookmarks at once using jj mr (submitting the tip will submit the whole stack)
+    // Submit all bookmarks at once using jj mr (submitting the tip will submit the
+    // whole stack)
     let output = repo
         .jj_mrs(&["submit", &branch_c])
         .expect("Failed to submit bookmarks");

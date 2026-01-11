@@ -1,8 +1,9 @@
-use crate::error::Result;
-use crate::jj::run_jj_command;
+use std::path::PathBuf;
+
 use dialoguer::{Input, Password};
 use owo_colors::OwoColorize;
-use std::path::PathBuf;
+
+use crate::{error::Result, jj::run_jj_command};
 
 /// Initialize jj-mrs configuration for this repository
 pub async fn init(repo_path: PathBuf) -> Result<()> {

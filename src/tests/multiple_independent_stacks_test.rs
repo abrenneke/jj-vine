@@ -1,7 +1,6 @@
-/// Test that multiple independent stacks don't incorrectly retarget each other's MRs
-mod test_helpers;
-
-use test_helpers::{GitLabConfig, GitLabTestHelper, TestRepo};
+/// Test that multiple independent stacks don't incorrectly retarget each
+/// other's MRs
+use crate::tests::{GitLabConfig, GitLabTestHelper, TestRepo};
 
 #[tokio::test]
 async fn test_multiple_independent_stacks_dont_incorrectly_retarget() {
@@ -35,7 +34,7 @@ async fn test_multiple_independent_stacks_dont_incorrectly_retarget() {
         .expect("Failed to create file");
     repo.jj(&["describe", "-m", "Stack 1 A"])
         .expect("Failed to describe");
-    let branch_1a = test_helpers::unique_test_branch("stack1-a");
+    let branch_1a = crate::tests::unique_test_branch("stack1-a");
     repo.jj(&["bookmark", "create", &branch_1a])
         .expect("Failed to create bookmark");
     repo.jj(&["bookmark", "track", &format!("{}@origin", branch_1a)])
@@ -49,7 +48,7 @@ async fn test_multiple_independent_stacks_dont_incorrectly_retarget() {
         .expect("Failed to create file");
     repo.jj(&["describe", "-m", "Stack 1 B"])
         .expect("Failed to describe");
-    let branch_1b = test_helpers::unique_test_branch("stack1-b");
+    let branch_1b = crate::tests::unique_test_branch("stack1-b");
     repo.jj(&["bookmark", "create", &branch_1b])
         .expect("Failed to create bookmark");
     repo.jj(&["bookmark", "track", &format!("{}@origin", branch_1b)])
@@ -64,7 +63,7 @@ async fn test_multiple_independent_stacks_dont_incorrectly_retarget() {
         .expect("Failed to create file");
     repo.jj(&["describe", "-m", "Stack 2 A"])
         .expect("Failed to describe");
-    let branch_2a = test_helpers::unique_test_branch("stack2-a");
+    let branch_2a = crate::tests::unique_test_branch("stack2-a");
     repo.jj(&["bookmark", "create", &branch_2a])
         .expect("Failed to create bookmark");
     repo.jj(&["bookmark", "track", &format!("{}@origin", branch_2a)])

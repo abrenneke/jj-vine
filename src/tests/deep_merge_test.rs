@@ -1,13 +1,8 @@
 /// Test for merge commits deeper in the history
 ///
-/// FAILING TEST: Merge commit is not the immediate parent, but further back in history.
-/// Current implementation only checks one level deep for merges.
-#[path = "test_helpers.rs"]
-mod test_helpers;
-
-use jj_mrs::bookmark::BookmarkGraph;
-use jj_mrs::jj::Jujutsu;
-use test_helpers::TestRepo;
+/// FAILING TEST: Merge commit is not the immediate parent, but further back in
+/// history. Current implementation only checks one level deep for merges.
+use crate::{bookmark::BookmarkGraph, jj::Jujutsu, test_helpers::TestRepo};
 
 #[tokio::test]
 async fn test_merge_commit_two_levels_deep() {
@@ -51,7 +46,8 @@ async fn test_merge_commit_two_levels_deep() {
     repo.create_bookmark("feature-top")
         .expect("Failed to create bookmark");
 
-    // Verify the structure: feature-top -> after-merge -> MERGE -> (branch-a, branch-b)
+    // Verify the structure: feature-top -> after-merge -> MERGE -> (branch-a,
+    // branch-b)
     let log = repo
         .jj(&["log", "-r", "feature-top::root()", "--no-graph"])
         .expect("Failed to get log");

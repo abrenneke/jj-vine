@@ -1,17 +1,28 @@
-use crate::bookmark::BookmarkGraph;
-use crate::config::Config;
-use crate::error::{Error, Result};
-use crate::gitlab::GitLabClient;
-use crate::jj::Jujutsu;
-use crate::output::{FlatOutput, InteractiveOutput, Output};
-use crate::submit::execute::{MRUpdate, MRUpdateType};
-use crate::submit::{analyze, execute, plan};
-use cli_table::format::{Border, Separator};
-use cli_table::{Cell, Table};
+use std::path::PathBuf;
+
+use cli_table::{
+    Cell,
+    Table,
+    format::{Border, Separator},
+};
 use itertools::Itertools;
 use owo_colors::OwoColorize;
-use std::path::PathBuf;
 use tracing::{debug, info};
+
+use crate::{
+    bookmark::BookmarkGraph,
+    config::Config,
+    error::{Error, Result},
+    gitlab::GitLabClient,
+    jj::Jujutsu,
+    output::{FlatOutput, InteractiveOutput, Output},
+    submit::{
+        analyze,
+        execute,
+        execute::{MRUpdate, MRUpdateType},
+        plan,
+    },
+};
 
 /// Submit bookmarks and their dependencies as GitLab MRs
 pub async fn submit(

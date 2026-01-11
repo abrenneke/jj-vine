@@ -2,9 +2,15 @@ use async_trait::async_trait;
 use owo_colors::OwoColorize;
 use tracing::error;
 
-use crate::error::{Error, Result};
-use crate::submit::execute::{
-    ActionResultData, ExecuteAction, ExecutionActionContext, MRUpdate, MRUpdateType,
+use crate::{
+    error::{Error, Result},
+    submit::execute::{
+        ActionResultData,
+        ExecuteAction,
+        ExecutionActionContext,
+        MRUpdate,
+        MRUpdateType,
+    },
 };
 
 pub struct UpdateMRBaseAction {

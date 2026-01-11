@@ -2,9 +2,7 @@
 ///
 /// These tests verify that user-edited content in MR descriptions
 /// is preserved when stack information is updated.
-mod test_helpers;
-
-use test_helpers::{GitLabConfig, GitLabTestHelper, TestRepo, unique_test_branch};
+use crate::tests::{GitLabConfig, GitLabTestHelper, TestRepo, unique_test_branch};
 
 #[tokio::test]
 async fn test_preserve_user_content_on_update() {
@@ -170,7 +168,8 @@ async fn test_add_markers_to_description_without_markers() {
     repo.jj_mrs(&["submit", &branch_b])
         .expect("Failed to submit stack");
 
-    // Verify A's description now has markers at the beginning with user content after
+    // Verify A's description now has markers at the beginning with user content
+    // after
     let mr_a_updated = gitlab
         .client
         .get_merge_request(mr_a.iid)

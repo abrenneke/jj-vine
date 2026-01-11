@@ -1,10 +1,12 @@
+use std::{env, path::PathBuf};
+
 use clap::{Parser, Subcommand};
-use jj_mrs::commands::{init, submit};
-use jj_mrs::error::{Error, Result};
-use jj_mrs::jj::Jujutsu;
-use jj_mrs::tracing_formatter::PlainFormatter;
-use std::env;
-use std::path::PathBuf;
+use jj_mrs::{
+    commands::{init, submit},
+    error::{Error, Result},
+    jj::Jujutsu,
+    tracing_formatter::PlainFormatter,
+};
 use tracing::Level;
 use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 

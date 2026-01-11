@@ -7,12 +7,7 @@
 ///
 /// This addresses the issue where validation was checking ALL ancestors
 /// including trunk history, rather than just the NEW commits.
-#[path = "test_helpers.rs"]
-mod test_helpers;
-
-use jj_mrs::bookmark::BookmarkGraph;
-use jj_mrs::jj::Jujutsu;
-use test_helpers::TestRepo;
+use crate::{bookmark::BookmarkGraph, jj::Jujutsu, tests::TestRepo};
 
 #[tokio::test]
 async fn test_linear_bookmark_on_trunk_with_merge_history() {
@@ -144,7 +139,8 @@ async fn test_linear_bookmark_on_trunk_with_merge_history() {
 
     // Build the bookmark graph
     // Important: we only include my-feature in the graph, not trunk
-    // This simulates the real scenario where trunk (master) is not in mine() & bookmarks()
+    // This simulates the real scenario where trunk (master) is not in mine() &
+    // bookmarks()
     let jj = Jujutsu::new(repo.path.clone()).expect("Failed to create Jujutsu instance");
     let my_feature_bookmark = jj
         .get_bookmarks_with_revset("my-feature & bookmarks()")

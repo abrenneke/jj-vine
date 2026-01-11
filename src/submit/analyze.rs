@@ -1,12 +1,10 @@
-use crate::bookmark::BookmarkGraph;
-use crate::config::Config;
-use crate::error::Result;
-use crate::jj::Jujutsu;
+use crate::{bookmark::BookmarkGraph, config::Config, error::Result, jj::Jujutsu};
 
 /// Result of analyzing bookmarks for submission
 #[derive(Debug, Clone)]
 pub struct SubmissionAnalysis {
-    /// All bookmarks that need to be submitted (union of all downstacks, deduplicated)
+    /// All bookmarks that need to be submitted (union of all downstacks,
+    /// deduplicated)
     pub bookmarks_to_submit: Vec<String>,
 
     /// The base branch for the stack (e.g., "main")
@@ -104,6 +102,6 @@ mod tests {
         assert_eq!(analysis.base_branch, "main");
     }
 
-    // Note: Testing the analyze function requires setting up a temporary jj repo
-    // with bookmarks, which is integration testing territory
+    // Note: Testing the analyze function requires setting up a temporary jj
+    // repo with bookmarks, which is integration testing territory
 }

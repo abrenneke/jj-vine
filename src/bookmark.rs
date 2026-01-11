@@ -1,7 +1,11 @@
-use crate::error::{Error, Result};
-use crate::jj::{Bookmark, Jujutsu};
 use std::collections::{HashMap, HashSet};
+
 use tracing::{debug, trace};
+
+use crate::{
+    error::{Error, Result},
+    jj::{Bookmark, Jujutsu},
+};
 
 /// Bookmark dependency graph
 ///
@@ -149,7 +153,8 @@ impl BookmarkGraph {
         let parents: HashSet<_> = adjacency_list.values().cloned().collect();
 
         // Leaves are bookmarks that are not parents (i.e., they have no children)
-        // OR bookmarks that don't appear in the adjacency list at all (isolated bookmarks)
+        // OR bookmarks that don't appear in the adjacency list at all (isolated
+        // bookmarks)
         for name in bookmarks.keys() {
             let is_leaf = !parents.contains(name);
 
@@ -193,7 +198,8 @@ impl BookmarkGraph {
 
     /// Get all bookmarks in the downstack of a given bookmark (inclusive)
     ///
-    /// Returns bookmarks from the root of the stack up to and including the target bookmark
+    /// Returns bookmarks from the root of the stack up to and including the
+    /// target bookmark
     pub fn get_downstack(&self, bookmark_name: &str) -> Result<Vec<String>> {
         let stack =
             self.find_stack_for_bookmark(bookmark_name)
@@ -221,8 +227,8 @@ impl BookmarkGraph {
 
     /// Sort bookmarks in topological order (dependencies first)
     ///
-    /// Returns bookmarks ordered such that parent bookmarks appear before their children.
-    /// Handles disconnected bookmarks gracefully.
+    /// Returns bookmarks ordered such that parent bookmarks appear before their
+    /// children. Handles disconnected bookmarks gracefully.
     pub fn topological_sort(&self, bookmarks: &[String]) -> Result<Vec<String>> {
         use std::collections::{HashMap, HashSet};
 
@@ -294,16 +300,18 @@ impl BookmarkGraph {
 
     /// Find the nearest bookmarked ancestor starting from a given commit
     ///
-    /// Uses revset queries to efficiently find bookmarked ancestors that are not
-    /// part of trunk's history. Returns the name of the nearest bookmark found,
-    /// or None if the commit is based on trunk or has no bookmarked ancestors.
+    /// Uses revset queries to efficiently find bookmarked ancestors that are
+    /// not part of trunk's history. Returns the name of the nearest
+    /// bookmark found, or None if the commit is based on trunk or has no
+    /// bookmarked ancestors.
     fn find_nearest_bookmarked_ancestor(
         jj: &Jujutsu,
         start_commit_id: &str,
         bookmarks: &[Bookmark],
     ) -> Result<Option<String>> {
         // Query for bookmarked ancestors that are not part of trunk's history
-        // Format: "ancestors of start_commit, excluding ancestors of trunk, that have bookmarks"
+        // Format: "ancestors of start_commit, excluding ancestors of trunk, that have
+        // bookmarks"
         let revset = format!("::{} ~ ::trunk() & bookmarks()", start_commit_id);
         debug!(
             "find_nearest_bookmarked_ancestor: querying revset: {}",
@@ -347,7 +355,8 @@ impl BookmarkGraph {
 
                 for candidate in &candidates {
                     // Count commits between the candidate and start_commit
-                    // Using revset: "candidate..start_commit" (exclusive on left, inclusive on right)
+                    // Using revset: "candidate..start_commit" (exclusive on left, inclusive on
+                    // right)
                     let distance_revset = format!("{}..{}", candidate.commit_id, start_commit_id);
                     let distance = jj.count_commits_in_revset(&distance_revset)?;
 
@@ -383,8 +392,9 @@ impl BookmarkGraph {
 
     /// Validate that no merge commits exist in the new commits
     ///
-    /// Only checks commits in (::bookmark ~ ::trunk()), which are the new commits
-    /// not in trunk's history. This matches how jj-stack handles merge validation.
+    /// Only checks commits in (::bookmark ~ ::trunk()), which are the new
+    /// commits not in trunk's history. This matches how jj-stack handles
+    /// merge validation.
     fn validate_no_merges_in_ancestors(
         jj: &Jujutsu,
         bookmark_name: &str,
@@ -619,7 +629,8 @@ mod tests {
 
     #[test]
     fn test_build_stacks_with_branching() {
-        // Create a branching structure: feature-a has two children (feature-b and alt-feature)
+        // Create a branching structure: feature-a has two children (feature-b and
+        // alt-feature)
         let mut bookmarks = HashMap::new();
         bookmarks.insert(
             "feature-a".to_string(),
@@ -820,10 +831,11 @@ mod tests {
 
     #[test]
     fn test_build_graph_with_merge_commits_succeeds() {
-        use crate::jj::{Jujutsu, run_jj_command};
-        use std::path::PathBuf;
-        use std::process::Command as StdCommand;
+        use std::{path::PathBuf, process::Command as StdCommand};
+
         use tempfile::TempDir;
+
+        use crate::jj::{Jujutsu, run_jj_command};
 
         // Helper to create test repo
         fn create_test_repo() -> (TempDir, PathBuf) {

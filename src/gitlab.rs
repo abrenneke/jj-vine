@@ -1,5 +1,6 @@
-use crate::error::{Error, Result};
 use serde::{Deserialize, Serialize};
+
+use crate::error::{Error, Result};
 
 /// GitLab REST API client
 pub struct GitLabClient {
@@ -117,7 +118,8 @@ impl GitLabClient {
 
     /// Find merge request by source branch name
     ///
-    /// Returns the first MR found with the given source branch, or None if not found
+    /// Returns the first MR found with the given source branch, or None if not
+    /// found
     pub async fn find_mr_by_source_branch(&self, branch: &str) -> Result<Option<MergeRequest>> {
         let url = format!(
             "{}/api/v4/projects/{}/merge_requests?source_branch={}&state=opened",
@@ -426,6 +428,7 @@ mod tests {
     #[test]
     fn test_ca_bundle_with_multiple_certificates() {
         use std::io::Write;
+
         use tempfile::NamedTempFile;
 
         // Create a temporary file with multiple certificates
@@ -491,5 +494,6 @@ uYyBeUf6LmQswHqXfxOmAoy1HbXDtNvmClznsb0=
         .expect("Failed to create client with multi-cert bundle");
     }
 
-    // For real GitLab API integration tests, see tests/gitlab_integration_tests.rs
+    // For real GitLab API integration tests, see
+    // tests/gitlab_integration_tests.rs
 }

@@ -1,10 +1,8 @@
 /// Real GitLab API integration tests
 ///
 /// These tests connect to a real GitLab instance and create/update actual MRs.
-mod test_helpers;
-
-use jj_mrs::gitlab::GitLabClient;
-use test_helpers::{GitLabConfig, GitLabTestHelper, TestRepo, unique_test_branch};
+use crate::gitlab::GitLabClient;
+use crate::tests::{GitLabConfig, GitLabTestHelper, TestRepo, unique_test_branch};
 
 #[tokio::test]
 async fn test_create_simple_mr() {
