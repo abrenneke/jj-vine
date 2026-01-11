@@ -53,16 +53,20 @@ impl Output for InteractiveOutput {
     fn log_current(&self, message: &str) {
         let mut current_text = self.current_text.write().unwrap();
         *current_text = message.to_string();
-        self.spinner
-            .set_message(format!("{}...", current_text.clone()));
+        self.spinner.set_message(format!("{}...", current_text));
     }
 
     fn set_substep(&self, message: &str) {
-        self.spinner.set_message(format!(
-            "{} {}...",
-            self.current_text.read().unwrap(),
-            format!("({})", message).dimmed()
-        ));
+        if message.is_empty() {
+            self.spinner
+                .set_message(format!("{}...", self.current_text.read().unwrap()));
+        } else {
+            self.spinner.set_message(format!(
+                "{} {}...",
+                self.current_text.read().unwrap(),
+                format!("({})", message).dimmed()
+            ));
+        }
     }
 
     fn add_substep(&self, message: &str) {
@@ -127,12 +131,9 @@ impl Output for FlatOutput {
 
     fn set_substep(&self, message: &str) {
         info!(
-            "{}",
-            format!(
-                "{} {}",
-                self.current_text.read().unwrap(),
-                format!("({})", message).dimmed()
-            )
+            "{} {}",
+            self.current_text.read().unwrap(),
+            format!("({})", message).dimmed()
         );
     }
 
@@ -154,5 +155,93 @@ impl Output for FlatOutput {
 
     fn log_completed(&self, message: &str) {
         info!("{}", message);
+    }
+}
+
+pub struct BufferedOutput {
+    current_text: RwLock<String>,
+    substeps: RwLock<Vec<String>>,
+
+    buffer: RwLock<String>,
+}
+
+impl BufferedOutput {
+    pub fn new() -> Self {
+        Self {
+            current_text: RwLock::new(String::new()),
+            substeps: RwLock::new(Vec::new()),
+            buffer: RwLock::new(String::new()),
+        }
+    }
+
+    pub fn get_buffer(&self) -> String {
+        self.buffer.read().unwrap().clone()
+    }
+}
+
+impl Default for BufferedOutput {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Output for BufferedOutput {
+    fn log_current(&self, message: &str) {
+        let mut current_text = self.current_text.write().unwrap();
+        *current_text = message.to_string();
+        let mut buffer = self.buffer.write().unwrap();
+        buffer.push_str(&format!("{}...\n", message));
+    }
+
+    fn add_substep(&self, message: &str) {
+        let mut substeps = self.substeps.write().unwrap();
+        substeps.push(message.to_string());
+        let mut buffer = self.buffer.write().unwrap();
+        buffer.push_str(&format!(
+            "{} {}...\n",
+            self.current_text.read().unwrap(),
+            format!("({})", message).dimmed()
+        ));
+    }
+
+    fn remove_substep(&self, message: &str) {
+        let mut substeps = self.substeps.write().unwrap();
+        substeps.retain(|s| s != message);
+        let mut buffer = self.buffer.write().unwrap();
+
+        if substeps.is_empty() {
+            buffer.push_str(&format!("{}...\n", self.current_text.read().unwrap()));
+        } else {
+            buffer.push_str(&format!(
+                "{} {}...\n",
+                self.current_text.read().unwrap(),
+                format!("({})", substeps.join(", ")).dimmed()
+            ));
+        }
+    }
+
+    fn set_substep(&self, message: &str) {
+        let current_text = self.current_text.read().unwrap();
+        let mut buffer = self.buffer.write().unwrap();
+
+        if message.is_empty() {
+            buffer.push_str(&format!("{}...\n", current_text));
+        } else {
+            buffer.push_str(&format!(
+                "{} {}...\n",
+                current_text,
+                format!("({})", message).dimmed()
+            ));
+        }
+    }
+
+    fn log_message(&self, message: &str) {
+        let mut buffer = self.buffer.write().unwrap();
+        buffer.push_str(&format!("{}...\n", message));
+    }
+
+    fn log_completed(&self, message: &str) {
+        let mut buffer = self.buffer.write().unwrap();
+        buffer.push_str(&format!("{}...\n", message));
     }
 }

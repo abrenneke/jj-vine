@@ -3,10 +3,10 @@ use std::path::PathBuf;
 use dialoguer::{Input, Password};
 use owo_colors::OwoColorize;
 
-use crate::{error::Result, jj::run_jj_command};
+use crate::{cli::CliConfig, error::Result, jj::run_jj_command};
 
 /// Initialize jj-mrs configuration for this repository
-pub async fn init(repo_path: PathBuf) -> Result<()> {
+pub async fn init(cli_config: CliConfig<'_>) -> Result<()> {
     println!("This will configure jj-mrs for your GitLab instance.");
     println!(
         "{}",
@@ -14,7 +14,7 @@ pub async fn init(repo_path: PathBuf) -> Result<()> {
     );
     println!();
 
-    let (detected_host, detected_project) = detect_from_remote(&repo_path)?;
+    let (detected_host, detected_project) = detect_from_remote(&cli_config.repository)?;
 
     let gitlab_host = if let Some(host) = &detected_host {
         Input::<String>::new()
@@ -89,11 +89,19 @@ pub async fn init(repo_path: PathBuf) -> Result<()> {
         .default("main".to_string())
         .interact_text()?;
 
-    set_config(&repo_path, "jj-mrs.gitlabHost", &gitlab_host)?;
-    set_config(&repo_path, "jj-mrs.gitlabProject", &gitlab_project)?;
-    set_config(&repo_path, "jj-mrs.gitlabToken", &gitlab_token)?;
-    set_config(&repo_path, "jj-mrs.remoteName", &remote_name)?;
-    set_config(&repo_path, "jj-mrs.defaultBranch", &default_branch)?;
+    set_config(&cli_config.repository, "jj-mrs.gitlabHost", &gitlab_host)?;
+    set_config(
+        &cli_config.repository,
+        "jj-mrs.gitlabProject",
+        &gitlab_project,
+    )?;
+    set_config(&cli_config.repository, "jj-mrs.gitlabToken", &gitlab_token)?;
+    set_config(&cli_config.repository, "jj-mrs.remoteName", &remote_name)?;
+    set_config(
+        &cli_config.repository,
+        "jj-mrs.defaultBranch",
+        &default_branch,
+    )?;
 
     println!();
     println!(

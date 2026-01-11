@@ -4,7 +4,13 @@ use std::{path::PathBuf, process::Command};
 
 use tempfile::TempDir;
 
-use crate::gitlab::GitLabClient;
+use crate::{
+    cli::CliConfig,
+    commands::submit::SubmitCommandConfig,
+    gitlab::GitLabClient,
+    jj::Jujutsu,
+    output::BufferedOutput,
+};
 
 /// Generate a unique test branch name to avoid conflicts between test runs
 pub fn unique_branch(name: &str) -> String {
@@ -92,7 +98,18 @@ impl TestRepo {
             .expect("Failed to create GitLab client");
 
         repo.client = Some(client);
+
+        // Fetch and track main so tests don't have to
+        repo.jj(["git", "fetch"]);
+        repo.jj(["bookmark", "track", "main@origin"]);
+
         repo
+    }
+
+    pub fn gitlab(&self) -> &GitLabClient {
+        self.client
+            .as_ref()
+            .expect("GitLab client not initialized, use with_gitlab_remote() instead of new()")
     }
 
     pub fn jj<'a>(&self, args: impl AsRef<[&'a str]>) -> String {
@@ -116,41 +133,67 @@ impl TestRepo {
         self
     }
 
-    /// Create a bookmark at current revision, chainable
+    /// Create a bookmark at current revision, chainable.
+    /// If a remote is configured, also tracks the bookmark.
     pub fn create_bookmark(&self, name: &str) -> &Self {
-        self.jj(&["bookmark", "create", name]);
+        self.jj(["bookmark", "create", name]);
+        if self.client.is_some() {
+            self.jj(["bookmark", "track", &format!("{}@origin", name)]);
+        }
         self
     }
 
-    /// Submit bookmarks via the library function
-    pub async fn submit(&self, bookmarks: impl AsRef<[&str]>) {
-        crate::commands::submit::submit(
-            self.path.clone(),
-            bookmarks.as_ref().iter().map(|s| s.to_string()).collect(),
-            "origin".to_string(),
-            false,
-            false,
-        )
-        .await
-        .unwrap()
+    /// Create a commit with a bookmark, then start new working copy
+    pub fn commit_with_bookmark(
+        &self,
+        file: &str,
+        content: &str,
+        msg: &str,
+        bookmark: &str,
+    ) -> &Self {
+        self.create_change(file, content, msg);
+        self.create_bookmark(bookmark);
+        self.jj(["new"]);
+        self
+    }
+
+    /// Get a Jujutsu instance for this repo
+    pub fn jujutsu(&self) -> Jujutsu {
+        Jujutsu::new(self.path.clone()).expect("Failed to create Jujutsu instance")
     }
 
     /// Submit bookmarks with options
-    pub async fn submit_with_options(
-        &self,
-        bookmarks: impl Iterator<Item = &str>,
-        dry_run: bool,
-        verbose: bool,
-    ) {
+    pub async fn submit(&self, config: SubmitCommandConfig) -> String {
+        let buffered_output = BufferedOutput::new();
         crate::commands::submit::submit(
-            self.path.clone(),
-            bookmarks.into_iter().map(|s| s.to_string()).collect(),
-            "origin".to_string(),
-            dry_run,
-            verbose,
+            config,
+            CliConfig {
+                repository: self.path.clone(),
+                output: &buffered_output,
+            },
         )
         .await
-        .unwrap()
+        .unwrap();
+
+        strip_ansi_escapes::strip_str(buffered_output.get_buffer())
+    }
+
+    /// jj mr submit --bookmark <bookmark>
+    pub async fn submit_bookmark(&self, bookmark: String) -> String {
+        self.submit(SubmitCommandConfig {
+            bookmark: Some(bookmark),
+            ..Default::default()
+        })
+        .await
+    }
+
+    /// jj mr submit --tracked
+    pub async fn submit_tracked(&self) -> String {
+        self.submit(SubmitCommandConfig {
+            tracked: true,
+            ..Default::default()
+        })
+        .await
     }
 }
 

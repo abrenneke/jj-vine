@@ -1,5 +1,4 @@
-use std::path::PathBuf;
-
+use clap::Args;
 use cli_table::{
     Cell,
     Table,
@@ -11,32 +10,54 @@ use tracing::{debug, info};
 
 use crate::{
     bookmark::BookmarkGraph,
+    cli::CliConfig,
     config::Config,
     error::{Error, Result},
     gitlab::GitLabClient,
     jj::Jujutsu,
-    output::{FlatOutput, InteractiveOutput, Output},
     submit::{
         analyze,
-        execute,
-        execute::{MRUpdate, MRUpdateType},
+        execute::{self, MRUpdate, MRUpdateType},
         plan,
     },
 };
 
+#[derive(Args)]
+pub struct SubmitCommandConfig {
+    /// The bookmark to submit (mutually exclusive with --tracked)
+    pub bookmark: Option<String>,
+
+    /// Submit all tracked bookmarks (mutually exclusive with bookmark)
+    #[arg(long)]
+    pub tracked: bool,
+
+    /// Remote to push to
+    #[arg(long, default_value = "origin")]
+    pub remote: String,
+
+    /// Dry run - don't actually push or create MRs
+    #[arg(long)]
+    pub dry_run: bool,
+}
+
+impl Default for SubmitCommandConfig {
+    fn default() -> Self {
+        Self {
+            bookmark: None,
+            tracked: false,
+            remote: "origin".to_string(),
+            dry_run: false,
+        }
+    }
+}
+
 /// Submit bookmarks and their dependencies as GitLab MRs
-pub async fn submit(
-    repo_path: PathBuf,
-    bookmarks: Vec<String>,
-    _remote: String,
-    dry_run: bool,
-    verbose: bool,
-) -> Result<()> {
-    let output: Box<dyn Output> = if verbose {
-        Box::new(FlatOutput::new())
-    } else {
-        Box::new(InteractiveOutput::new())
-    };
+pub async fn submit(config: SubmitCommandConfig, cli_config: CliConfig<'_>) -> Result<()> {
+    debug!("Creating Jujutsu and GitLab clients");
+    let jj = Jujutsu::new(cli_config.repository.clone())?;
+
+    let bookmarks = get_bookmarks(&config, &jj)?;
+    let output = cli_config.output;
 
     output.log_message(&format!(
         "Submitting bookmarks: {}",
@@ -54,23 +75,21 @@ pub async fn submit(
     }
 
     debug!("Loading configuration");
-    let config = Config::load(&repo_path)?;
+    let repo_config = Config::load(&cli_config.repository)?;
 
-    debug!("Creating Jujutsu and GitLab clients");
-    let jj = Jujutsu::new(repo_path)?;
     let gitlab = GitLabClient::new(
-        config.gitlab_host.clone(),
-        config.gitlab_project.clone(),
-        config.gitlab_token.clone(),
-        config.ca_bundle.clone(),
-        config.tls_accept_non_compliant_certs,
+        repo_config.gitlab_host.clone(),
+        repo_config.gitlab_project.clone(),
+        repo_config.gitlab_token.clone(),
+        repo_config.ca_bundle.clone(),
+        repo_config.tls_accept_non_compliant_certs,
     )?;
 
     debug!(
         "Using default branch from config: {}",
-        config.default_branch
+        repo_config.default_branch
     );
-    let default_branch = &config.default_branch;
+    let default_branch = &repo_config.default_branch;
 
     let revset = format!(
         "({}) & mine() & bookmarks()",
@@ -104,7 +123,7 @@ pub async fn submit(
 
     debug!("Analyzing {} bookmarks", sorted_bookmarks.len());
     output.log_current("Analyzing bookmarks");
-    let analysis = analyze::analyze(&jj, &config, &sorted_bookmarks).await?;
+    let analysis = analyze::analyze(&jj, &repo_config, &sorted_bookmarks).await?;
 
     debug!("Creating submission plan");
     output.log_current("Planning submission");
@@ -112,15 +131,15 @@ pub async fn submit(
         &analysis,
         &jj,
         &gitlab,
-        &config,
+        &repo_config,
         &bookmark_graph,
-        dry_run,
-        &*output,
+        config.dry_run,
+        output,
     )
     .await?;
 
     debug!("Executing submission plan");
-    let result = execute::execute(&submission_plan, &jj, &gitlab, &config, &*output).await?;
+    let result = execute::execute(&submission_plan, &jj, &gitlab, &repo_config, output).await?;
 
     output.finish();
 
@@ -209,4 +228,33 @@ pub async fn submit(
     }
 
     Ok(())
+}
+
+/// Validate: either bookmark or tracked must be set, but not both
+fn get_bookmarks(config: &SubmitCommandConfig, jj: &Jujutsu) -> Result<Vec<String>> {
+    match (&config.bookmark, config.tracked) {
+        (Some(_), true) => Err(Error::Config {
+            message:
+                "Cannot specify both a bookmark and --tracked flag. Please use one or the other."
+                    .to_string(),
+        }),
+        (None, false) => Err(Error::Config {
+            message: "Must specify either a bookmark or use --tracked flag".to_string(),
+        }),
+        (Some(bookmark), false) => {
+            // Single bookmark mode
+            Ok(vec![bookmark.clone()])
+        }
+        (None, true) => {
+            let tracked_bookmarks = jj.get_tracked_bookmarks(&config.remote)?;
+
+            if tracked_bookmarks.is_empty() {
+                return Err(Error::Config {
+                    message: "No tracked bookmarks found. Tracked bookmarks must be authored by you and pushed to remote.".to_string(),
+                });
+            }
+
+            Ok(tracked_bookmarks)
+        }
+    }
 }

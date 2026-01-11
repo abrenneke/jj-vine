@@ -1,48 +1,93 @@
-use crate::tests::TestRepo;
+use crate::tests::{TestRepo, unique_branch};
 
-#[test]
-fn test_repo_creation() {
-    let repo = TestRepo::new();
+#[tokio::test]
+async fn test_submit_dry_run_shows_would_create() {
+    let repo = TestRepo::with_gitlab_remote();
 
-    // Verify jj is initialized
-    let status = repo.jj(&["status"]);
+    let branch = unique_branch("dry-run-test");
+    repo.jj(["new", "main"]);
+    repo.create_change("test.txt", "content", "Test commit")
+        .create_bookmark(&branch);
+    repo.jj(["git", "push", "--bookmark", &branch]);
+
+    let output = repo
+        .submit(crate::commands::submit::SubmitCommandConfig {
+            bookmark: Some(branch.clone()),
+            dry_run: true,
+            ..Default::default()
+        })
+        .await;
+
+    // Output should mention the bookmark being submitted
     assert!(
-        status.contains("Working copy"),
-        "Should have working copy status"
+        output.contains(&format!("Would create {} -> main", branch)),
+        "Dry run should mention the bookmark. Output:\n{}",
+        output
     );
 }
 
-#[test]
-fn test_create_change() {
-    let repo = TestRepo::new();
+#[tokio::test]
+async fn test_topological_ordering_in_stack() {
+    let repo = TestRepo::with_gitlab_remote();
 
-    repo.create_change("test.txt", "hello", "Test commit");
+    // Create a stack: main -> A -> B -> C
+    let branch_a = unique_branch("topo-a");
+    let branch_b = unique_branch("topo-b");
+    let branch_c = unique_branch("topo-c");
 
-    // Verify the file exists
-    let content = std::fs::read_to_string(repo.path.join("test.txt")).unwrap();
-    assert_eq!(content, "hello");
+    repo.jj(["new", "main"]);
+    repo.create_change("a.txt", "a", "Commit A")
+        .create_bookmark(&branch_a);
+    repo.jj(["git", "push", "--bookmark", &branch_a]);
 
-    // Verify the description is set
-    let log = repo.jj(&["log", "-T", "description"]);
+    repo.jj(["new"]);
+    repo.create_change("b.txt", "b", "Commit B")
+        .create_bookmark(&branch_b);
+    repo.jj(["git", "push", "--bookmark", &branch_b]);
+
+    repo.jj(["new"]);
+    repo.create_change("c.txt", "c", "Commit C")
+        .create_bookmark(&branch_c);
+    repo.jj(["git", "push", "--bookmark", &branch_c]);
+
+    // Submit C - should process A, B, C in order
+    let output = repo
+        .submit(crate::commands::submit::SubmitCommandConfig {
+            bookmark: Some(branch_c.clone()),
+            dry_run: true,
+            ..Default::default()
+        })
+        .await;
+
+    // Check "Would create" lines appear in topological order (A before B before C)
+    let create_a = format!("Would create {} -> main", branch_a);
+    let create_b = format!("Would create {} -> {}", branch_b, branch_a);
+    let create_c = format!("Would create {} -> {}", branch_c, branch_b);
+
+    let pos_a = output.find(&create_a);
+    let pos_b = output.find(&create_b);
+    let pos_c = output.find(&create_c);
+
     assert!(
-        log.contains("Test commit"),
-        "Should have commit message: {}",
-        log
+        pos_a.is_some(),
+        "Output should have 'Would create A -> main'. Output:\n{}",
+        output
     );
-}
-
-#[test]
-fn test_create_bookmark() {
-    let repo = TestRepo::new();
-
-    repo.create_change("test.txt", "hello", "Test commit")
-        .create_bookmark("test-branch");
-
-    // Verify bookmark exists
-    let bookmarks = repo.jj(&["bookmark", "list"]);
     assert!(
-        bookmarks.contains("test-branch"),
-        "Should have bookmark: {}",
-        bookmarks
+        pos_b.is_some(),
+        "Output should have 'Would create B -> A'. Output:\n{}",
+        output
+    );
+    assert!(
+        pos_c.is_some(),
+        "Output should have 'Would create C -> B'. Output:\n{}",
+        output
+    );
+
+    // A should appear before B, B before C (topological order)
+    assert!(
+        pos_a < pos_b && pos_b < pos_c,
+        "Bookmarks should appear in topological order A < B < C. Output:\n{}",
+        output
     );
 }

@@ -10,23 +10,19 @@ async fn test_merge_commit_detection_in_bookmark_graph() {
     let repo = TestRepo::new();
 
     // Create first branch
-    repo.create_change("file1.txt", "content1", "Branch A commit");
-    repo.jj(["new"]);
-    repo.create_bookmark("branch-a");
+    repo.commit_with_bookmark("file1.txt", "content1", "Branch A commit", "branch-a");
 
     // Go back to root and create second branch
     repo.jj(["new", "root()"]);
-    repo.create_change("file2.txt", "content2", "Branch B commit");
-    repo.jj(["new"]);
-    repo.create_bookmark("branch-b");
+    repo.commit_with_bookmark("file2.txt", "content2", "Branch B commit", "branch-b");
 
     // Create merge commit
-    repo.jj(&["new", "branch-a", "branch-b"]);
-    repo.create_change("merged.txt", "merged content", "Merge commit");
-    repo.create_bookmark("merged");
+    repo.jj(["new", "branch-a", "branch-b"]);
+    repo.create_change("merged.txt", "merged content", "Merge commit")
+        .create_bookmark("merged");
 
     // Verify we have a merge commit
-    let log_output = repo.jj(&[
+    let log_output = repo.jj([
         "log",
         "-r",
         "merged",
@@ -52,19 +48,12 @@ async fn test_merge_commit_detection_in_bookmark_graph() {
 
     match result {
         Ok(_) => {
-            // The graph was built, but validation should have caught the merge!
-            eprintln!("Graph stacks: {:?}", graph.stacks);
-            eprintln!("Adjacency list: {:?}", graph.adjacency_list);
-
             panic!(
                 "FAILING TEST: Merge commits should be rejected during validation, \
                  but validation passed."
             );
         }
         Err(e) => {
-            // This is the correct behavior!
-            // We should error when validating merge commits
-            eprintln!("Correctly rejected merge commit during validation: {}", e);
             let error_msg = format!("{}", e);
             assert!(
                 error_msg.contains("merge") || error_msg.contains("multiple parents"),
@@ -80,21 +69,15 @@ async fn test_submit_bookmark_with_merge_in_stack() {
     let repo = TestRepo::new();
 
     // Create a simple linear stack
-    repo.create_change("file1.txt", "content1", "First commit");
-    repo.jj(&["new"]);
-    repo.create_bookmark("first");
+    repo.commit_with_bookmark("file1.txt", "content1", "First commit", "first");
 
     // Create a second branch from root
-    repo.jj(&["new", "root()"]);
-    repo.create_change("file2.txt", "content2", "Second commit");
-    repo.jj(&["new"]);
-    repo.create_bookmark("second");
+    repo.jj(["new", "root()"]);
+    repo.commit_with_bookmark("file2.txt", "content2", "Second commit", "second");
 
     // Merge both branches
-    repo.jj(&["new", "first", "second"]);
-    repo.create_change("merged.txt", "merged", "Merge both");
-    repo.jj(&["new"]);
-    repo.create_bookmark("merged-top");
+    repo.jj(["new", "first", "second"]);
+    repo.commit_with_bookmark("merged.txt", "merged", "Merge both", "merged-top");
 
     // Build the graph (should succeed - validation is separate)
     let jj = Jujutsu::new(repo.path.clone()).expect("Failed to create Jujutsu instance");
@@ -116,10 +99,6 @@ async fn test_submit_bookmark_with_merge_in_stack() {
             );
         }
         Err(e) => {
-            // This is the correct behavior!
-            eprintln!("Correctly rejected merge in stack during validation: {}", e);
-
-            // Verify error message is clear
             let error_msg = format!("{}", e);
             assert!(
                 error_msg.contains("merge") || error_msg.contains("multiple parents"),
