@@ -126,31 +126,35 @@ jobs:
         if: runner.os != 'Windows'
         run: |
           mkdir -p dist
-          cp target/${{ matrix.platform.target }}/release/jj-vine dist/jj-vine-${{ matrix.platform.target }}-v${{ github.ref_name }}
-          chmod +x dist/jj-vine-${{ matrix.platform.target }}-v${{ github.ref_name }}
+          VERSION="${{ inputs.tag_name || github.ref_name }}"
+          cp target/${{ matrix.platform.target }}/release/jj-vine dist/jj-vine-${{ matrix.platform.target }}-v${VERSION}
+          chmod +x dist/jj-vine-${{ matrix.platform.target }}-v${VERSION}
 
       - name: Prepare binary (Windows)
         if: runner.os == 'Windows'
         run: |
           New-Item -ItemType Directory -Force -Path dist
-          Copy-Item target/${{ matrix.platform.target }}/release/jj-vine.exe dist/jj-vine-${{ matrix.platform.target }}-v${{ github.ref_name }}.exe
+          $VERSION = "${{ inputs.tag_name || github.ref_name }}"
+          Copy-Item target/${{ matrix.platform.target }}/release/jj-vine.exe dist/jj-vine-${{ matrix.platform.target }}-v${VERSION}.exe
 
       - name: Generate SHA256 checksum (Unix)
         if: runner.os != 'Windows'
         run: |
           cd dist
+          VERSION="${{ inputs.tag_name || github.ref_name }}"
           if [ "${{ runner.os }}" = "macOS" ]; then
-            shasum -a 256 jj-vine-${{ matrix.platform.target }}-v${{ github.ref_name }} > jj-vine-${{ matrix.platform.target }}-v${{ github.ref_name }}.sha256
+            shasum -a 256 jj-vine-${{ matrix.platform.target }}-v${VERSION} > jj-vine-${{ matrix.platform.target }}-v${VERSION}.sha256
           else
-            sha256sum jj-vine-${{ matrix.platform.target }}-v${{ github.ref_name }} > jj-vine-${{ matrix.platform.target }}-v${{ github.ref_name }}.sha256
+            sha256sum jj-vine-${{ matrix.platform.target }}-v${VERSION} > jj-vine-${{ matrix.platform.target }}-v${VERSION}.sha256
           fi
 
       - name: Generate SHA256 checksum (Windows)
         if: runner.os == 'Windows'
         run: |
           cd dist
-          $hash = (Get-FileHash -Algorithm SHA256 jj-vine-${{ matrix.platform.target }}-v${{ github.ref_name }}.exe).Hash.ToLower()
-          "$hash  jj-vine-${{ matrix.platform.target }}-v${{ github.ref_name }}.exe" | Out-File -Encoding ASCII jj-vine-${{ matrix.platform.target }}-v${{ github.ref_name }}.exe.sha256
+          $VERSION = "${{ inputs.tag_name || github.ref_name }}"
+          $hash = (Get-FileHash -Algorithm SHA256 jj-vine-${{ matrix.platform.target }}-v${VERSION}.exe).Hash.ToLower()
+          "$hash  jj-vine-${{ matrix.platform.target }}-v${VERSION}.exe" | Out-File -Encoding ASCII jj-vine-${{ matrix.platform.target }}-v${VERSION}.exe.sha256
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v6
@@ -163,13 +167,13 @@ jobs:
         if: runner.os != 'Windows'
         uses: actions/attest-build-provenance@v3
         with:
-          subject-path: dist/jj-vine-${{ matrix.platform.target }}-v${{ github.ref_name }}
+          subject-path: dist/jj-vine-${{ matrix.platform.target }}-v${{ inputs.tag_name || github.ref_name }}
 
       - name: Generate attestation (Windows)
         if: runner.os == 'Windows'
         uses: actions/attest-build-provenance@v3
         with:
-          subject-path: dist/jj-vine-${{ matrix.platform.target }}-v${{ github.ref_name }}.exe
+          subject-path: dist/jj-vine-${{ matrix.platform.target }}-v${{ inputs.tag_name || github.ref_name }}.exe
 
   release:
     name: Update Codeberg Release
