@@ -1,8 +1,17 @@
 [package]
 name = "jj-vine"
+description = "Stacked pull requests for jj (jujutsu). Supports GitLab and bookmark-based flow."
 version = "0.1.0"
 edition = "2024"
 repository = "https://codeberg.org/abrenneke/jj-vine"
+license = "MIT"
+authors = ["Andy Brenneke <andy.brenneke@gmail.com>"]
+categories = ["command-line-utilities", "development-tools"]
+keywords = ["jj", "jujutsu", "merge-request", "pull-request", "gitlab", "stack"]
+exclude = [".github/", ".vscode/", "target/", "justfile", "*.djot"]
+readme = "README.md"
+homepage = "https://codeberg.org/abrenneke/jj-vine"
+documentation = "https://codeberg.org/abrenneke/jj-vine"
 
 [features]
 no-gitlab-tests = []
