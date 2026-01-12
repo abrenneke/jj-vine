@@ -5,11 +5,13 @@ use std::{path::PathBuf, process::Command};
 
 use tempfile::TempDir;
 
+#[cfg(not(feature = "no-e2e-tests"))]
+use crate::forge::{forgejo::ForgejoForge, github::GitHubForge, gitlab::GitLabForge};
 use crate::{
     cli::CliConfig,
     commands::submit::SubmitCommandConfig,
     error::Result,
-    forge::{Forge, forgejo::ForgejoForge, github::GitHubForge, gitlab::GitLabForge},
+    forge::Forge,
     jj::Jujutsu,
     output::BufferedOutput,
 };
@@ -88,6 +90,7 @@ impl TestRepo<()> {
     }
 }
 
+#[cfg(not(feature = "no-e2e-tests"))]
 impl TestRepo<GitLabForge> {
     pub fn with_gitlab_remote() -> Self {
         dotenv::dotenv().ok();
@@ -158,6 +161,7 @@ impl TestRepo<GitLabForge> {
     }
 }
 
+#[cfg(not(feature = "no-e2e-tests"))]
 impl TestRepo<GitHubForge> {
     pub fn with_github_remote() -> Self {
         dotenv::dotenv().ok();
@@ -233,6 +237,7 @@ impl TestRepo<GitHubForge> {
     }
 }
 
+#[cfg(not(feature = "no-e2e-tests"))]
 impl TestRepo<ForgejoForge> {
     pub fn with_forgejo_remote() -> Self {
         dotenv::dotenv().ok();

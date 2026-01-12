@@ -30,7 +30,7 @@ test:
 
 # Runs unit tests (excluding integration tests)
 test-unit:
-    cargo test --features no-gitlab-tests
+    cargo test --features no-e2e-tests
 
 # Ensures that the .djot files are synced to the .md files.
 check-readmes:

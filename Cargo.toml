@@ -14,7 +14,7 @@ homepage = "https://codeberg.org/abrenneke/jj-vine"
 documentation = "https://codeberg.org/abrenneke/jj-vine"
 
 [features]
-no-gitlab-tests = []
+no-e2e-tests = []
 
 [package.metadata.binstall]
 pkg-fmt = "bin"
