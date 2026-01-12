@@ -189,7 +189,7 @@ jobs:
         run: |
           # Find existing release on Codeberg by tag
           RELEASE_RESPONSE=$(curl -s \
-            -H "Authorization: token $CODEBERG_TOKEN" \
+            -H "Authorization: Bearer $CODEBERG_TOKEN" \
             "https://codeberg.org/api/v1/repos/abrenneke/jj-vine/releases/tags/$TAG_NAME")
 
           RELEASE_ID=$(echo "$RELEASE_RESPONSE" | jq -r '.id')
@@ -206,7 +206,7 @@ jobs:
             filename=$(basename "$file")
             echo "Uploading $filename..."
             curl -X POST \
-              -H "Authorization: token $CODEBERG_TOKEN" \
+              -H "Authorization: Bearer $CODEBERG_TOKEN" \
               -H "Content-Type: application/octet-stream" \
               --data-binary "@$file" \
               "https://codeberg.org/api/v1/repos/abrenneke/jj-vine/releases/$RELEASE_ID/assets?name=$filename"
