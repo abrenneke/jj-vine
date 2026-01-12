@@ -58,7 +58,7 @@ release VERSION:
         exit 1
     fi
 
-    if [[ "$(jj diff)" != "" ]] then
+    if [[ -n "$(jj diff)" ]]; then
         echo "Error: Working copy is not clean. Please commit your changes first."
         exit 1
     fi
