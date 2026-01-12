@@ -43,6 +43,7 @@ sync-readmes:
     cp CONTRIBUTING.djot CONTRIBUTING.md
 
 # Release a new version. Usage: just release 0.2.0
+[private]
 release VERSION:
     #!/usr/bin/env bash
     set -euo pipefail

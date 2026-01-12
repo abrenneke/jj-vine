@@ -12,6 +12,7 @@ pub struct Jujutsu {
     repo_path: PathBuf,
 }
 
+#[derive(Debug, Clone)]
 pub struct CommandOutput {
     pub status: ExitStatus,
     pub stdout: String,
@@ -327,6 +328,7 @@ impl Jujutsu {
             "--template",
             r#"bookmarks.map(|b| b ++ "\n").join("")"#,
         ])?;
+
         debug!("Got bookmarks output, processing lines");
 
         let mut tracked = Vec::new();
@@ -444,9 +446,7 @@ pub struct Bookmark {
 
 #[derive(Debug, Clone)]
 pub struct Change {
-    /// Git commit ID (40 hex characters)
     pub commit_id: String,
-    /// Jujutsu change ID (32 lowercase letters, custom encoding)
     pub change_id: String,
     pub description_first_line: String,
     pub parent_ids: Vec<String>,
@@ -465,18 +465,20 @@ mod tests {
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
         let repo_path = temp_dir.path().to_path_buf();
 
-        // Initialize jj repo
-        let output = StdCommand::new(which_jj().expect("jj not found"))
-            .current_dir(&repo_path)
-            .args(["git", "init", "--colocate"])
-            .output()
-            .expect("Failed to init jj repo");
+        run_jj_command(&repo_path, &["git", "init"]).expect("Failed to init jj repo");
+        run_jj_command(
+            &repo_path,
+            &["config", "set", "--repo", "user.name", "Test User"],
+        )
+        .expect("Failed to set user name");
+        run_jj_command(
+            &repo_path,
+            &["config", "set", "--repo", "user.email", "test@example.com"],
+        )
+        .expect("Failed to set user email");
 
-        assert!(
-            output.status.success(),
-            "Failed to initialize jj repo: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
+        run_jj_command(&repo_path, &["metaedit", "--update-author"])
+            .expect("Failed to update author");
 
         // Create an initial commit
         std::fs::write(repo_path.join("README.md"), "# Test repo\n")
