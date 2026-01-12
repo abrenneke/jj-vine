@@ -68,7 +68,7 @@ release VERSION:
         exit 1
     fi
     
-    sed -i'' 's/^version = ".*"/version = "{{VERSION}}"/' Cargo.toml
+    sed -i '' 's/^version = ".*"/version = "{{VERSION}}"/' Cargo.toml
     cargo build --release
     jj commit -m "chore: bump version to {{VERSION}}"
     jj bookmark set main -r @-
