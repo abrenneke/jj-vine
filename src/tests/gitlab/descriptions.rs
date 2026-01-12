@@ -1,5 +1,6 @@
 use crate::{
     commands::submit::SubmitCommandConfig,
+    forge::Forge,
     tests::{TestRepo, unique_branch},
 };
 
@@ -30,15 +31,12 @@ async fn test_mr_description_includes_stack_info() {
     // Verify MR A has stack markers
     let mr_a = repo
         .gitlab()
-        .find_mr_by_source_branch(&branch_a)
+        .find_merge_request_by_source_branch(&branch_a)
         .await
         .expect("Query failed")
         .expect("MR A should exist");
 
-    let desc_a = mr_a
-        .description
-        .as_ref()
-        .expect("MR A should have description");
+    let desc_a = mr_a.description();
     assert!(
         desc_a.contains("<!-- start jj-vine stack -->"),
         "MR A should have stack markers. Description:\n{}",
@@ -78,27 +76,24 @@ async fn test_mr_description_links_to_dependent_mrs() {
     // Get both MRs
     let mr_a = repo
         .gitlab()
-        .find_mr_by_source_branch(&branch_a)
+        .find_merge_request_by_source_branch(&branch_a)
         .await
         .expect("Query failed")
         .expect("MR A should exist");
 
     let mr_b = repo
         .gitlab()
-        .find_mr_by_source_branch(&branch_b)
+        .find_merge_request_by_source_branch(&branch_b)
         .await
         .expect("Query failed")
         .expect("MR B should exist");
 
     // MR A's description should link to MR B
-    let desc_a = mr_a
-        .description
-        .as_ref()
-        .expect("MR A should have description");
+    let desc_a = mr_a.description();
     assert!(
-        desc_a.contains(&format!("!{}", mr_b.iid)),
+        desc_a.contains(&format!("!{}", mr_b.iid())),
         "MR A should link to MR B (!{}). Description:\n{}",
-        mr_b.iid,
+        mr_b.iid(),
         desc_a
     );
 }
@@ -125,19 +120,15 @@ async fn test_user_content_preserved_on_resubmit() {
     // Add custom user content to MR A's description
     let mr_a = repo
         .gitlab()
-        .find_mr_by_source_branch(&branch_a)
+        .find_merge_request_by_source_branch(&branch_a)
         .await
         .expect("Query failed")
         .expect("MR A should exist");
 
     let user_content = "My important notes about this MR";
-    let new_desc = format!(
-        "{}\n\n{}",
-        mr_a.description.as_deref().unwrap_or(""),
-        user_content
-    );
+    let new_desc = format!("{}\n\n{}", mr_a.description(), user_content);
     repo.gitlab()
-        .update_mr_description(mr_a.iid, &new_desc)
+        .update_merge_request_description(mr_a.iid(), &new_desc)
         .await
         .expect("Failed to update description");
 
@@ -155,15 +146,12 @@ async fn test_user_content_preserved_on_resubmit() {
     // Verify user content is still present
     let mr_a_updated = repo
         .gitlab()
-        .find_mr_by_source_branch(&branch_a)
+        .find_merge_request_by_source_branch(&branch_a)
         .await
         .expect("Query failed")
         .expect("MR A should exist");
 
-    let desc = mr_a_updated
-        .description
-        .as_ref()
-        .expect("MR A should have description");
+    let desc = mr_a_updated.description();
     assert!(
         desc.contains(user_content),
         "User content should be preserved. Description:\n{}",
@@ -193,14 +181,14 @@ async fn test_add_markers_to_description_without_markers() {
     // Set description WITHOUT markers
     let mr_a = repo
         .gitlab()
-        .find_mr_by_source_branch(&branch_a)
+        .find_merge_request_by_source_branch(&branch_a)
         .await
         .expect("Query failed")
         .expect("MR A should exist");
 
     let user_description = "Custom description without markers";
     repo.gitlab()
-        .update_mr_description(mr_a.iid, user_description)
+        .update_merge_request_description(mr_a.iid(), user_description)
         .await
         .expect("Failed to update description");
 
@@ -218,15 +206,12 @@ async fn test_add_markers_to_description_without_markers() {
     // Verify markers were added
     let mr_a_updated = repo
         .gitlab()
-        .find_mr_by_source_branch(&branch_a)
+        .find_merge_request_by_source_branch(&branch_a)
         .await
         .expect("Query failed")
         .expect("MR A should exist");
 
-    let desc = mr_a_updated
-        .description
-        .as_ref()
-        .expect("MR A should have description");
+    let desc = mr_a_updated.description();
 
     assert!(
         desc.contains("<!-- start jj-vine stack -->"),
@@ -271,11 +256,11 @@ async fn test_skip_update_when_description_unchanged() {
     // Get initial description
     let mr_a = repo
         .gitlab()
-        .find_mr_by_source_branch(&branch_a)
+        .find_merge_request_by_source_branch(&branch_a)
         .await
         .expect("Query failed")
         .expect("MR A should exist");
-    let initial_desc = mr_a.description.clone();
+    let initial_desc = mr_a.description();
 
     // Resubmit (no changes)
     repo.submit(SubmitCommandConfig {
@@ -287,13 +272,14 @@ async fn test_skip_update_when_description_unchanged() {
     // Description should be unchanged
     let mr_a_after = repo
         .gitlab()
-        .find_mr_by_source_branch(&branch_a)
+        .find_merge_request_by_source_branch(&branch_a)
         .await
         .expect("Query failed")
         .expect("MR A should exist");
 
     assert_eq!(
-        initial_desc, mr_a_after.description,
+        initial_desc,
+        mr_a_after.description(),
         "Description should be unchanged after resubmit"
     );
 }
@@ -336,47 +322,41 @@ async fn test_deferred_updates_multiple_stacks() {
     // Get all MRs
     let mr_a = repo
         .gitlab()
-        .find_mr_by_source_branch(&branch_a)
+        .find_merge_request_by_source_branch(&branch_a)
         .await
         .expect("Query failed")
         .expect("MR A should exist");
 
     let mr_b = repo
         .gitlab()
-        .find_mr_by_source_branch(&branch_b)
+        .find_merge_request_by_source_branch(&branch_b)
         .await
         .expect("Query failed")
         .expect("MR B should exist");
 
     let mr_c = repo
         .gitlab()
-        .find_mr_by_source_branch(&branch_c)
+        .find_merge_request_by_source_branch(&branch_c)
         .await
         .expect("Query failed")
         .expect("MR C should exist");
 
     let mr_d = repo
         .gitlab()
-        .find_mr_by_source_branch(&branch_d)
+        .find_merge_request_by_source_branch(&branch_d)
         .await
         .expect("Query failed")
         .expect("MR D should exist");
 
     // A and B should indicate they're part of 2 stacks
-    let desc_a = mr_a
-        .description
-        .as_ref()
-        .expect("MR A should have description");
+    let desc_a = mr_a.description();
     assert!(
         desc_a.contains("2 stacks"),
         "MR A should indicate 2 stacks. Description:\n{}",
         desc_a
     );
 
-    let desc_b = mr_b
-        .description
-        .as_ref()
-        .expect("MR B should have description");
+    let desc_b = mr_b.description();
     assert!(
         desc_b.contains("2 stacks"),
         "MR B should indicate 2 stacks. Description:\n{}",
@@ -384,33 +364,27 @@ async fn test_deferred_updates_multiple_stacks() {
     );
 
     // C should only show its stack (A→B→C)
-    let desc_c = mr_c
-        .description
-        .as_ref()
-        .expect("MR C should have description");
+    let desc_c = mr_c.description();
     assert!(
         !desc_c.contains("2 stacks"),
         "MR C should not indicate multiple stacks. Description:\n{}",
         desc_c
     );
     assert!(
-        desc_c.contains(&format!("!{}", mr_a.iid)),
+        desc_c.contains(&format!("!{}", mr_a.iid())),
         "MR C should link to MR A. Description:\n{}",
         desc_c
     );
 
     // D should only show its stack (A→B→D)
-    let desc_d = mr_d
-        .description
-        .as_ref()
-        .expect("MR D should have description");
+    let desc_d = mr_d.description();
     assert!(
         !desc_d.contains("2 stacks"),
         "MR D should not indicate multiple stacks. Description:\n{}",
         desc_d
     );
     assert!(
-        desc_d.contains(&format!("!{}", mr_a.iid)),
+        desc_d.contains(&format!("!{}", mr_a.iid())),
         "MR D should link to MR A. Description:\n{}",
         desc_d
     );

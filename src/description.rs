@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{bookmark::BranchStack, config::StackFormat, error::Result, gitlab::MergeRequest};
+use crate::{bookmark::BranchStack, config::StackFormat, error::Result, forge::ForgeMergeRequest};
 
 /// Stack description management and formatting for MR descriptions
 /// Abstraction for different stack visualization formats
@@ -220,7 +220,7 @@ impl DescriptionManager {
 pub fn generate_multi_stack_description(
     bookmark: &str,
     stacks: &[&BranchStack],
-    existing_mrs: &HashMap<String, MergeRequest>,
+    existing_mrs: &HashMap<String, ForgeMergeRequest>,
     format: &StackFormat,
     base_branch: &str,
 ) -> Result<String> {
@@ -241,9 +241,9 @@ pub fn generate_multi_stack_description(
             .iter()
             .map(|bm| StackBookmarkInfo {
                 name: bm.clone(),
-                title: existing_mrs.get(bm).map(|mr| mr.title.clone()),
-                mr_iid: existing_mrs.get(bm).map(|mr| mr.iid),
-                mr_url: existing_mrs.get(bm).map(|mr| mr.web_url.clone()),
+                title: existing_mrs.get(bm).map(|mr| mr.title().to_string()),
+                mr_iid: existing_mrs.get(bm).map(|mr| mr.iid()),
+                mr_url: existing_mrs.get(bm).map(|mr| mr.url().to_string()),
             })
             .collect();
 
@@ -273,9 +273,9 @@ pub fn generate_multi_stack_description(
             .iter()
             .map(|bm| StackBookmarkInfo {
                 name: bm.clone(),
-                title: existing_mrs.get(bm).map(|mr| mr.title.clone()),
-                mr_iid: existing_mrs.get(bm).map(|mr| mr.iid),
-                mr_url: existing_mrs.get(bm).map(|mr| mr.web_url.clone()),
+                title: existing_mrs.get(bm).map(|mr| mr.title().to_string()),
+                mr_iid: existing_mrs.get(bm).map(|mr| mr.iid()),
+                mr_url: existing_mrs.get(bm).map(|mr| mr.url().to_string()),
             })
             .collect();
 

@@ -4,6 +4,7 @@ use tracing::error;
 
 use crate::{
     error::{Error, Result},
+    forge::ForgeCreateMergeRequestOptions,
     submit::execute::{
         ActionResultData,
         ExecuteAction,
@@ -58,7 +59,7 @@ impl ExecuteAction for CreateMRAction {
             };
 
             let assignee_ids = if ctx.config.assign_to_self {
-                match ctx.gitlab.get_current_user().await {
+                match ctx.forge.current_user().await {
                     Ok(user) => Some(vec![user.id]),
                     Err(e) => {
                         let warning =
@@ -74,7 +75,7 @@ impl ExecuteAction for CreateMRAction {
             let reviewer_ids = if !ctx.config.default_reviewers.is_empty() {
                 let mut ids = Vec::new();
                 for username in &ctx.config.default_reviewers {
-                    match ctx.gitlab.get_user_by_username(username).await {
+                    match ctx.forge.user_by_username(username).await {
                         Ok(Some(user)) => ids.push(user.id),
                         Ok(None) => {
                             let warning = format!("Warning: Reviewer '{}' not found", username);
@@ -95,24 +96,32 @@ impl ExecuteAction for CreateMRAction {
             };
 
             match ctx
-                .gitlab
-                .create_merge_request()
-                .source_branch(&self.bookmark)
-                .target_branch(&self.target_branch)
-                .title(&self.title)
-                .remove_source_branch(ctx.config.delete_source_branch)
-                .squash(ctx.config.squash_commits)
-                .maybe_description(desc)
-                .maybe_assignee_ids(assignee_ids.as_deref())
-                .maybe_reviewer_ids(reviewer_ids.as_deref())
-                .call()
+                .forge
+                .create_merge_request(
+                    ForgeCreateMergeRequestOptions::builder()
+                        .source_branch(self.bookmark.clone())
+                        .target_branch(self.target_branch.clone())
+                        .title(self.title.clone())
+                        .remove_source_branch(ctx.config.delete_source_branch)
+                        .squash(ctx.config.squash_commits)
+                        .maybe_description(desc.map(|s| s.to_string()))
+                        .maybe_assignee_ids(
+                            assignee_ids
+                                .map(|ids| ids.into_iter().map(|id| id.to_string()).collect()),
+                        )
+                        .maybe_reviewer_ids(
+                            reviewer_ids
+                                .map(|ids| ids.into_iter().map(|id| id.to_string()).collect()),
+                        )
+                        .build(),
+                )
                 .await
             {
                 Ok(mr) => {
                     ctx.output.log_completed(&format!(
                         "Created MR {}: {}",
-                        format!("!{}", mr.iid).cyan(),
-                        &mr.web_url.dimmed()
+                        format!("!{}", mr.iid()).cyan(),
+                        &mr.url().dimmed()
                     ));
                     Ok(ActionResultData::MRUpdated(Box::new(MRUpdate {
                         mr,

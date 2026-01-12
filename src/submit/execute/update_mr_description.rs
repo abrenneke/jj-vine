@@ -16,7 +16,7 @@ use crate::{
         generate_multi_stack_description,
     },
     error::{Error, Result},
-    gitlab::MergeRequest,
+    forge::ForgeMergeRequest,
     submit::execute::{
         ActionResultData,
         ExecuteAction,
@@ -70,14 +70,14 @@ impl ExecuteAction for UpdateMRDescriptionAction {
             let handles = FuturesUnordered::new();
             for bm in to_check {
                 handles.push(async move {
-                    if let Ok(Some(mr)) = ctx.gitlab.find_mr_by_source_branch(&bm).await {
+                    if let Ok(Some(mr)) = ctx.forge.find_merge_request_by_source_branch(&bm).await {
                         (bm, Some(mr))
                     } else {
                         (bm, None)
                     }
                 });
             }
-            let all_mrs: HashMap<String, MergeRequest> = handles
+            let all_mrs: HashMap<String, ForgeMergeRequest> = handles
                 .collect::<Vec<_>>()
                 .await
                 .into_iter()
@@ -85,7 +85,7 @@ impl ExecuteAction for UpdateMRDescriptionAction {
                 .collect();
 
             if let Some(current_mr) = all_mrs.get(&self.bookmark) {
-                let existing_description = current_mr.description.as_deref().unwrap_or("");
+                let existing_description = current_mr.description().to_string();
 
                 let formatter: Box<dyn DescriptionFormatter + Send + Sync> =
                     match ctx.config.stack_format {
@@ -93,7 +93,7 @@ impl ExecuteAction for UpdateMRDescriptionAction {
                     };
                 let desc_manager = DescriptionManager::new(formatter);
 
-                let parsed = desc_manager.parse_description(existing_description);
+                let parsed = desc_manager.parse_description(&existing_description);
 
                 match generate_multi_stack_description(
                     &self.bookmark,
@@ -117,14 +117,17 @@ impl ExecuteAction for UpdateMRDescriptionAction {
                             })))
                         } else {
                             match ctx
-                                .gitlab
-                                .update_mr_description(current_mr.iid, &new_description)
+                                .forge
+                                .update_merge_request_description(
+                                    current_mr.iid(),
+                                    &new_description,
+                                )
                                 .await
                             {
                                 Ok(updated_mr) => {
                                     ctx.output.log_completed(&format!(
                                         "Updated MR {} description",
-                                        format!("!{}", updated_mr.iid).cyan()
+                                        format!("!{}", updated_mr.iid()).cyan()
                                     ));
                                     Ok(ActionResultData::MRUpdated(Box::new(MRUpdate {
                                         mr: updated_mr,

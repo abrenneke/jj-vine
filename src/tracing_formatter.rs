@@ -53,8 +53,8 @@ where
 
         // Optionally write timestamp
         if self.display_timestamp {
-            let now = chrono::Local::now();
-            write!(writer, "{} ", now.format("%Y-%m-%d %H:%M:%S"))?;
+            let now = jiff::Timestamp::now();
+            write!(writer, "{} ", now.to_string())?;
         }
 
         // Optionally write level

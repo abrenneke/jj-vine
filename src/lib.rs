@@ -4,7 +4,7 @@ pub mod commands;
 pub mod config;
 pub mod description;
 pub mod error;
-pub mod gitlab;
+pub mod forge;
 pub mod jj;
 pub mod output;
 pub mod submit;

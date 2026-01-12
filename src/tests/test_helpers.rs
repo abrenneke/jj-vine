@@ -8,7 +8,7 @@ use crate::{
     cli::CliConfig,
     commands::submit::SubmitCommandConfig,
     error::Result,
-    gitlab::GitLabClient,
+    forge::gitlab::GitLabForge,
     jj::Jujutsu,
     output::BufferedOutput,
 };
@@ -28,7 +28,7 @@ pub struct TestRepo {
     pub path: PathBuf,
 
     /// GitLab API client
-    client: Option<GitLabClient>,
+    client: Option<GitLabForge>,
 }
 
 impl TestRepo {
@@ -96,7 +96,7 @@ impl TestRepo {
 
         repo.jj(["git", "remote", "add", "origin", &remote_url]);
 
-        let client = GitLabClient::new(host, project, token, ca_bundle, accept_non_compliant)
+        let client = GitLabForge::new(host, project, token, ca_bundle, accept_non_compliant)
             .expect("Failed to create GitLab client");
 
         repo.client = Some(client);
@@ -108,7 +108,7 @@ impl TestRepo {
         repo
     }
 
-    pub fn gitlab(&self) -> &GitLabClient {
+    pub fn gitlab(&self) -> &GitLabForge {
         self.client
             .as_ref()
             .expect("GitLab client not initialized, use with_gitlab_remote() instead of new()")

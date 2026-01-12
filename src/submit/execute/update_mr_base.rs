@@ -44,22 +44,24 @@ impl ExecuteAction for UpdateMRBaseAction {
             Ok(ActionResultData::DryRun)
         } else {
             // Get old target before update
-            let old_target = if let Ok(Some(existing_mr)) =
-                ctx.gitlab.find_mr_by_source_branch(&self.bookmark).await
+            let old_target = if let Ok(Some(existing_mr)) = ctx
+                .forge
+                .find_merge_request_by_source_branch(&self.bookmark)
+                .await
             {
-                existing_mr.target_branch.clone()
+                existing_mr.target_branch().to_string()
             } else {
                 "unknown".to_string()
             };
 
             match ctx
-                .gitlab
-                .update_mr_base(self.mr_iid, &self.new_target_branch)
+                .forge
+                .update_merge_request_base(self.mr_iid, &self.new_target_branch)
                 .await
             {
                 Ok(mr) => {
                     ctx.output
-                        .log_completed(&format!("Updated MR {}", format!("!{}", mr.iid).cyan()));
+                        .log_completed(&format!("Updated MR {}", format!("!{}", mr.iid()).cyan()));
                     Ok(ActionResultData::MRUpdated(Box::new(MRUpdate {
                         mr,
                         bookmark: self.bookmark.clone(),

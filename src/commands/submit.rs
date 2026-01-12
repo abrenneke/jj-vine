@@ -13,7 +13,7 @@ use crate::{
     cli::CliConfig,
     config::Config,
     error::{Error, Result},
-    gitlab::GitLabClient,
+    forge::gitlab::GitLabForge,
     jj::Jujutsu,
     submit::{
         analyze,
@@ -77,7 +77,7 @@ pub async fn submit(config: SubmitCommandConfig, cli_config: CliConfig<'_>) -> R
     debug!("Loading configuration");
     let repo_config = Config::load(&cli_config.repository)?;
 
-    let gitlab = GitLabClient::new(
+    let gitlab = GitLabForge::new(
         repo_config.gitlab_host.clone(),
         repo_config.gitlab_project.clone(),
         repo_config.gitlab_token.clone(),
@@ -167,14 +167,14 @@ pub async fn submit(config: SubmitCommandConfig, cli_config: CliConfig<'_>) -> R
             mr,
             bookmark,
             update_type,
-        } in result.merge_requests.iter().sorted_by_key(|mr| mr.mr.iid)
+        } in result.merge_requests.iter().sorted_by_key(|mr| mr.mr.iid())
         {
             match update_type {
                 MRUpdateType::Created => {
                     table.push(vec![
                         bookmark.magenta().cell(),
-                        mr.title.clone().cell(),
-                        mr.web_url.dimmed().cell(),
+                        mr.title().cell(),
+                        mr.url().dimmed().cell(),
                         "[created]".green().cell(),
                     ]);
                 }
@@ -183,16 +183,16 @@ pub async fn submit(config: SubmitCommandConfig, cli_config: CliConfig<'_>) -> R
                 | MRUpdateType::DescriptionUpdated => {
                     table.push(vec![
                         bookmark.magenta().cell(),
-                        mr.title.clone().cell(),
-                        mr.web_url.dimmed().cell(),
+                        mr.title().cell(),
+                        mr.url().dimmed().cell(),
                         "[updated]".green().cell(),
                     ]);
                 }
                 MRUpdateType::Unchanged => {
                     table.push(vec![
                         bookmark.magenta().cell(),
-                        mr.title.clone().cell(),
-                        mr.web_url.dimmed().cell(),
+                        mr.title().cell(),
+                        mr.url().dimmed().cell(),
                         " ".cell(),
                     ]);
                 }

@@ -11,7 +11,7 @@ use tracing::debug;
 use crate::{
     config::Config,
     error::{Error, Result},
-    gitlab::{GitLabClient, MergeRequest},
+    forge::{Forge, ForgeMergeRequest},
     jj::Jujutsu,
     output::Output,
     submit::{
@@ -40,7 +40,7 @@ pub struct SubmissionResult {
 
 #[derive(Debug, Clone)]
 pub struct MRUpdate {
-    pub mr: MergeRequest,
+    pub mr: ForgeMergeRequest,
     pub bookmark: String,
     pub update_type: MRUpdateType,
 }
@@ -66,7 +66,7 @@ pub trait ExecuteAction {
 pub struct ExecutionActionContext<'a> {
     pub plan: &'a SubmissionPlan,
     pub jj: &'a Jujutsu,
-    pub gitlab: &'a GitLabClient,
+    pub forge: &'a dyn Forge,
     pub config: &'a Config,
     pub output: &'a dyn Output,
 }
@@ -104,7 +104,7 @@ pub enum MRUpdateType {
 pub async fn execute(
     plan: &SubmissionPlan,
     jj: &Jujutsu,
-    gitlab: &GitLabClient,
+    forge: &dyn Forge,
     config: &Config,
     output: &dyn Output,
 ) -> Result<SubmissionResult> {
@@ -192,7 +192,7 @@ pub async fn execute(
             let ctx = ExecutionActionContext {
                 plan,
                 jj,
-                gitlab,
+                forge,
                 config,
                 output,
             };

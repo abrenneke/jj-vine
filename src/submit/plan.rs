@@ -6,7 +6,7 @@ use crate::{
     bookmark::BookmarkGraph,
     config::Config,
     error::Result,
-    gitlab::GitLabClient,
+    forge::Forge,
     jj::Jujutsu,
     output::Output,
     submit::analyze::SubmissionAnalysis,
@@ -110,7 +110,7 @@ pub struct SubmissionPlan {
 pub async fn plan(
     analysis: &SubmissionAnalysis,
     jj: &Jujutsu,
-    gitlab: &GitLabClient,
+    forge: &dyn Forge,
     config: &Config,
     bookmark_graph: &BookmarkGraph,
     dry_run: bool,
@@ -127,7 +127,7 @@ pub async fn plan(
     let mut existing_mrs = HashMap::new();
     for bookmark in &analysis.bookmarks_to_submit {
         output.set_substep(&format!("MRs for {}", bookmark));
-        if let Some(mr) = gitlab.find_mr_by_source_branch(bookmark).await? {
+        if let Some(mr) = forge.find_merge_request_by_source_branch(bookmark).await? {
             existing_mrs.insert(bookmark.clone(), mr);
         }
     }
@@ -171,7 +171,7 @@ pub async fn plan(
 
         match existing_mrs.get(bookmark) {
             Some(existing_mr) => {
-                if existing_mr.target_branch != target_branch {
+                if existing_mr.target_branch() != target_branch {
                     let action_id = get_id();
                     mr_action_ids.push(action_id);
 
@@ -179,7 +179,7 @@ pub async fn plan(
                         id: action_id,
                         action: Action::UpdateMRBase {
                             bookmark: bookmark.clone(),
-                            mr_iid: existing_mr.iid,
+                            mr_iid: existing_mr.iid(),
                             new_target_branch: target_branch.clone(),
                         },
                         dependencies: push_dependency,

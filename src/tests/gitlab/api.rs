@@ -1,6 +1,6 @@
 use crate::{
     commands::submit::SubmitCommandConfig,
-    gitlab::GitLabClient,
+    forge::{Forge, ForgeCreateMergeRequestOptions, ForgeMergeRequestState, gitlab::GitLabForge},
     tests::{TestRepo, unique_branch},
 };
 
@@ -24,14 +24,14 @@ async fn test_submit_creates_mr() {
     // Verify MR was created
     let mr = repo
         .gitlab()
-        .find_mr_by_source_branch(&branch)
+        .find_merge_request_by_source_branch(&branch)
         .await
         .expect("Failed to query GitLab")
         .expect("MR should exist");
 
-    assert_eq!(mr.source_branch, branch);
-    assert_eq!(mr.target_branch, "main");
-    assert_eq!(mr.state, "opened");
+    assert_eq!(mr.source_branch(), branch);
+    assert_eq!(mr.target_branch(), "main");
+    assert_eq!(mr.state(), ForgeMergeRequestState::Open);
 }
 
 /// Test that submit creates stacked MRs with correct targets
@@ -66,29 +66,29 @@ async fn test_submit_creates_stacked_mrs() {
     // Verify MR A: targets main
     let mr_a = repo
         .gitlab()
-        .find_mr_by_source_branch(&branch_a)
+        .find_merge_request_by_source_branch(&branch_a)
         .await
         .expect("Failed to query GitLab")
         .expect("MR A should exist");
-    assert_eq!(mr_a.target_branch, "main");
+    assert_eq!(mr_a.target_branch(), "main");
 
     // Verify MR B: targets A
     let mr_b = repo
         .gitlab()
-        .find_mr_by_source_branch(&branch_b)
+        .find_merge_request_by_source_branch(&branch_b)
         .await
         .expect("Failed to query GitLab")
         .expect("MR B should exist");
-    assert_eq!(mr_b.target_branch, branch_a);
+    assert_eq!(mr_b.target_branch(), branch_a);
 
     // Verify MR C: targets B
     let mr_c = repo
         .gitlab()
-        .find_mr_by_source_branch(&branch_c)
+        .find_merge_request_by_source_branch(&branch_c)
         .await
         .expect("Failed to query GitLab")
         .expect("MR C should exist");
-    assert_eq!(mr_c.target_branch, branch_b);
+    assert_eq!(mr_c.target_branch(), branch_b);
 }
 
 /// Test that resubmitting finds and reuses existing MR
@@ -110,7 +110,7 @@ async fn test_submit_is_idempotent() {
 
     let mr1 = repo
         .gitlab()
-        .find_mr_by_source_branch(&branch)
+        .find_merge_request_by_source_branch(&branch)
         .await
         .expect("Failed to query")
         .expect("MR should exist");
@@ -124,13 +124,13 @@ async fn test_submit_is_idempotent() {
 
     let mr2 = repo
         .gitlab()
-        .find_mr_by_source_branch(&branch)
+        .find_merge_request_by_source_branch(&branch)
         .await
         .expect("Failed to query")
         .expect("MR should exist");
 
     // Same MR should be reused
-    assert_eq!(mr1.iid, mr2.iid, "Should reuse the same MR");
+    assert_eq!(mr1.iid(), mr2.iid(), "Should reuse the same MR");
 }
 
 /// Test that MR is retargeted when middle bookmark is deleted
@@ -165,11 +165,11 @@ async fn test_submit_retargets_after_middle_bookmark_deleted() {
     // Verify C targets B initially
     let mr_c = repo
         .gitlab()
-        .find_mr_by_source_branch(&branch_c)
+        .find_merge_request_by_source_branch(&branch_c)
         .await
         .expect("Query failed")
         .expect("MR C should exist");
-    assert_eq!(mr_c.target_branch, branch_b);
+    assert_eq!(mr_c.target_branch(), branch_b);
 
     // Delete bookmark B
     repo.jj(["bookmark", "delete", &branch_b]);
@@ -184,12 +184,13 @@ async fn test_submit_retargets_after_middle_bookmark_deleted() {
     // Verify C now targets A
     let mr_c_updated = repo
         .gitlab()
-        .find_mr_by_source_branch(&branch_c)
+        .find_merge_request_by_source_branch(&branch_c)
         .await
         .expect("Query failed")
         .expect("MR C should exist");
     assert_eq!(
-        mr_c_updated.target_branch, branch_a,
+        mr_c_updated.target_branch(),
+        branch_a,
         "MR C should now target A after B was deleted"
     );
 }
@@ -208,7 +209,7 @@ async fn test_invalid_token_errors_clearly() {
         .unwrap_or(false);
 
     // Create client with invalid token
-    let client = GitLabClient::new(
+    let client = GitLabForge::new(
         host,
         project,
         "invalid-token-12345".to_string(),
@@ -221,14 +222,16 @@ async fn test_invalid_token_errors_clearly() {
 
     // Attempt to create MR with invalid token
     let result = client
-        .create_merge_request()
-        .source_branch(&branch_name)
-        .target_branch("main")
-        .title("This should fail")
-        .description("Testing invalid token")
-        .remove_source_branch(true)
-        .squash(false)
-        .call()
+        .create_merge_request(
+            ForgeCreateMergeRequestOptions::builder()
+                .source_branch(branch_name.clone())
+                .target_branch("main".to_string())
+                .title("This should fail".to_string())
+                .description("Testing invalid token".to_string())
+                .remove_source_branch(true)
+                .squash(false)
+                .build(),
+        )
         .await;
 
     assert!(result.is_err(), "Should fail with invalid token");
@@ -254,7 +257,7 @@ async fn test_nonexistent_project_errors_clearly() {
         .unwrap_or(false);
 
     // Create client with nonexistent project
-    let client = GitLabClient::new(
+    let client = GitLabForge::new(
         host,
         "nonexistent/fake-project-12345".to_string(),
         token,
@@ -267,14 +270,16 @@ async fn test_nonexistent_project_errors_clearly() {
 
     // Attempt to create MR with nonexistent project
     let result = client
-        .create_merge_request()
-        .source_branch(&branch_name)
-        .target_branch("main")
-        .title("This should fail")
-        .description("Testing nonexistent project")
-        .remove_source_branch(true)
-        .squash(false)
-        .call()
+        .create_merge_request(
+            ForgeCreateMergeRequestOptions::builder()
+                .source_branch(branch_name.clone())
+                .target_branch("main".to_string())
+                .title("This should fail".to_string())
+                .description("Testing nonexistent project".to_string())
+                .remove_source_branch(true)
+                .squash(false)
+                .build(),
+        )
         .await;
 
     assert!(result.is_err(), "Should fail with nonexistent project");
