@@ -57,8 +57,8 @@ release VERSION:
         echo "Error: You are not on top of the main bookmark. You are on $(jj log -r @- --template 'self.change_id()' --no-graph)"
         exit 1
     fi
-    
-    if ! jj status | grep -q "The working copy has no changes."; then
+
+    if [[ "$(jj diff)" != "" ]] then
         echo "Error: Working copy is not clean. Please commit your changes first."
         exit 1
     fi
