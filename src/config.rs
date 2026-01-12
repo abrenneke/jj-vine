@@ -4,10 +4,10 @@ use serde::Deserialize;
 
 use crate::{
     error::{Error, Result},
-    jj::run_jj_command,
+    jj::jj_exec,
 };
 
-/// Forge type (GitLab or GitHub)
+/// Forge type (GitLab, GitHub, or Forgejo)
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ForgeType {
@@ -15,6 +15,8 @@ pub enum ForgeType {
     GitLab,
     /// GitHub (GitHub.com or GitHub Enterprise)
     GitHub,
+    /// Forgejo/Gitea (self-hosted or Codeberg)
+    Forgejo,
 }
 
 impl std::fmt::Display for ForgeType {
@@ -25,8 +27,38 @@ impl std::fmt::Display for ForgeType {
             match self {
                 ForgeType::GitLab => "gitlab",
                 ForgeType::GitHub => "github",
+                ForgeType::Forgejo => "forgejo",
             }
         )
+    }
+}
+
+impl std::str::FromStr for ForgeType {
+    type Err = Error;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "gitlab" => Ok(Self::GitLab),
+            "github" => Ok(Self::GitHub),
+            "forgejo" => Ok(Self::Forgejo),
+            _ => Err(Error::Config {
+                message: format!("Invalid forge type: {}", s),
+            }),
+        }
+    }
+}
+
+impl ForgeType {
+    pub fn detect_from_host(host: &str) -> Option<Self> {
+        if host.contains("gitlab") {
+            Some(Self::GitLab)
+        } else if host.contains("github") {
+            Some(Self::GitHub)
+        } else if host.contains("forgejo") || host.contains("gitea") || host.contains("codeberg") {
+            Some(Self::Forgejo)
+        } else {
+            None
+        }
     }
 }
 
@@ -111,6 +143,10 @@ pub struct Config {
     /// GitHub configuration
     #[serde(default)]
     pub github: GitHubConfig,
+
+    /// Forgejo/Gitea configuration
+    #[serde(default)]
+    pub forgejo: ForgejoConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -165,10 +201,36 @@ impl Default for GitHubConfig {
     }
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ForgejoConfig {
+    /// Forgejo/Gitea instance URL (e.g., <https://codeberg.org>)
+    #[serde(default)]
+    pub host: String,
+
+    /// Repository in "owner/repo" format
+    #[serde(default)]
+    pub project: String,
+
+    /// API access token
+    #[serde(default)]
+    pub token: String,
+}
+
+impl Default for ForgejoConfig {
+    fn default() -> Self {
+        Self {
+            host: "".to_string(),
+            project: "".to_string(),
+            token: "".to_string(),
+        }
+    }
+}
+
 impl Config {
     /// Load configuration from jj config
     pub fn load(repo_path: &PathBuf) -> Result<Self> {
-        let output = run_jj_command(repo_path, ["config", "list"])?;
+        let output = jj_exec(repo_path, ["config", "list"])?;
 
         let toml_value: toml::Value =
             toml::from_str(&output.stdout).map_err(|e| Error::Config {
@@ -191,7 +253,7 @@ impl Config {
         Ok(config)
     }
 
-    fn validate(&self) -> Result<()> {
+    pub fn validate(&self) -> Result<()> {
         match self.forge {
             ForgeType::GitLab => {
                 if self.gitlab.host.is_empty() {
@@ -222,6 +284,23 @@ impl Config {
                     });
                 }
             }
+            ForgeType::Forgejo => {
+                if self.forgejo.host.is_empty() {
+                    return Err(Error::Config {
+                        message: "forgejo.host is required when forge is forgejo".to_string(),
+                    });
+                }
+                if self.forgejo.project.is_empty() {
+                    return Err(Error::Config {
+                        message: "forgejo.project is required when forge is forgejo".to_string(),
+                    });
+                }
+                if self.forgejo.token.is_empty() {
+                    return Err(Error::Config {
+                        message: "forgejo.token is required when forge is forgejo".to_string(),
+                    });
+                }
+            }
         }
         Ok(())
     }
@@ -238,7 +317,7 @@ mod tests {
         let repo_path = temp_dir.path().to_path_buf();
 
         // Initialize jj repo
-        run_jj_command(&repo_path, ["git", "init", "--colocate"]).expect("Failed to init jj repo");
+        jj_exec(&repo_path, ["git", "init", "--colocate"]).expect("Failed to init jj repo");
 
         (temp_dir, repo_path)
     }
@@ -269,7 +348,7 @@ mod tests {
         let (_temp, repo_path) = create_test_repo();
 
         // Set required config
-        run_jj_command(
+        jj_exec(
             &repo_path,
             [
                 "config",
@@ -281,7 +360,7 @@ mod tests {
         )
         .expect("Failed to set config");
 
-        run_jj_command(
+        jj_exec(
             &repo_path,
             [
                 "config",
@@ -293,7 +372,7 @@ mod tests {
         )
         .expect("Failed to set config");
 
-        run_jj_command(
+        jj_exec(
             &repo_path,
             [
                 "config",
@@ -305,7 +384,7 @@ mod tests {
         )
         .expect("Failed to set config");
 
-        run_jj_command(
+        jj_exec(
             &repo_path,
             ["config", "set", "--repo", "jj-vine.forge", "gitlab"],
         )
@@ -326,7 +405,7 @@ mod tests {
         let (_temp, repo_path) = create_test_repo();
 
         // Set all config including optional fields
-        run_jj_command(
+        jj_exec(
             &repo_path,
             [
                 "config",
@@ -338,7 +417,7 @@ mod tests {
         )
         .expect("Failed to set config");
 
-        run_jj_command(
+        jj_exec(
             &repo_path,
             [
                 "config",
@@ -350,7 +429,7 @@ mod tests {
         )
         .expect("Failed to set config");
 
-        run_jj_command(
+        jj_exec(
             &repo_path,
             [
                 "config",
@@ -362,25 +441,25 @@ mod tests {
         )
         .expect("Failed to set config");
 
-        run_jj_command(
+        jj_exec(
             &repo_path,
             ["config", "set", "--repo", "jj-vine.branchPrefix", "mrs/"],
         )
         .expect("Failed to set config");
 
-        run_jj_command(
+        jj_exec(
             &repo_path,
             ["config", "set", "--repo", "jj-vine.remoteName", "upstream"],
         )
         .expect("Failed to set config");
 
-        run_jj_command(
+        jj_exec(
             &repo_path,
             ["config", "set", "--repo", "jj-vine.defaultBranch", "master"],
         )
         .expect("Failed to set config");
 
-        run_jj_command(
+        jj_exec(
             &repo_path,
             ["config", "set", "--repo", "jj-vine.forge", "gitlab"],
         )
@@ -401,7 +480,7 @@ mod tests {
         let (_temp, repo_path) = create_test_repo();
 
         // Set required config, but not stack visualization config
-        run_jj_command(
+        jj_exec(
             &repo_path,
             [
                 "config",
@@ -413,7 +492,7 @@ mod tests {
         )
         .expect("Failed to set config");
 
-        run_jj_command(
+        jj_exec(
             &repo_path,
             [
                 "config",
@@ -425,13 +504,13 @@ mod tests {
         )
         .expect("Failed to set config");
 
-        run_jj_command(
+        jj_exec(
             &repo_path,
             ["config", "set", "--repo", "jj-vine.gitlab.token", "token"],
         )
         .expect("Failed to set config");
 
-        run_jj_command(
+        jj_exec(
             &repo_path,
             ["config", "set", "--repo", "jj-vine.forge", "gitlab"],
         )
@@ -448,7 +527,7 @@ mod tests {
         let (_temp, repo_path) = create_test_repo();
 
         // Set required config
-        run_jj_command(
+        jj_exec(
             &repo_path,
             [
                 "config",
@@ -460,7 +539,7 @@ mod tests {
         )
         .expect("Failed to set config");
 
-        run_jj_command(
+        jj_exec(
             &repo_path,
             [
                 "config",
@@ -472,14 +551,14 @@ mod tests {
         )
         .expect("Failed to set config");
 
-        run_jj_command(
+        jj_exec(
             &repo_path,
             ["config", "set", "--repo", "jj-vine.gitlab.token", "token"],
         )
         .expect("Failed to set config");
 
         // Set explicit stack visualization config (disable it)
-        run_jj_command(
+        jj_exec(
             &repo_path,
             [
                 "config",
@@ -491,7 +570,7 @@ mod tests {
         )
         .expect("Failed to set config");
 
-        run_jj_command(
+        jj_exec(
             &repo_path,
             ["config", "set", "--repo", "jj-vine.forge", "gitlab"],
         )
@@ -508,7 +587,7 @@ mod tests {
         let (_temp, repo_path) = create_test_repo();
 
         // Set required config only, don't set MR settings
-        run_jj_command(
+        jj_exec(
             &repo_path,
             [
                 "config",
@@ -520,7 +599,7 @@ mod tests {
         )
         .expect("Failed to set config");
 
-        run_jj_command(
+        jj_exec(
             &repo_path,
             [
                 "config",
@@ -532,13 +611,13 @@ mod tests {
         )
         .expect("Failed to set config");
 
-        run_jj_command(
+        jj_exec(
             &repo_path,
             ["config", "set", "--repo", "jj-vine.gitlab.token", "token"],
         )
         .expect("Failed to set config");
 
-        run_jj_command(
+        jj_exec(
             &repo_path,
             ["config", "set", "--repo", "jj-vine.forge", "gitlab"],
         )
@@ -555,7 +634,7 @@ mod tests {
         let (_temp, repo_path) = create_test_repo();
 
         // Set required config
-        run_jj_command(
+        jj_exec(
             &repo_path,
             [
                 "config",
@@ -567,7 +646,7 @@ mod tests {
         )
         .expect("Failed to set config");
 
-        run_jj_command(
+        jj_exec(
             &repo_path,
             [
                 "config",
@@ -579,14 +658,14 @@ mod tests {
         )
         .expect("Failed to set config");
 
-        run_jj_command(
+        jj_exec(
             &repo_path,
             ["config", "set", "--repo", "jj-vine.gitlab.token", "token"],
         )
         .expect("Failed to set config");
 
         // Set explicit MR settings (opposite of defaults)
-        run_jj_command(
+        jj_exec(
             &repo_path,
             [
                 "config",
@@ -598,13 +677,13 @@ mod tests {
         )
         .expect("Failed to set config");
 
-        run_jj_command(
+        jj_exec(
             &repo_path,
             ["config", "set", "--repo", "jj-vine.squashCommits", "true"],
         )
         .expect("Failed to set config");
 
-        run_jj_command(
+        jj_exec(
             &repo_path,
             ["config", "set", "--repo", "jj-vine.forge", "gitlab"],
         )
@@ -621,7 +700,7 @@ mod tests {
         let (_temp, repo_path) = create_test_repo();
 
         // Set required config only
-        run_jj_command(
+        jj_exec(
             &repo_path,
             [
                 "config",
@@ -633,7 +712,7 @@ mod tests {
         )
         .expect("Failed to set config");
 
-        run_jj_command(
+        jj_exec(
             &repo_path,
             [
                 "config",
@@ -645,13 +724,13 @@ mod tests {
         )
         .expect("Failed to set config");
 
-        run_jj_command(
+        jj_exec(
             &repo_path,
             ["config", "set", "--repo", "jj-vine.gitlab.token", "token"],
         )
         .expect("Failed to set config");
 
-        run_jj_command(
+        jj_exec(
             &repo_path,
             ["config", "set", "--repo", "jj-vine.forge", "gitlab"],
         )
@@ -667,7 +746,7 @@ mod tests {
         let (_temp, repo_path) = create_test_repo();
 
         // Set required config
-        run_jj_command(
+        jj_exec(
             &repo_path,
             [
                 "config",
@@ -679,7 +758,7 @@ mod tests {
         )
         .expect("Failed to set config");
 
-        run_jj_command(
+        jj_exec(
             &repo_path,
             [
                 "config",
@@ -691,20 +770,20 @@ mod tests {
         )
         .expect("Failed to set config");
 
-        run_jj_command(
+        jj_exec(
             &repo_path,
             ["config", "set", "--repo", "jj-vine.gitlab.token", "token"],
         )
         .expect("Failed to set config");
 
         // Set assign_to_self to true
-        run_jj_command(
+        jj_exec(
             &repo_path,
             ["config", "set", "--repo", "jj-vine.assignToSelf", "true"],
         )
         .expect("Failed to set config");
 
-        run_jj_command(
+        jj_exec(
             &repo_path,
             ["config", "set", "--repo", "jj-vine.forge", "gitlab"],
         )
@@ -720,7 +799,7 @@ mod tests {
         let (_temp, repo_path) = create_test_repo();
 
         // Set required config only
-        run_jj_command(
+        jj_exec(
             &repo_path,
             [
                 "config",
@@ -732,7 +811,7 @@ mod tests {
         )
         .expect("Failed to set config");
 
-        run_jj_command(
+        jj_exec(
             &repo_path,
             [
                 "config",
@@ -744,13 +823,13 @@ mod tests {
         )
         .expect("Failed to set config");
 
-        run_jj_command(
+        jj_exec(
             &repo_path,
             ["config", "set", "--repo", "jj-vine.gitlab.token", "token"],
         )
         .expect("Failed to set config");
 
-        run_jj_command(
+        jj_exec(
             &repo_path,
             ["config", "set", "--repo", "jj-vine.forge", "gitlab"],
         )
@@ -766,7 +845,7 @@ mod tests {
         let (_temp, repo_path) = create_test_repo();
 
         // Set required config
-        run_jj_command(
+        jj_exec(
             &repo_path,
             [
                 "config",
@@ -778,7 +857,7 @@ mod tests {
         )
         .expect("Failed to set config");
 
-        run_jj_command(
+        jj_exec(
             &repo_path,
             [
                 "config",
@@ -790,14 +869,14 @@ mod tests {
         )
         .expect("Failed to set config");
 
-        run_jj_command(
+        jj_exec(
             &repo_path,
             ["config", "set", "--repo", "jj-vine.gitlab.token", "token"],
         )
         .expect("Failed to set config");
 
         // Set single reviewer as TOML array
-        run_jj_command(
+        jj_exec(
             &repo_path,
             [
                 "config",
@@ -809,7 +888,7 @@ mod tests {
         )
         .expect("Failed to set config");
 
-        run_jj_command(
+        jj_exec(
             &repo_path,
             ["config", "set", "--repo", "jj-vine.forge", "gitlab"],
         )
@@ -825,7 +904,7 @@ mod tests {
         let (_temp, repo_path) = create_test_repo();
 
         // Set required config
-        run_jj_command(
+        jj_exec(
             &repo_path,
             [
                 "config",
@@ -837,7 +916,7 @@ mod tests {
         )
         .expect("Failed to set config");
 
-        run_jj_command(
+        jj_exec(
             &repo_path,
             [
                 "config",
@@ -849,14 +928,14 @@ mod tests {
         )
         .expect("Failed to set config");
 
-        run_jj_command(
+        jj_exec(
             &repo_path,
             ["config", "set", "--repo", "jj-vine.gitlab.token", "token"],
         )
         .expect("Failed to set config");
 
         // Set multiple reviewers as TOML array
-        run_jj_command(
+        jj_exec(
             &repo_path,
             [
                 "config",
@@ -868,7 +947,7 @@ mod tests {
         )
         .expect("Failed to set config");
 
-        run_jj_command(
+        jj_exec(
             &repo_path,
             ["config", "set", "--repo", "jj-vine.forge", "gitlab"],
         )

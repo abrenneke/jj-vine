@@ -4,10 +4,10 @@ use crate::{
     tests::{TestRepo, unique_branch},
 };
 
-/// Test that MR descriptions include stack information
+/// Test that PR descriptions include stack information
 #[tokio::test]
-async fn test_mr_description_includes_stack_info() {
-    let repo = TestRepo::with_gitlab_remote();
+async fn test_pr_description_includes_stack_info() {
+    let repo = TestRepo::with_forgejo_remote();
 
     let branch_a = unique_branch("desc-a");
     let branch_b = unique_branch("desc-b");
@@ -28,31 +28,31 @@ async fn test_mr_description_includes_stack_info() {
     })
     .await;
 
-    // Verify MR A has stack markers
-    let mr_a = repo
+    // Verify PR A has stack markers
+    let pr_a = repo
         .forge()
         .find_merge_request_by_source_branch(&branch_a)
         .await
         .expect("Query failed")
-        .expect("MR A should exist");
+        .expect("PR A should exist");
 
-    let desc_a = mr_a.description();
+    let desc_a = pr_a.description();
     assert!(
         desc_a.contains("<!-- start jj-vine stack -->"),
-        "MR A should have stack markers. Description:\n{}",
+        "PR A should have stack markers. Description:\n{}",
         desc_a
     );
     assert!(
         desc_a.contains("<!-- end jj-vine stack -->"),
-        "MR A should have end marker. Description:\n{}",
+        "PR A should have end marker. Description:\n{}",
         desc_a
     );
 }
 
-/// Test that MR A's description links to MR B when they're in a stack
+/// Test that PR A's description links to PR B when they're in a stack
 #[tokio::test]
-async fn test_mr_description_links_to_dependent_mrs() {
-    let repo = TestRepo::with_gitlab_remote();
+async fn test_pr_description_links_to_dependent_prs() {
+    let repo = TestRepo::with_forgejo_remote();
 
     let branch_a = unique_branch("link-a");
     let branch_b = unique_branch("link-b");
@@ -73,35 +73,35 @@ async fn test_mr_description_links_to_dependent_mrs() {
     })
     .await;
 
-    // Get both MRs
-    let mr_a = repo
+    // Get both PRs
+    let pr_a = repo
         .forge()
         .find_merge_request_by_source_branch(&branch_a)
         .await
         .expect("Query failed")
-        .expect("MR A should exist");
+        .expect("PR A should exist");
 
-    let mr_b = repo
+    let pr_b = repo
         .forge()
         .find_merge_request_by_source_branch(&branch_b)
         .await
         .expect("Query failed")
-        .expect("MR B should exist");
+        .expect("PR B should exist");
 
-    // MR A's description should link to MR B
-    let desc_a = mr_a.description();
+    // PR A's description should link to PR B (note: Forgejo uses # not !)
+    let desc_a = pr_a.description();
     assert!(
-        desc_a.contains(&format!("!{}", mr_b.iid())),
-        "MR A should link to MR B (!{}). Description:\n{}",
-        mr_b.iid(),
+        desc_a.contains(&format!("#{}", pr_b.iid())),
+        "PR A should link to PR B (#{}). Description:\n{}",
+        pr_b.iid(),
         desc_a
     );
 }
 
-/// Test that user content in MR description is preserved on resubmit
+/// Test that user content in PR description is preserved on resubmit
 #[tokio::test]
 async fn test_user_content_preserved_on_resubmit() {
-    let repo = TestRepo::with_gitlab_remote();
+    let repo = TestRepo::with_forgejo_remote();
 
     let branch_a = unique_branch("preserve-a");
     let branch_b = unique_branch("preserve-b");
@@ -117,18 +117,18 @@ async fn test_user_content_preserved_on_resubmit() {
     })
     .await;
 
-    // Add custom user content to MR A's description
-    let mr_a = repo
+    // Add custom user content to PR A's description
+    let pr_a = repo
         .forge()
         .find_merge_request_by_source_branch(&branch_a)
         .await
         .expect("Query failed")
-        .expect("MR A should exist");
+        .expect("PR A should exist");
 
-    let user_content = "My important notes about this MR";
-    let new_desc = format!("{}\n\n{}", mr_a.description(), user_content);
+    let user_content = "My important notes about this PR";
+    let new_desc = format!("{}\n\n{}", pr_a.description(), user_content);
     repo.forge()
-        .update_merge_request_description(mr_a.iid(), &new_desc)
+        .update_merge_request_description(pr_a.iid(), &new_desc)
         .await
         .expect("Failed to update description");
 
@@ -144,14 +144,14 @@ async fn test_user_content_preserved_on_resubmit() {
     .await;
 
     // Verify user content is still present
-    let mr_a_updated = repo
+    let pr_a_updated = repo
         .forge()
         .find_merge_request_by_source_branch(&branch_a)
         .await
         .expect("Query failed")
-        .expect("MR A should exist");
+        .expect("PR A should exist");
 
-    let desc = mr_a_updated.description();
+    let desc = pr_a_updated.description();
     assert!(
         desc.contains(user_content),
         "User content should be preserved. Description:\n{}",
@@ -162,7 +162,7 @@ async fn test_user_content_preserved_on_resubmit() {
 /// Test that markers are added to description that doesn't have them
 #[tokio::test]
 async fn test_add_markers_to_description_without_markers() {
-    let repo = TestRepo::with_gitlab_remote();
+    let repo = TestRepo::with_forgejo_remote();
 
     let branch_a = unique_branch("markers-a");
     let branch_b = unique_branch("markers-b");
@@ -179,16 +179,16 @@ async fn test_add_markers_to_description_without_markers() {
     .await;
 
     // Set description WITHOUT markers
-    let mr_a = repo
+    let pr_a = repo
         .forge()
         .find_merge_request_by_source_branch(&branch_a)
         .await
         .expect("Query failed")
-        .expect("MR A should exist");
+        .expect("PR A should exist");
 
     let user_description = "Custom description without markers";
     repo.forge()
-        .update_merge_request_description(mr_a.iid(), user_description)
+        .update_merge_request_description(pr_a.iid(), user_description)
         .await
         .expect("Failed to update description");
 
@@ -204,14 +204,14 @@ async fn test_add_markers_to_description_without_markers() {
     .await;
 
     // Verify markers were added
-    let mr_a_updated = repo
+    let pr_a_updated = repo
         .forge()
         .find_merge_request_by_source_branch(&branch_a)
         .await
         .expect("Query failed")
-        .expect("MR A should exist");
+        .expect("PR A should exist");
 
-    let desc = mr_a_updated.description();
+    let desc = pr_a_updated.description();
 
     assert!(
         desc.contains("<!-- start jj-vine stack -->"),
@@ -233,7 +233,7 @@ async fn test_add_markers_to_description_without_markers() {
 /// Test that resubmitting unchanged stack skips description update
 #[tokio::test]
 async fn test_skip_update_when_description_unchanged() {
-    let repo = TestRepo::with_gitlab_remote();
+    let repo = TestRepo::with_forgejo_remote();
 
     let branch_a = unique_branch("unchanged-a");
     let branch_b = unique_branch("unchanged-b");
@@ -254,13 +254,13 @@ async fn test_skip_update_when_description_unchanged() {
     .await;
 
     // Get initial description
-    let mr_a = repo
+    let pr_a = repo
         .forge()
         .find_merge_request_by_source_branch(&branch_a)
         .await
         .expect("Query failed")
-        .expect("MR A should exist");
-    let initial_desc = mr_a.description();
+        .expect("PR A should exist");
+    let initial_desc = pr_a.description();
 
     // Resubmit (no changes)
     repo.submit(SubmitCommandConfig {
@@ -270,16 +270,16 @@ async fn test_skip_update_when_description_unchanged() {
     .await;
 
     // Description should be unchanged
-    let mr_a_after = repo
+    let pr_a_after = repo
         .forge()
         .find_merge_request_by_source_branch(&branch_a)
         .await
         .expect("Query failed")
-        .expect("MR A should exist");
+        .expect("PR A should exist");
 
     assert_eq!(
         initial_desc,
-        mr_a_after.description(),
+        pr_a_after.description(),
         "Description should be unchanged after resubmit"
     );
 }
@@ -287,7 +287,7 @@ async fn test_skip_update_when_description_unchanged() {
 /// Test deferred updates with multiple stacks (diamond structure)
 #[tokio::test]
 async fn test_deferred_updates_multiple_stacks() {
-    let repo = TestRepo::with_gitlab_remote();
+    let repo = TestRepo::with_forgejo_remote();
 
     let branch_a = unique_branch("diamond-a");
     let branch_b = unique_branch("diamond-b");
@@ -319,73 +319,73 @@ async fn test_deferred_updates_multiple_stacks() {
     })
     .await;
 
-    // Get all MRs
-    let mr_a = repo
+    // Get all PRs
+    let pr_a = repo
         .forge()
         .find_merge_request_by_source_branch(&branch_a)
         .await
         .expect("Query failed")
-        .expect("MR A should exist");
+        .expect("PR A should exist");
 
-    let mr_b = repo
+    let pr_b = repo
         .forge()
         .find_merge_request_by_source_branch(&branch_b)
         .await
         .expect("Query failed")
-        .expect("MR B should exist");
+        .expect("PR B should exist");
 
-    let mr_c = repo
+    let pr_c = repo
         .forge()
         .find_merge_request_by_source_branch(&branch_c)
         .await
         .expect("Query failed")
-        .expect("MR C should exist");
+        .expect("PR C should exist");
 
-    let mr_d = repo
+    let pr_d = repo
         .forge()
         .find_merge_request_by_source_branch(&branch_d)
         .await
         .expect("Query failed")
-        .expect("MR D should exist");
+        .expect("PR D should exist");
 
     // A and B should indicate they're part of 2 stacks
-    let desc_a = mr_a.description();
+    let desc_a = pr_a.description();
     assert!(
         desc_a.contains("2 stacks"),
-        "MR A should indicate 2 stacks. Description:\n{}",
+        "PR A should indicate 2 stacks. Description:\n{}",
         desc_a
     );
 
-    let desc_b = mr_b.description();
+    let desc_b = pr_b.description();
     assert!(
         desc_b.contains("2 stacks"),
-        "MR B should indicate 2 stacks. Description:\n{}",
+        "PR B should indicate 2 stacks. Description:\n{}",
         desc_b
     );
 
     // C should only show its stack (A→B→C)
-    let desc_c = mr_c.description();
+    let desc_c = pr_c.description();
     assert!(
         !desc_c.contains("2 stacks"),
-        "MR C should not indicate multiple stacks. Description:\n{}",
+        "PR C should not indicate multiple stacks. Description:\n{}",
         desc_c
     );
     assert!(
-        desc_c.contains(&format!("!{}", mr_a.iid())),
-        "MR C should link to MR A. Description:\n{}",
+        desc_c.contains(&format!("#{}", pr_a.iid())),
+        "PR C should link to PR A. Description:\n{}",
         desc_c
     );
 
     // D should only show its stack (A→B→D)
-    let desc_d = mr_d.description();
+    let desc_d = pr_d.description();
     assert!(
         !desc_d.contains("2 stacks"),
-        "MR D should not indicate multiple stacks. Description:\n{}",
+        "PR D should not indicate multiple stacks. Description:\n{}",
         desc_d
     );
     assert!(
-        desc_d.contains(&format!("!{}", mr_a.iid())),
-        "MR D should link to MR A. Description:\n{}",
+        desc_d.contains(&format!("#{}", pr_a.iid())),
+        "PR D should link to PR A. Description:\n{}",
         desc_d
     );
 }

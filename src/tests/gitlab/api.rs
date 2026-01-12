@@ -23,7 +23,7 @@ async fn test_submit_creates_mr() {
 
     // Verify MR was created
     let mr = repo
-        .gitlab()
+        .forge()
         .find_merge_request_by_source_branch(&branch)
         .await
         .expect("Failed to query GitLab")
@@ -65,7 +65,7 @@ async fn test_submit_creates_stacked_mrs() {
 
     // Verify MR A: targets main
     let mr_a = repo
-        .gitlab()
+        .forge()
         .find_merge_request_by_source_branch(&branch_a)
         .await
         .expect("Failed to query GitLab")
@@ -74,7 +74,7 @@ async fn test_submit_creates_stacked_mrs() {
 
     // Verify MR B: targets A
     let mr_b = repo
-        .gitlab()
+        .forge()
         .find_merge_request_by_source_branch(&branch_b)
         .await
         .expect("Failed to query GitLab")
@@ -83,7 +83,7 @@ async fn test_submit_creates_stacked_mrs() {
 
     // Verify MR C: targets B
     let mr_c = repo
-        .gitlab()
+        .forge()
         .find_merge_request_by_source_branch(&branch_c)
         .await
         .expect("Failed to query GitLab")
@@ -109,7 +109,7 @@ async fn test_submit_is_idempotent() {
     .await;
 
     let mr1 = repo
-        .gitlab()
+        .forge()
         .find_merge_request_by_source_branch(&branch)
         .await
         .expect("Failed to query")
@@ -123,7 +123,7 @@ async fn test_submit_is_idempotent() {
     .await;
 
     let mr2 = repo
-        .gitlab()
+        .forge()
         .find_merge_request_by_source_branch(&branch)
         .await
         .expect("Failed to query")
@@ -164,7 +164,7 @@ async fn test_submit_retargets_after_middle_bookmark_deleted() {
 
     // Verify C targets B initially
     let mr_c = repo
-        .gitlab()
+        .forge()
         .find_merge_request_by_source_branch(&branch_c)
         .await
         .expect("Query failed")
@@ -183,7 +183,7 @@ async fn test_submit_retargets_after_middle_bookmark_deleted() {
 
     // Verify C now targets A
     let mr_c_updated = repo
-        .gitlab()
+        .forge()
         .find_merge_request_by_source_branch(&branch_c)
         .await
         .expect("Query failed")

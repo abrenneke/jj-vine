@@ -72,28 +72,21 @@ impl ExecuteAction for CreateMRAction {
                 None
             };
 
-            let reviewer_ids = if !ctx.config.default_reviewers.is_empty() {
-                let mut ids = Vec::new();
-                for username in &ctx.config.default_reviewers {
-                    match ctx.forge.user_by_username(username).await {
-                        Ok(Some(user)) => ids.push(user.id),
-                        Ok(None) => {
-                            let warning = format!("Warning: Reviewer '{}' not found", username);
-                            ctx.output.log_message(&warning.yellow().to_string());
-                        }
-                        Err(e) => {
-                            let warning = format!(
-                                "Warning: Failed to look up reviewer '{}': {}",
-                                username, e
-                            );
-                            ctx.output.log_message(&warning.yellow().to_string());
-                        }
+            let mut reviewer_ids = Vec::new();
+            for username in &ctx.config.default_reviewers {
+                match ctx.forge.user_by_username(username).await {
+                    Ok(Some(user)) => reviewer_ids.push(user.id),
+                    Ok(None) => {
+                        let warning = format!("Warning: Reviewer '{}' not found", username);
+                        ctx.output.log_message(&warning.yellow().to_string());
+                    }
+                    Err(e) => {
+                        let warning =
+                            format!("Warning: Failed to look up reviewer '{}': {}", username, e);
+                        ctx.output.log_message(&warning.yellow().to_string());
                     }
                 }
-                if ids.is_empty() { None } else { Some(ids) }
-            } else {
-                None
-            };
+            }
 
             match ctx
                 .forge
@@ -109,10 +102,7 @@ impl ExecuteAction for CreateMRAction {
                             assignee_ids
                                 .map(|ids| ids.into_iter().map(|id| id.to_string()).collect()),
                         )
-                        .maybe_reviewer_ids(
-                            reviewer_ids
-                                .map(|ids| ids.into_iter().map(|id| id.to_string()).collect()),
-                        )
+                        .reviewer_ids(reviewer_ids)
                         .build(),
                 )
                 .await

@@ -10,17 +10,19 @@ use crate::{
     forge::{Forge, ForgeCreateMergeRequestOptions, ForgeMergeRequest, ForgeUser},
 };
 
-/// GitHub REST API client
-pub struct GitHubForge {
+/// Forgejo/Gitea REST API client
+pub struct ForgejoForge {
     base_url: String,
     project_id: String,
+    owner: String,
+    repo: String,
     token: String,
     client: reqwest::Client,
 }
 
-/// GitHub user
+/// Forgejo/Gitea user
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GitHubUser {
+pub struct ForgejoUser {
     /// User ID
     pub id: u64,
 
@@ -28,8 +30,8 @@ pub struct GitHubUser {
     pub login: String,
 }
 
-impl From<GitHubUser> for ForgeUser {
-    fn from(user: GitHubUser) -> Self {
+impl From<ForgejoUser> for ForgeUser {
+    fn from(user: ForgejoUser) -> Self {
         ForgeUser {
             id: user.id.to_string(),
             username: user.login,
@@ -39,29 +41,29 @@ impl From<GitHubUser> for ForgeUser {
 
 /// Branch reference in a pull request
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BranchRef {
+pub struct ForgejoBranchRef {
     /// Branch name
     #[serde(rename = "ref")]
     pub ref_name: String,
 
     /// Repository information (for cross-repo PRs)
-    pub repo: Option<GitHubRepo>,
+    pub repo: Option<ForgejoRepo>,
 }
 
-/// GitHub repository info
+/// Forgejo/Gitea repository info
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GitHubRepo {
+pub struct ForgejoRepo {
     /// Repository full name (owner/repo)
     pub full_name: String,
 }
 
-/// GitHub Pull Request
+/// Forgejo/Gitea Pull Request
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PullRequest {
-    /// PR number (GitHub's equivalent to GitLab's IID)
+    /// PR number (index within repo)
     pub number: u64,
 
-    /// PR ID (unique across GitHub)
+    /// PR ID (unique globally)
     pub id: u64,
 
     /// PR title
@@ -71,10 +73,10 @@ pub struct PullRequest {
     pub body: Option<String>,
 
     /// Head branch information
-    pub head: BranchRef,
+    pub head: ForgejoBranchRef,
 
     /// Base branch information
-    pub base: BranchRef,
+    pub base: ForgejoBranchRef,
 
     /// PR state (open, closed)
     pub state: String,
@@ -83,31 +85,27 @@ pub struct PullRequest {
     pub html_url: String,
 
     /// User who created the PR
-    pub user: GitHubUser,
+    pub user: ForgejoUser,
 
     /// Created at timestamp (ISO 8601)
     pub created_at: String,
 
     /// Assignees of the PR
-    pub assignees: Vec<GitHubUser>,
+    pub assignees: Option<Vec<ForgejoUser>>,
 
-    /// Requested reviewers (GitHub-specific)
-    pub requested_reviewers: Vec<GitHubUser>,
+    /// Requested reviewers
+    pub requested_reviewers: Option<Vec<ForgejoUser>>,
 
-    /// Draft status
-    pub draft: bool,
-
-    /// Whether the PR was merged (only present in individual PR fetch, not
-    /// list)
+    /// Whether the PR was merged
     #[serde(default)]
     pub merged: bool,
 }
 
-impl GitHubForge {
-    /// Create a new GitHub client
+impl ForgejoForge {
+    /// Create a new Forgejo/Gitea client
     ///
     /// # Arguments
-    /// * `base_url` - GitHub API URL (e.g., <https://api.github.com> or <https://github.example.com/api/v3>)
+    /// * `base_url` - Forgejo/Gitea instance URL (e.g., <https://codeberg.org>)
     /// * `project_id` - Repository in "owner/repo" format
     /// * `token` - Personal Access Token
     /// * `ca_bundle` - Optional path to CA bundle for TLS verification
@@ -152,9 +150,18 @@ impl GitHubForge {
         // URLs
         let base_url = base_url.into().trim_end_matches('/').to_string();
 
+        let project_id = project_id.into();
+
+        let project_id_temp = project_id.clone();
+        let (owner, repo) = project_id_temp.split_once('/').ok_or(Error::Config {
+            message: format!("Invalid project ID: {}", project_id),
+        })?;
+
         Ok(Self {
             base_url,
-            project_id: project_id.into(),
+            project_id,
+            owner: owner.into(),
+            repo: repo.into(),
             token: token.into(),
             client,
         })
@@ -166,12 +173,13 @@ impl GitHubForge {
         path: impl AsRef<str>,
         payload: Option<impl Serialize>,
     ) -> Result<T> {
+        let url = format!("{}/api/v1{}", self.base_url, path.as_ref());
+        dbg!(&url);
         let mut req = self
             .client
-            .request(method, format!("{}{}", self.base_url, path.as_ref()))
-            .header("Authorization", format!("token {}", &self.token))
-            .header("Accept", "application/vnd.github+json")
-            .header("X-GitHub-Api-Version", "2022-11-28")
+            .request(method, url)
+            .header("Authorization", format!("Bearer {}", &self.token))
+            .header("Accept", "application/json")
             .header("User-Agent", "jj-vine");
 
         if let Some(payload) = payload.as_ref() {
@@ -183,15 +191,15 @@ impl GitHubForge {
         if !response.status().is_success() {
             let status = response.status();
             let text = response.text().await?;
-            return Err(Error::GitHubApi {
-                message: format!("Failed to get: {} - {}", status, text),
+            return Err(Error::ForgejoApi {
+                message: format!("Failed request: {} - {}", status, text),
             });
         }
 
         let body = response.text().await?;
-        let data: T = serde_json::from_str(&body).map_err(|e| Error::GitHubApi {
+        let data: T = serde_json::from_str(&body).map_err(|e| Error::ForgejoApi {
             message: format!(
-                "Failed to parse GET response to {}: {}, response: {}",
+                "Failed to parse response to {}: {}, response: {}",
                 path.as_ref(),
                 e,
                 body
@@ -199,10 +207,44 @@ impl GitHubForge {
         })?;
         Ok(data)
     }
+
+    async fn add_assignees(&self, pr_number: u64, assignee_usernames: Vec<String>) -> Result<()> {
+        self.request::<serde_json::Value>(
+            Method::POST,
+            format!(
+                "/repos/{}/{}/issues/{}/assignees",
+                self.owner, self.repo, pr_number
+            ),
+            Some(serde_json::json!({
+                "assignees": assignee_usernames,
+            })),
+        )
+        .await?;
+        Ok(())
+    }
+
+    async fn request_reviewers(
+        &self,
+        pr_number: u64,
+        reviewer_usernames: Vec<String>,
+    ) -> Result<()> {
+        self.request::<serde_json::Value>(
+            Method::POST,
+            format!(
+                "/repos/{}/{}/pulls/{}/requested_reviewers",
+                self.owner, self.repo, pr_number
+            ),
+            Some(serde_json::json!({
+                "reviewers": reviewer_usernames,
+            })),
+        )
+        .await?;
+        Ok(())
+    }
 }
 
 #[async_trait]
-impl Forge for GitHubForge {
+impl Forge for ForgejoForge {
     fn project_id(&self) -> &str {
         &self.project_id
     }
@@ -212,28 +254,25 @@ impl Forge for GitHubForge {
     }
 
     fn project_url(&self) -> String {
-        let base_url = if self.base_url.starts_with("https://api.github.com") {
-            "https://github.com"
-        } else if self.base_url.contains("/api/v3") {
-            self.base_url.trim_end_matches("/api/v3")
-        } else {
-            &self.base_url
-        };
-        format!("{}/{}", base_url, self.project_id)
+        format!("{}/{}", self.base_url, self.project_id)
     }
 
     async fn current_user(&self) -> Result<ForgeUser> {
-        let user: GitHubUser = self.request(Method::GET, "/user", None::<()>).await?;
+        let user: ForgejoUser = self.request(Method::GET, "/user", None::<()>).await?;
         Ok(user.into())
     }
 
     async fn user_by_username(&self, username: &str) -> Result<Option<ForgeUser>> {
         match self
-            .request::<GitHubUser>(Method::GET, format!("/users/{}", username), None::<()>)
+            .request::<ForgejoUser>(
+                Method::GET,
+                format!("/users/{}", urlencoding::encode(username)),
+                None::<()>,
+            )
             .await
         {
             Ok(user) => Ok(Some(user.into())),
-            Err(Error::GitHubApi { message }) if message.contains("404") => Ok(None),
+            Err(Error::ForgejoApi { message }) if message.contains("404") => Ok(None),
             Err(e) => Err(e),
         }
     }
@@ -242,28 +281,52 @@ impl Forge for GitHubForge {
         &self,
         branch: &str,
     ) -> Result<Option<ForgeMergeRequest>> {
-        let owner = self.project_id.split('/').next().unwrap();
+        let user = self.current_user().await?.username;
 
-        let prs: Vec<PullRequest> = self
-            .request(
-                Method::GET,
-                format!(
-                    "/repos/{}/pulls?head={}:{}&state=open",
-                    self.project_id,
-                    owner,
-                    urlencoding::encode(branch)
-                ),
-                None::<()>,
-            )
-            .await?;
-        Ok(prs.into_iter().next().map(ForgeMergeRequest::GitHub))
+        // Forgejo doesn't support filtering by head branch in the API yet,
+        // so we fetch all open PRs and filter client-side
+        // See https://codeberg.org/api/swagger#/repository/repoListPullRequests
+
+        let mut page = 1;
+        let limit = 25;
+
+        loop {
+            let prs: Vec<PullRequest> = self
+                .request(
+                    Method::GET,
+                    format!(
+                        "/repos/{}/{}/pulls?state=open&poster={}&page={}&limit={}",
+                        self.owner,
+                        self.repo,
+                        urlencoding::encode(&user),
+                        page,
+                        limit
+                    ),
+                    None::<()>,
+                )
+                .await?;
+
+            let has_more = prs.len() == limit;
+
+            if let Some(pr) = prs.into_iter().find(|pr| pr.head.ref_name == branch) {
+                return Ok(Some(ForgeMergeRequest::Forgejo(pr)));
+            }
+
+            if !has_more {
+                break;
+            }
+
+            page += 1;
+        }
+
+        Ok(None)
     }
 
     async fn create_merge_request(
         &self,
         options: ForgeCreateMergeRequestOptions,
     ) -> Result<ForgeMergeRequest> {
-        let url = format!("/repos/{}/pulls", self.project_id);
+        let url = format!("/repos/{}/{}/pulls", self.owner, self.repo);
 
         let mut payload = serde_json::json!({
             "title": options.title,
@@ -289,7 +352,7 @@ impl Forge for GitHubForge {
             self.request_reviewers(pr.number, reviewers).await?;
         }
 
-        Ok(ForgeMergeRequest::GitHub(pr))
+        Ok(ForgeMergeRequest::Forgejo(pr))
     }
 
     async fn update_merge_request_base(
@@ -300,14 +363,14 @@ impl Forge for GitHubForge {
         let pr: PullRequest = self
             .request(
                 Method::PATCH,
-                format!("/repos/{}/pulls/{}", self.project_id, pr_number),
+                format!("/repos/{}/{}/pulls/{}", self.owner, self.repo, pr_number),
                 Some(serde_json::json!({
                     "base": new_base,
                 })),
             )
             .await?;
 
-        Ok(ForgeMergeRequest::GitHub(pr))
+        Ok(ForgeMergeRequest::Forgejo(pr))
     }
 
     async fn update_merge_request_description(
@@ -318,65 +381,32 @@ impl Forge for GitHubForge {
         let pr: PullRequest = self
             .request(
                 Method::PATCH,
-                format!("/repos/{}/pulls/{}", self.project_id, pr_number),
+                format!("/repos/{}/{}/pulls/{}", self.owner, self.repo, pr_number),
                 Some(serde_json::json!({
                     "body": new_description,
                 })),
             )
             .await?;
 
-        Ok(ForgeMergeRequest::GitHub(pr))
+        Ok(ForgeMergeRequest::Forgejo(pr))
     }
 
     async fn get_merge_request(&self, pr_number: u64) -> Result<ForgeMergeRequest> {
         let pr: PullRequest = self
             .request(
                 Method::GET,
-                format!("/repos/{}/pulls/{}", self.project_id, pr_number),
+                format!("/repos/{}/{}/pulls/{}", self.owner, self.repo, pr_number),
                 None::<()>,
             )
             .await?;
 
-        Ok(ForgeMergeRequest::GitHub(pr))
+        Ok(ForgeMergeRequest::Forgejo(pr))
     }
 }
 
-impl FormatMergeRequest for GitHubForge {
+impl FormatMergeRequest for ForgejoForge {
     fn format_merge_request_id(&self, mr_iid: &str) -> String {
         format!("#{}", mr_iid)
-    }
-}
-
-impl GitHubForge {
-    async fn add_assignees(&self, pr_number: u64, assignee_usernames: Vec<String>) -> Result<()> {
-        self.request::<serde_json::Value>(
-            Method::POST,
-            format!("/repos/{}/issues/{}/assignees", self.project_id, pr_number),
-            Some(serde_json::json!({
-                "assignees": assignee_usernames,
-            })),
-        )
-        .await?;
-        Ok(())
-    }
-
-    async fn request_reviewers(
-        &self,
-        pr_number: u64,
-        reviewer_usernames: Vec<String>,
-    ) -> Result<()> {
-        self.request::<serde_json::Value>(
-            Method::POST,
-            format!(
-                "/repos/{}/pulls/{}/requested_reviewers",
-                self.project_id, pr_number
-            ),
-            Some(serde_json::json!({
-                "reviewers": reviewer_usernames,
-            })),
-        )
-        .await?;
-        Ok(())
     }
 }
 
@@ -385,49 +415,37 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_github_client_new() {
-        let client = GitHubForge::new(
-            "https://api.github.com".to_string(),
+    fn test_forgejo_client_new() {
+        let forge = ForgejoForge::new(
+            "https://codeberg.org".to_string(),
             "owner/repo".to_string(),
-            "ghp_token123".to_string(),
+            "test-token".to_string(),
             None::<&str>,
             false,
-        )
-        .expect("Failed to create client");
-
-        assert_eq!(client.base_url, "https://api.github.com");
-        assert_eq!(client.project_id, "owner/repo");
-        assert_eq!(client.token, "ghp_token123");
-    }
-
-    #[test]
-    fn test_project_url() {
-        let client = GitHubForge::new(
-            "https://api.github.com".to_string(),
-            "owner/repo".to_string(),
-            "token".to_string(),
-            None::<&str>,
-            false,
-        )
-        .expect("Failed to create client");
-
-        assert_eq!(client.project_url(), "https://github.com/owner/repo");
-    }
-
-    #[test]
-    fn test_github_enterprise_url() {
-        let client = GitHubForge::new(
-            "https://github.example.com/api/v3".to_string(),
-            "owner/repo".to_string(),
-            "token".to_string(),
-            None::<&str>,
-            false,
-        )
-        .expect("Failed to create client");
-
-        assert_eq!(
-            client.project_url(),
-            "https://github.example.com/owner/repo"
         );
+
+        assert!(forge.is_ok());
+        let forge = forge.unwrap();
+        assert_eq!(forge.base_url, "https://codeberg.org");
+        assert_eq!(forge.project_id, "owner/repo");
+        assert_eq!(forge.token, "test-token");
+        assert_eq!(forge.owner, "owner");
+        assert_eq!(forge.repo, "repo");
+    }
+
+    #[test]
+    fn test_forgejo_client_new_with_trailing_slash() {
+        let forge = ForgejoForge::new(
+            "https://codeberg.org/".to_string(),
+            "owner/repo".to_string(),
+            "test-token".to_string(),
+            None::<&str>,
+            false,
+        );
+
+        assert!(forge.is_ok());
+        let forge = forge.unwrap();
+        // Trailing slash should be removed
+        assert_eq!(forge.base_url, "https://codeberg.org");
     }
 }

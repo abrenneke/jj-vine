@@ -1,4 +1,5 @@
 #![cfg(test)]
+#![allow(dead_code)]
 
 use std::{path::PathBuf, process::Command};
 
@@ -8,7 +9,7 @@ use crate::{
     cli::CliConfig,
     commands::submit::SubmitCommandConfig,
     error::Result,
-    forge::{github::GitHubForge, gitlab::GitLabForge},
+    forge::{Forge, forgejo::ForgejoForge, github::GitHubForge, gitlab::GitLabForge},
     jj::Jujutsu,
     output::BufferedOutput,
 };
@@ -19,46 +20,75 @@ pub fn unique_branch(name: &str) -> String {
 }
 
 /// A test repository with jj initialized
-pub struct TestRepo {
+pub struct TestRepo<T> {
     /// Temporary directory containing the repository
-    #[allow(dead_code)]
     pub dir: TempDir,
 
     /// Path to the repository
     pub path: PathBuf,
 
-    /// GitLab API client
-    client: Option<GitLabForge>,
-
-    /// GitHub API client
-    github_client: Option<GitHubForge>,
+    /// Forge API client
+    forge: T,
 }
 
-impl TestRepo {
-    /// Create a new test repository with jj initialized
+fn make_repo() -> (TempDir, PathBuf) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().to_path_buf();
+
+    let output = Command::new("jj")
+        .args(["git", "init", "--colocate"])
+        .current_dir(&path)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "jj init failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    (dir, path)
+}
+
+impl TestRepo<()> {
+    /// Create a new test repository with jj initialized, but no forge client
     pub fn new() -> Self {
-        let dir = TempDir::new().unwrap();
-        let path = dir.path().to_path_buf();
-
-        let output = Command::new("jj")
-            .args(["git", "init", "--colocate"])
-            .current_dir(&path)
-            .output()
-            .unwrap();
-        assert!(
-            output.status.success(),
-            "jj init failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-
+        let (dir, path) = make_repo();
         Self {
             dir,
             path,
-            client: None,
-            github_client: None,
+            forge: Default::default(),
         }
     }
 
+    /// Create a bookmark at current revision, chainable.
+    /// If a remote is configured, also tracks the bookmark.
+    pub fn create_bookmark(&self, name: &str) -> &Self {
+        self.jj(["bookmark", "create", name]);
+        self
+    }
+
+    /// Create a bookmark and push it to origin, chainable
+    pub fn create_and_push_bookmark(&self, name: &str) -> &Self {
+        self.create_bookmark(name);
+        self.push_bookmark(name)
+    }
+
+    /// Create a commit with a bookmark, then start new working copy
+    pub fn commit_with_bookmark(
+        &self,
+        file: &str,
+        content: &str,
+        msg: &str,
+        bookmark: &str,
+    ) -> &Self {
+        self.create_change(file, content, msg);
+        self.create_bookmark(bookmark);
+        self.jj(["new"]);
+        self
+    }
+}
+
+impl TestRepo<GitLabForge> {
     pub fn with_gitlab_remote() -> Self {
         dotenv::dotenv().ok();
 
@@ -71,7 +101,20 @@ impl TestRepo {
             .and_then(|v| v.parse::<bool>().ok())
             .unwrap_or(false);
 
-        let mut repo = Self::new();
+        let (dir, path) = make_repo();
+
+        let repo = Self {
+            dir,
+            path,
+            forge: GitLabForge::new(
+                &host,
+                &project,
+                &token,
+                ca_bundle.as_ref(),
+                accept_non_compliant,
+            )
+            .expect("Failed to create GitLab client"),
+        };
 
         repo.jj(["config", "set", "--repo", "jj-vine.forge", "gitlab"]);
         repo.jj(["config", "set", "--repo", "jj-vine.gitlab.host", &host]);
@@ -107,18 +150,15 @@ impl TestRepo {
 
         repo.jj(["git", "remote", "add", "origin", &remote_url]);
 
-        let client = GitLabForge::new(host, project, token, ca_bundle, accept_non_compliant)
-            .expect("Failed to create GitLab client");
-
-        repo.client = Some(client);
-
         // Fetch and track main so tests don't have to
         repo.jj(["git", "fetch"]);
         repo.jj(["bookmark", "track", "main@origin"]);
 
         repo
     }
+}
 
+impl TestRepo<GitHubForge> {
     pub fn with_github_remote() -> Self {
         dotenv::dotenv().ok();
 
@@ -132,7 +172,20 @@ impl TestRepo {
             .and_then(|v| v.parse::<bool>().ok())
             .unwrap_or(false);
 
-        let mut repo = Self::new();
+        let (dir, path) = make_repo();
+
+        let repo = Self {
+            dir,
+            path,
+            forge: GitHubForge::new(
+                &host,
+                &project,
+                &token,
+                ca_bundle.as_deref(),
+                accept_non_compliant,
+            )
+            .expect("Failed to create GitHub client"),
+        };
 
         repo.jj(["config", "set", "--repo", "jj-vine.forge", "github"]);
         repo.jj(["config", "set", "--repo", "jj-vine.github.host", &host]);
@@ -172,10 +225,80 @@ impl TestRepo {
 
         repo.jj(["git", "remote", "add", "origin", &remote_url]);
 
-        let client = GitHubForge::new(host, project, token, ca_bundle, accept_non_compliant)
-            .expect("Failed to create GitHub client");
+        // Fetch and track main so tests don't have to
+        repo.jj(["git", "fetch"]);
+        repo.jj(["bookmark", "track", "main@origin"]);
 
-        repo.github_client = Some(client);
+        repo
+    }
+}
+
+impl TestRepo<ForgejoForge> {
+    pub fn with_forgejo_remote() -> Self {
+        dotenv::dotenv().ok();
+
+        let host = std::env::var("FORGEJO_HOST").expect("FORGEJO_HOST required");
+        let project = std::env::var("FORGEJO_PROJECT").expect("FORGEJO_PROJECT required");
+        let token = std::env::var("FORGEJO_TOKEN").expect("FORGEJO_TOKEN required");
+        let ca_bundle = std::env::var("FORGEJO_CA_BUNDLE").ok();
+        let accept_non_compliant = std::env::var("FORGEJO_TLS_ACCEPT_NON_COMPLIANT_CERTS")
+            .ok()
+            .and_then(|v| v.parse::<bool>().ok())
+            .unwrap_or(false);
+
+        let (dir, path) = make_repo();
+
+        let repo = Self {
+            dir,
+            path,
+            forge: ForgejoForge::new(
+                &host,
+                &project,
+                &token,
+                ca_bundle.as_deref(),
+                accept_non_compliant,
+            )
+            .expect("Failed to create Forgejo client"),
+        };
+
+        repo.jj(["config", "set", "--repo", "jj-vine.forge", "forgejo"]);
+        repo.jj(["config", "set", "--repo", "jj-vine.forgejo.host", &host]);
+        repo.jj([
+            "config",
+            "set",
+            "--repo",
+            "jj-vine.forgejo.project",
+            &project,
+        ]);
+        repo.jj(["config", "set", "--repo", "jj-vine.forgejo.token", &token]);
+
+        if let Some(ref bundle) = ca_bundle {
+            repo.jj(["config", "set", "--repo", "jj-vine.caBundle", bundle]);
+        }
+
+        if accept_non_compliant {
+            repo.jj([
+                "config",
+                "set",
+                "--repo",
+                "jj-vine.tlsAcceptNonCompliantCerts",
+                "true",
+            ]);
+        }
+
+        // Add git remote
+        let hostname = host
+            .trim_end_matches('/')
+            .trim_start_matches("https://")
+            .trim_start_matches("http://");
+
+        let hostname_no_port = hostname.split(":").next().unwrap_or(hostname);
+
+        let port = if host.contains("localhost") { 222 } else { 22 };
+
+        let remote_url = format!("ssh://git@{}:{}/{}.git", hostname_no_port, port, project);
+
+        repo.jj(["git", "remote", "add", "origin", &remote_url]);
 
         // Fetch and track main so tests don't have to
         repo.jj(["git", "fetch"]);
@@ -183,19 +306,46 @@ impl TestRepo {
 
         repo
     }
+}
 
-    pub fn gitlab(&self) -> &GitLabForge {
-        self.client
-            .as_ref()
-            .expect("GitLab client not initialized, use with_gitlab_remote() instead of new()")
+impl<T> TestRepo<T>
+where
+    T: Forge,
+{
+    pub fn forge(&self) -> &T {
+        &self.forge
     }
 
-    pub fn github(&self) -> &GitHubForge {
-        self.github_client
-            .as_ref()
-            .expect("GitHub client not initialized, use with_github_remote() instead of new()")
+    /// Create a bookmark at current revision, chainable.
+    /// If a remote is configured, also tracks the bookmark.
+    pub fn create_bookmark(&self, name: &str) -> &Self {
+        self.jj(["bookmark", "create", name]);
+        self.jj(["bookmark", "track", &format!("{}@origin", name)]);
+        self
     }
 
+    /// Create a bookmark and push it to origin, chainable
+    pub fn create_and_push_bookmark(&self, name: &str) -> &Self {
+        self.create_bookmark(name);
+        self.push_bookmark(name)
+    }
+
+    /// Create a commit with a bookmark, then start new working copy
+    pub fn commit_with_bookmark(
+        &self,
+        file: &str,
+        content: &str,
+        msg: &str,
+        bookmark: &str,
+    ) -> &Self {
+        self.create_change(file, content, msg);
+        self.create_bookmark(bookmark);
+        self.jj(["new"]);
+        self
+    }
+}
+
+impl<T> TestRepo<T> {
     pub fn jj<'a>(&self, args: impl AsRef<[&'a str]>) -> String {
         let output = Command::new("jj")
             .args(args.as_ref())
@@ -217,39 +367,9 @@ impl TestRepo {
         self
     }
 
-    /// Create a bookmark at current revision, chainable.
-    /// If a remote is configured, also tracks the bookmark.
-    pub fn create_bookmark(&self, name: &str) -> &Self {
-        self.jj(["bookmark", "create", name]);
-        if self.client.is_some() || self.github_client.is_some() {
-            self.jj(["bookmark", "track", &format!("{}@origin", name)]);
-        }
-        self
-    }
-
     /// Push a bookmark to origin, chainable
     pub fn push_bookmark(&self, name: &str) -> &Self {
         self.jj(["git", "push", "--bookmark", name]);
-        self
-    }
-
-    /// Create a bookmark and push it to origin, chainable
-    pub fn create_and_push_bookmark(&self, name: &str) -> &Self {
-        self.create_bookmark(name);
-        self.push_bookmark(name)
-    }
-
-    /// Create a commit with a bookmark, then start new working copy
-    pub fn commit_with_bookmark(
-        &self,
-        file: &str,
-        content: &str,
-        msg: &str,
-        bookmark: &str,
-    ) -> &Self {
-        self.create_change(file, content, msg);
-        self.create_bookmark(bookmark);
-        self.jj(["new"]);
         self
     }
 
@@ -279,7 +399,7 @@ impl TestRepo {
     }
 }
 
-impl Default for TestRepo {
+impl Default for TestRepo<()> {
     fn default() -> Self {
         Self::new()
     }

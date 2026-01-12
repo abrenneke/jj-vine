@@ -86,3 +86,7 @@ release VERSION:
         
     echo "Release v{{VERSION}} created successfully."
     echo "Finish release notes at: https://codeberg.org/abrenneke/jj-vine/releases/v{{VERSION}}/edit"
+
+# Starts a forgejo server using docker compose. Codeberg has low rate limits, so for integration tests we need to run our own instance.
+start-forgejo:
+    docker compose -f forgejo.docker-compose.yml up -d

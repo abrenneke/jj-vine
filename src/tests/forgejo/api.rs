@@ -1,13 +1,13 @@
 use crate::{
     commands::submit::SubmitCommandConfig,
-    forge::{Forge, ForgeCreateMergeRequestOptions, ForgeMergeRequestState, github::GitHubForge},
+    forge::{Forge, ForgeCreateMergeRequestOptions, ForgeMergeRequestState, forgejo::ForgejoForge},
     tests::{TestRepo, unique_branch},
 };
 
-/// Test that submit creates a PR via the GitHub API
+/// Test that submit creates a PR via the Forgejo API
 #[tokio::test]
 async fn test_submit_creates_pr() {
-    let repo = TestRepo::with_github_remote();
+    let repo = TestRepo::with_forgejo_remote();
 
     let branch = unique_branch("create-pr");
     repo.jj(["new", "main"]);
@@ -26,7 +26,7 @@ async fn test_submit_creates_pr() {
         .forge()
         .find_merge_request_by_source_branch(&branch)
         .await
-        .expect("Failed to query GitHub")
+        .expect("Failed to query Forgejo")
         .expect("PR should exist");
 
     assert_eq!(pr.source_branch(), branch);
@@ -37,7 +37,7 @@ async fn test_submit_creates_pr() {
 /// Test that submit creates stacked PRs with correct targets
 #[tokio::test]
 async fn test_submit_creates_stacked_prs() {
-    let repo = TestRepo::with_github_remote();
+    let repo = TestRepo::with_forgejo_remote();
 
     let branch_a = unique_branch("stack-a");
     let branch_b = unique_branch("stack-b");
@@ -68,7 +68,7 @@ async fn test_submit_creates_stacked_prs() {
         .forge()
         .find_merge_request_by_source_branch(&branch_a)
         .await
-        .expect("Failed to query GitHub")
+        .expect("Failed to query Forgejo")
         .expect("PR A should exist");
     assert_eq!(pr_a.target_branch(), "main");
 
@@ -77,7 +77,7 @@ async fn test_submit_creates_stacked_prs() {
         .forge()
         .find_merge_request_by_source_branch(&branch_b)
         .await
-        .expect("Failed to query GitHub")
+        .expect("Failed to query Forgejo")
         .expect("PR B should exist");
     assert_eq!(pr_b.target_branch(), branch_a);
 
@@ -86,7 +86,7 @@ async fn test_submit_creates_stacked_prs() {
         .forge()
         .find_merge_request_by_source_branch(&branch_c)
         .await
-        .expect("Failed to query GitHub")
+        .expect("Failed to query Forgejo")
         .expect("PR C should exist");
     assert_eq!(pr_c.target_branch(), branch_b);
 }
@@ -94,7 +94,7 @@ async fn test_submit_creates_stacked_prs() {
 /// Test that resubmitting finds and reuses existing PR
 #[tokio::test]
 async fn test_submit_is_idempotent() {
-    let repo = TestRepo::with_github_remote();
+    let repo = TestRepo::with_forgejo_remote();
 
     let branch = unique_branch("idempotent");
     repo.jj(["new", "main"]);
@@ -136,7 +136,7 @@ async fn test_submit_is_idempotent() {
 /// Test that PR is retargeted when middle bookmark is deleted
 #[tokio::test]
 async fn test_submit_retargets_after_middle_bookmark_deleted() {
-    let repo = TestRepo::with_github_remote();
+    let repo = TestRepo::with_forgejo_remote();
 
     let branch_a = unique_branch("retarget-a");
     let branch_b = unique_branch("retarget-b");
@@ -200,24 +200,23 @@ async fn test_submit_retargets_after_middle_bookmark_deleted() {
 async fn test_invalid_token_errors_clearly() {
     dotenv::dotenv().ok();
 
-    let host =
-        std::env::var("GITHUB_HOST").unwrap_or_else(|_| "https://api.github.com".to_string());
-    let project = std::env::var("GITHUB_PROJECT").expect("GITHUB_PROJECT required");
-    let ca_bundle = std::env::var("GITHUB_CA_BUNDLE").ok();
-    let accept_non_compliant = std::env::var("GITHUB_TLS_ACCEPT_NON_COMPLIANT_CERTS")
+    let host = std::env::var("FORGEJO_HOST").expect("FORGEJO_HOST required");
+    let project = std::env::var("FORGEJO_PROJECT").expect("FORGEJO_PROJECT required");
+    let ca_bundle = std::env::var("FORGEJO_CA_BUNDLE").ok();
+    let accept_non_compliant = std::env::var("FORGEJO_TLS_ACCEPT_NON_COMPLIANT_CERTS")
         .ok()
         .and_then(|v| v.parse::<bool>().ok())
         .unwrap_or(false);
 
     // Create client with invalid token
-    let client = GitHubForge::new(
+    let client = ForgejoForge::new(
         host,
         project,
-        "ghp_invalid_token_12345".to_string(),
+        "invalid-token-12345".to_string(),
         ca_bundle,
         accept_non_compliant,
     )
-    .expect("Failed to create GitHub client");
+    .expect("Failed to create Forgejo client");
 
     let branch_name = unique_branch("invalid-token");
 
@@ -235,9 +234,10 @@ async fn test_invalid_token_errors_clearly() {
 
     assert!(result.is_err(), "Should fail with invalid token");
     let err = result.unwrap_err().to_string();
+
     assert!(
-        err.contains("401") || err.to_lowercase().contains("unauthorized"),
-        "Error should mention authentication issue: {}",
+        err.contains("401"),
+        "Error should mention invalid token: {}",
         err
     );
 }
@@ -247,24 +247,23 @@ async fn test_invalid_token_errors_clearly() {
 async fn test_nonexistent_project_errors_clearly() {
     dotenv::dotenv().ok();
 
-    let host =
-        std::env::var("GITHUB_HOST").unwrap_or_else(|_| "https://api.github.com".to_string());
-    let token = std::env::var("GITHUB_TOKEN").expect("GITHUB_TOKEN required");
-    let ca_bundle = std::env::var("GITHUB_CA_BUNDLE").ok();
-    let accept_non_compliant = std::env::var("GITHUB_TLS_ACCEPT_NON_COMPLIANT_CERTS")
+    let host = std::env::var("FORGEJO_HOST").expect("FORGEJO_HOST required");
+    let token = std::env::var("FORGEJO_TOKEN").expect("FORGEJO_TOKEN required");
+    let ca_bundle = std::env::var("FORGEJO_CA_BUNDLE").ok();
+    let accept_non_compliant = std::env::var("FORGEJO_TLS_ACCEPT_NON_COMPLIANT_CERTS")
         .ok()
         .and_then(|v| v.parse::<bool>().ok())
         .unwrap_or(false);
 
     // Create client with nonexistent project
-    let client = GitHubForge::new(
+    let client = ForgejoForge::new(
         host,
         "nonexistent/fake-project-12345".to_string(),
         token,
         ca_bundle,
         accept_non_compliant,
     )
-    .expect("Failed to create GitHub client");
+    .expect("Failed to create Forgejo client");
 
     let branch_name = unique_branch("nonexistent-project");
 

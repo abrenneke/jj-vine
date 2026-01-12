@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use async_trait::async_trait;
 use reqwest::Method;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
@@ -41,10 +43,10 @@ impl GitLabForge {
     /// * `ca_bundle` - Optional path to CA bundle for TLS verification
     /// * `accept_non_compliant_certs` - Accept non-compliant TLS certificates
     pub fn new(
-        base_url: String,
-        project_id: String,
-        token: String,
-        ca_bundle: Option<String>,
+        base_url: impl Into<String>,
+        project_id: impl Into<String>,
+        token: impl Into<String>,
+        ca_bundle: Option<impl AsRef<Path>>,
         accept_non_compliant_certs: bool,
     ) -> Result<Self> {
         let mut client_builder = reqwest::Client::builder();
@@ -56,8 +58,12 @@ impl GitLabForge {
 
         // Add custom CA bundle if provided
         if let Some(ca_path) = ca_bundle {
-            let ca_cert = std::fs::read(&ca_path).map_err(|e| Error::Config {
-                message: format!("Failed to read CA bundle at {}: {}", ca_path, e),
+            let ca_cert = std::fs::read(ca_path.as_ref()).map_err(|e| Error::Config {
+                message: format!(
+                    "Failed to read CA bundle at {}: {}",
+                    ca_path.as_ref().to_string_lossy(),
+                    e
+                ),
             })?;
 
             let certs =
@@ -75,9 +81,9 @@ impl GitLabForge {
         })?;
 
         Ok(Self {
-            base_url,
-            project_id,
-            token,
+            base_url: base_url.into(),
+            project_id: project_id.into(),
+            token: token.into(),
             client,
         })
     }
@@ -332,7 +338,7 @@ mod tests {
             "https://gitlab.example.com".to_string(),
             "group/project".to_string(),
             "token123".to_string(),
-            None,
+            None::<&str>,
             false,
         )
         .expect("Failed to create client");
@@ -348,7 +354,7 @@ mod tests {
             "https://gitlab.example.com".to_string(),
             "group/project".to_string(),
             "token123".to_string(),
-            None,
+            None::<&str>,
             false,
         )
         .expect("Failed to create client");
@@ -420,7 +426,7 @@ uYyBeUf6LmQswHqXfxOmAoy1HbXDtNvmClznsb0=
             "https://gitlab.example.com".to_string(),
             "group/project".to_string(),
             "token123".to_string(),
-            Some(path),
+            Some(&path),
             false,
         )
         .expect("Failed to create client with multi-cert bundle");

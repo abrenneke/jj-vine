@@ -1,3 +1,4 @@
+pub mod forgejo;
 pub mod github;
 pub mod gitlab;
 
@@ -5,7 +6,7 @@ use async_trait::async_trait;
 use bon::Builder;
 use serde::{Deserialize, Serialize};
 
-use crate::{description::FormatMergeRequest, error::Result};
+use crate::{config::ForgeType, description::FormatMergeRequest, error::Result};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ForgeUser {
@@ -20,6 +21,7 @@ pub struct ForgeUser {
 pub enum ForgeMergeRequest {
     GitLab(gitlab::MergeRequest),
     GitHub(github::PullRequest),
+    Forgejo(forgejo::PullRequest),
 }
 
 impl ForgeMergeRequest {
@@ -27,6 +29,7 @@ impl ForgeMergeRequest {
         match self {
             ForgeMergeRequest::GitLab(mr) => mr.iid,
             ForgeMergeRequest::GitHub(pr) => pr.number,
+            ForgeMergeRequest::Forgejo(pr) => pr.number,
         }
     }
 
@@ -34,6 +37,7 @@ impl ForgeMergeRequest {
         match self {
             ForgeMergeRequest::GitLab(mr) => &mr.title,
             ForgeMergeRequest::GitHub(pr) => &pr.title,
+            ForgeMergeRequest::Forgejo(pr) => &pr.title,
         }
     }
 
@@ -41,6 +45,7 @@ impl ForgeMergeRequest {
         match self {
             ForgeMergeRequest::GitLab(mr) => mr.description.as_deref().unwrap_or(""),
             ForgeMergeRequest::GitHub(pr) => pr.body.as_deref().unwrap_or(""),
+            ForgeMergeRequest::Forgejo(pr) => pr.body.as_deref().unwrap_or(""),
         }
     }
 
@@ -48,6 +53,7 @@ impl ForgeMergeRequest {
         match self {
             ForgeMergeRequest::GitLab(mr) => &mr.source_branch,
             ForgeMergeRequest::GitHub(pr) => &pr.head.ref_name,
+            ForgeMergeRequest::Forgejo(pr) => &pr.head.ref_name,
         }
     }
 
@@ -55,6 +61,7 @@ impl ForgeMergeRequest {
         match self {
             ForgeMergeRequest::GitLab(mr) => &mr.target_branch,
             ForgeMergeRequest::GitHub(pr) => &pr.base.ref_name,
+            ForgeMergeRequest::Forgejo(pr) => &pr.base.ref_name,
         }
     }
 
@@ -80,6 +87,15 @@ impl ForgeMergeRequest {
                     ForgeMergeRequestState::Closed
                 }
             }
+            ForgeMergeRequest::Forgejo(pr) => {
+                if pr.merged {
+                    ForgeMergeRequestState::Merged
+                } else if pr.state == "open" {
+                    ForgeMergeRequestState::Open
+                } else {
+                    ForgeMergeRequestState::Closed
+                }
+            }
         }
     }
 
@@ -87,6 +103,7 @@ impl ForgeMergeRequest {
         match self {
             ForgeMergeRequest::GitLab(mr) => &mr.web_url,
             ForgeMergeRequest::GitHub(pr) => &pr.html_url,
+            ForgeMergeRequest::Forgejo(pr) => &pr.html_url,
         }
     }
 
@@ -94,6 +111,7 @@ impl ForgeMergeRequest {
         match self {
             ForgeMergeRequest::GitLab(mr) => &mr.author.username,
             ForgeMergeRequest::GitHub(pr) => &pr.user.login,
+            ForgeMergeRequest::Forgejo(pr) => &pr.user.login,
         }
     }
 
@@ -107,6 +125,10 @@ impl ForgeMergeRequest {
                 .created_at
                 .parse()
                 .expect("Failed to parse created at timestamp from GitHub API response"),
+            ForgeMergeRequest::Forgejo(pr) => pr
+                .created_at
+                .parse()
+                .expect("Failed to parse created at timestamp from Forgejo API response"),
         }
     }
 
@@ -124,6 +146,13 @@ impl ForgeMergeRequest {
                 .into_iter()
                 .map(ForgeUser::from)
                 .collect(),
+            ForgeMergeRequest::Forgejo(pr) => pr
+                .assignees
+                .clone()
+                .unwrap_or_default()
+                .into_iter()
+                .map(ForgeUser::from)
+                .collect(),
         }
     }
 
@@ -138,6 +167,13 @@ impl ForgeMergeRequest {
             ForgeMergeRequest::GitHub(pr) => pr
                 .requested_reviewers
                 .clone()
+                .into_iter()
+                .map(ForgeUser::from)
+                .collect(),
+            ForgeMergeRequest::Forgejo(pr) => pr
+                .requested_reviewers
+                .clone()
+                .unwrap_or_default()
                 .into_iter()
                 .map(ForgeUser::from)
                 .collect(),
@@ -234,16 +270,12 @@ pub trait Forge: Send + Sync + FormatMergeRequest {
 
 /// Create a forge instance based on configuration
 pub fn create_forge(config: &crate::config::Config) -> Result<Box<dyn Forge>> {
-    match config.forge {
-        crate::config::ForgeType::GitLab => {
-            let gitlab_host = if !config.gitlab.host.is_empty() {
-                config.gitlab.host.clone()
-            } else {
-                "https://gitlab.com".to_string()
-            };
+    config.validate()?;
 
+    match config.forge {
+        ForgeType::GitLab => {
             let forge = gitlab::GitLabForge::new(
-                gitlab_host,
+                config.gitlab.host.clone(),
                 config.gitlab.project.clone(),
                 config.gitlab.token.clone(),
                 config.ca_bundle.clone(),
@@ -251,17 +283,21 @@ pub fn create_forge(config: &crate::config::Config) -> Result<Box<dyn Forge>> {
             )?;
             Ok(Box::new(forge))
         }
-        crate::config::ForgeType::GitHub => {
-            let github_host = if !config.github.host.is_empty() {
-                config.github.host.clone()
-            } else {
-                "https://api.github.com".to_string()
-            };
-
+        ForgeType::GitHub => {
             let forge = github::GitHubForge::new(
-                github_host,
+                config.github.host.clone(),
                 config.github.project.clone(),
                 config.github.token.clone(),
+                config.ca_bundle.clone(),
+                config.tls_accept_non_compliant_certs,
+            )?;
+            Ok(Box::new(forge))
+        }
+        ForgeType::Forgejo => {
+            let forge = forgejo::ForgejoForge::new(
+                config.forgejo.host.clone(),
+                config.forgejo.project.clone(),
+                config.forgejo.token.clone(),
                 config.ca_bundle.clone(),
                 config.tls_accept_non_compliant_certs,
             )?;

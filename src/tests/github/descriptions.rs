@@ -30,7 +30,7 @@ async fn test_pr_description_includes_stack_info() {
 
     // Verify PR A has stack markers
     let pr_a = repo
-        .github()
+        .forge()
         .find_merge_request_by_source_branch(&branch_a)
         .await
         .expect("Query failed")
@@ -75,14 +75,14 @@ async fn test_pr_description_links_to_dependent_prs() {
 
     // Get both PRs
     let pr_a = repo
-        .github()
+        .forge()
         .find_merge_request_by_source_branch(&branch_a)
         .await
         .expect("Query failed")
         .expect("PR A should exist");
 
     let pr_b = repo
-        .github()
+        .forge()
         .find_merge_request_by_source_branch(&branch_b)
         .await
         .expect("Query failed")
@@ -119,7 +119,7 @@ async fn test_user_content_preserved_on_resubmit() {
 
     // Add custom user content to PR A's description
     let pr_a = repo
-        .github()
+        .forge()
         .find_merge_request_by_source_branch(&branch_a)
         .await
         .expect("Query failed")
@@ -127,7 +127,7 @@ async fn test_user_content_preserved_on_resubmit() {
 
     let user_content = "My important notes about this PR";
     let new_desc = format!("{}\n\n{}", pr_a.description(), user_content);
-    repo.github()
+    repo.forge()
         .update_merge_request_description(pr_a.iid(), &new_desc)
         .await
         .expect("Failed to update description");
@@ -145,7 +145,7 @@ async fn test_user_content_preserved_on_resubmit() {
 
     // Verify user content is still present
     let pr_a_updated = repo
-        .github()
+        .forge()
         .find_merge_request_by_source_branch(&branch_a)
         .await
         .expect("Query failed")
@@ -180,14 +180,14 @@ async fn test_add_markers_to_description_without_markers() {
 
     // Set description WITHOUT markers
     let pr_a = repo
-        .github()
+        .forge()
         .find_merge_request_by_source_branch(&branch_a)
         .await
         .expect("Query failed")
         .expect("PR A should exist");
 
     let user_description = "Custom description without markers";
-    repo.github()
+    repo.forge()
         .update_merge_request_description(pr_a.iid(), user_description)
         .await
         .expect("Failed to update description");
@@ -205,7 +205,7 @@ async fn test_add_markers_to_description_without_markers() {
 
     // Verify markers were added
     let pr_a_updated = repo
-        .github()
+        .forge()
         .find_merge_request_by_source_branch(&branch_a)
         .await
         .expect("Query failed")
@@ -255,7 +255,7 @@ async fn test_skip_update_when_description_unchanged() {
 
     // Get initial description
     let pr_a = repo
-        .github()
+        .forge()
         .find_merge_request_by_source_branch(&branch_a)
         .await
         .expect("Query failed")
@@ -271,7 +271,7 @@ async fn test_skip_update_when_description_unchanged() {
 
     // Description should be unchanged
     let pr_a_after = repo
-        .github()
+        .forge()
         .find_merge_request_by_source_branch(&branch_a)
         .await
         .expect("Query failed")
@@ -321,28 +321,28 @@ async fn test_deferred_updates_multiple_stacks() {
 
     // Get all PRs
     let pr_a = repo
-        .github()
+        .forge()
         .find_merge_request_by_source_branch(&branch_a)
         .await
         .expect("Query failed")
         .expect("PR A should exist");
 
     let pr_b = repo
-        .github()
+        .forge()
         .find_merge_request_by_source_branch(&branch_b)
         .await
         .expect("Query failed")
         .expect("PR B should exist");
 
     let pr_c = repo
-        .github()
+        .forge()
         .find_merge_request_by_source_branch(&branch_c)
         .await
         .expect("Query failed")
         .expect("PR C should exist");
 
     let pr_d = repo
-        .github()
+        .forge()
         .find_merge_request_by_source_branch(&branch_d)
         .await
         .expect("Query failed")
