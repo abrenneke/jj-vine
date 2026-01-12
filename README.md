@@ -4,7 +4,9 @@ A tool for submitting stacked Pull/Merge Requests from Jujutsu bookmarks.
 
 Currently supports the following code forges:
 
-- GitLab
+- GitLab ([gitlab.com](https://gitlab.com) or self-hosted)
+- GitHub ([github.com](https://github.com) or GitHub Enterprise)
+- [Forgejo](https://forgejo.org) / [Codeberg](https://codeberg.org) / Gitea
 
 *The canonical location for `jj-vine` is [codeberg.org/abrenneke/jj-vine](https://codeberg.org/abrenneke/jj-vine). GitHub is used as a mirror and CI only.*
 
@@ -25,8 +27,12 @@ Currently supports the following code forges:
   - [init](#init)
 - [Configuration](#configuration)
 
-  - [Required Settings](#required-settings)
-  - [Optional Settings](#optional-settings)
+  - [Forge-Specific Required Settings](#forge-specific-required-settings)
+
+    - [GitLab](#gitlab)
+    - [GitHub](#github)
+    - [Forgejo/Codeberg/Gitea](#forgejo-codeberg-gitea)
+  - [Common Optional Settings](#common-optional-settings)
 - [Stack Visualization](#stack-visualization)
 - [Credits](#credits)
 - [FAQs](#faqs)
@@ -41,7 +47,7 @@ Currently supports the following code forges:
 
 As `jj` is so flexible, it can sometimes be tedious to manage pull requests for a `jj` repository. Additionally, many people like the "stacked pull request" workflow, where a tool can manage your stack of pull requests for you, including modifying the base branch, description, and other settings. `jj-vine` aims to smooth out the process of managing pull requests for a `jj` repository.
 
-There are many tools these days that aim to solve this problem, most notably [`jj-spr`](https://github.com/LucioFranco/jj-spr) and [`jj-stack`](https://github.com/keanemind/jj-stack). `jj-vine` has its own preferred workflow and design choices, and is not a direct replacement for these tools. `jj-vine` aims to support multiple code forges.
+There are many tools these days that aim to solve this problem, most notably [`jj-spr`](https://github.com/LucioFranco/jj-spr) and [`jj-stack`](https://github.com/keanemind/jj-stack). `jj-vine` has its own preferred workflow and design choices, and is not a direct replacement for these tools. `jj-vine` supports multiple code forges including GitLab, GitHub, and Forgejo.
 
 Major differences:
 
@@ -155,27 +161,54 @@ jj config set --repo jj-vine.deleteSourceBranch true
 jj config set --repo jj-vine.defaultReviewers '["alice", "bob"]'
 ```
 
-### Required Settings
+### Forge-Specific Required Settings
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `gitlabHost` | - | GitLab instance URL (e.g., `https://gitlab.example.com`) |
-| `gitlabProject` | - | Project ID (`group/project` or numeric ID) |
-| `gitlabToken` | - | Personal Access Token with `api` scope |
+#### GitLab
 
-### Optional Settings
+Enabled when `jj-vine.forge` is set to `gitlab`.
+
+| Setting | Description |
+|---------|-------------|
+| `gitlab.host` | GitLab instance URL (e.g., `https://gitlab.example.com`) |
+| `gitlab.project` | Project ID (`group/project` or numeric ID like `12345`) |
+| `gitlab.token` | Personal Access Token with `api` scope |
+
+#### GitHub
+
+Enabled when `jj-vine.forge` is set to `github`.
+
+| Setting | Description |
+|---------|-------------|
+| `github.host` | GitHub API URL (defaults to `https://api.github.com` for GitHub.com, or `https://github.example.com/api/v3` for Enterprise) |
+| `github.project` | Repository in `owner/repo` format |
+| `github.token` | Personal Access Token with `repo` scope |
+
+#### Forgejo/Codeberg/Gitea
+
+Enabled when `jj-vine.forge` is set to `forgejo`.
+
+| Setting | Description |
+|---------|-------------|
+| `forgejo.host` | Forgejo/Codeberg/Gitea instance URL (e.g., `https://codeberg.org`) |
+| `forgejo.project` | Repository in `owner/repo` format |
+| `forgejo.token` | API access token with `repo` scope |
+
+### Common Optional Settings
+
+These settings apply to all forges:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `remoteName` | `origin` | Git remote name |
-| `defaultBranch` | `main` or `master` or `trunk` depending on your repository | Default target branch |
-| `deleteSourceBranch` | `true` | Sets pull request setting to delete source branch when pull request is merged |
-| `squashCommits` | `false` | Sets pull request setting to squash commits when pull request is merged |
-| `assignToSelf` | `false` | Assign created pull requests to yourself automatically |
-| `defaultReviewers` | `[]` | List of usernames to automatically add as reviewers to pull requests |
-| `enableStackVisualization` | `true` | Adds a stack diagram to pull request descriptions |
-| `caBundle` | - | Path to CA certificate bundle. Use if you have a self-hosted code forge with a custom certificate |
-| `tlsAcceptNonCompliantCerts` | `false` | Accept non-strictly compliant TLS certificates. Use if you have a self-hosted code forge with a custom certificate and you know what you are doing |
+| `defaultBranch` | `main` | Default target branch for PRs/MRs |
+| `deleteSourceBranch` | `true` | Auto-delete source branch when merged |
+| `squashCommits` | `false` | Squash commits when merging |
+| `assignToSelf` | `false` | Automatically assign PRs/MRs to creator |
+| `defaultReviewers` | `[]` | List of usernames to add as reviewers |
+| `enableStackVisualization` | `true` | Include stack diagram in PR/MR descriptions |
+| `stackFormat` | `linear` | Stack visualization format |
+| `caBundle` | - | Path to CA certificate bundle for custom TLS |
+| `tlsAcceptNonCompliantCerts` | `false` | Accept non-standard TLS certificates |
 
 ## Stack Visualization
 
@@ -232,7 +265,7 @@ This started as a test to see if Claude Code was an effective tool. Conclusion: 
 
 ### Why a new project?
 
-Well primarily, existing tools did not support GitLab. `jj-spr` was too heavy-handed. `jj-stack` was in TypeScript (nothing against it, but seems sane for a `jj` tool to also be built in Rust). My current `jj` workflow was also just different enough that those existing tools did not fit my needs.
+Well primarily, existing tools did not support GitLab (though `jj-vine` now supports GitLab, GitHub, and Forgejo). `jj-spr` was too heavy-handed. `jj-stack` was in TypeScript (nothing against it, but seems sane for a `jj` tool to also be built in Rust). My current `jj` workflow was also just different enough that those existing tools did not fit my needs.
 
 ## Contributing
 

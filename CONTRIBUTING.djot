@@ -11,7 +11,7 @@ All contributions extremely welcome! Please feel free to open an issue or pull r
    ```bash
    rustup toolchain install nightly
    ```
-- Optional: [`just`](https://github.com/casey/just#installation) (for raw commands see [justfile](./justfile))
+- Optional: [`just`](https://github.com/casey/just#installation) (for raw commands see the [justfile](./justfile))
 
 ## Basic Commands
 
@@ -45,9 +45,7 @@ just test-unit
 
 ### Integration Tests
 
-Integration tests are located in `src/tests/` and test the CLI behavior and jj command integration. The integration test suite require GitLab credentials to run.
-
-Run full test suite including integration tests:
+E2E tests are flagged behind the `no-e2e-tests` feature flag. You can run them as well by running:
 
 ```bash
 just test
@@ -56,9 +54,11 @@ just test
 #### Prerequisites
 
 1. A GitLab instance (GitLab.com or self-hosted)
-2. A test repository with push access
-3. A personal access token with `api` scope
-4. SSH access configured (for git push operations)
+2. A GitHub instance (GitHub.com or GitHub Enterprise)
+3. A test repository with push access
+4. A personal access token with `api` scope
+5. SSH access configured (for git push operations)
+6. Docker installed and running
 
 #### Configuration
 
@@ -67,29 +67,27 @@ just test
    ```bash
    cp .env.example .env
    ```
-
-2. Edit `.env` and fill in your values:
-
-   ```bash
-   GITLAB_HOST=https://gitlab.com
-   GITLAB_PROJECT=your-username/jj-vine-test-repo
-   GITLAB_TOKEN=glpat-your-token-here
-   ```
-
-3. (Optional) For self-hosted GitLab with custom certificates:
+2. Edit `.env` and fill in your values for GitLab & GitHub.
+3. Launch the Forgejo server:
 
    ```bash
-   GITLAB_CA_BUNDLE=/path/to/ca-bundle.pem
-   GITLAB_TLS_ACCEPT_NON_COMPLIANT_CERTS=true
+   just start-forgejo
    ```
+4. If needed, initialize the Forgejo server (one-time setup).
+ 
+   - Create your administrator user on the setup page
+   - Add your SSH key to the user settings
+   - Generate an access token
+   - Create a new repository and seed it with an initial commit
+   - Set `FORGEJO_PROJECT` and `FORGEJO_TOKEN` in your `.env` file
 
 #### Cleanup
 
-GitLab integration tests *do not currently clean up*. The testing repo will keep all branches and MRs created by tests. You may want to manually reset it from time to time.
+E2E tests *do not currently clean up*. The testing repo will keep all branches and MRs created by tests. You may want to manually reset it from time to time.
 
 #### Continuous Integration
 
-Currently, integration tests are not run in CI as they require GitLab credentials. They are intended for local testing and manual verification.
+Currently, E2E tests are not run in CI as they require GitLab & GitHub credentials. They are intended for local testing and manual verification.
 
 ## Documentation
 
