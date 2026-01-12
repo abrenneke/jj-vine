@@ -22,6 +22,9 @@ pub enum Error {
     #[snafu(display("GitLab API error: {message}"))]
     GitLabApi { message: String },
 
+    #[snafu(display("GitHub API error: {message}"))]
+    GitHubApi { message: String },
+
     #[snafu(display("Configuration error: {message}"))]
     Config { message: String },
 

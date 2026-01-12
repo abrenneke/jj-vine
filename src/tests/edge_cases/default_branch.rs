@@ -1,6 +1,6 @@
 use crate::{
     bookmark::BookmarkGraph,
-    config::Config,
+    config::{Config, GitLabConfig},
     jj::Jujutsu,
     submit::analyze,
     tests::TestRepo,
@@ -71,9 +71,13 @@ async fn test_base_branch_not_included_in_submission() {
 
     let jj = Jujutsu::new(repo.path.clone()).expect("Failed to create Jujutsu");
     let config = Config {
-        gitlab_host: "https://gitlab.example.com".to_string(),
-        gitlab_project: "test/project".to_string(),
-        gitlab_token: "fake-token".to_string(),
+        forge: crate::config::ForgeType::GitLab,
+        gitlab: GitLabConfig {
+            host: "https://gitlab.example.com".to_string(),
+            project: "test/project".to_string(),
+            token: "fake-token".to_string(),
+        },
+        github: Default::default(),
         default_branch: "main".to_string(),
         remote_name: "origin".to_string(),
         ca_bundle: None,
@@ -120,9 +124,13 @@ async fn test_submit_base_branch_errors() {
 
     let jj = Jujutsu::new(repo.path.clone()).expect("Failed to create Jujutsu");
     let config = Config {
-        gitlab_host: "https://gitlab.example.com".to_string(),
-        gitlab_project: "test/project".to_string(),
-        gitlab_token: "fake-token".to_string(),
+        forge: crate::config::ForgeType::GitLab,
+        gitlab: GitLabConfig {
+            host: "https://gitlab.example.com".to_string(),
+            project: "test/project".to_string(),
+            token: "fake-token".to_string(),
+        },
+        github: Default::default(),
         default_branch: "main".to_string(),
         remote_name: "origin".to_string(),
         ca_bundle: None,

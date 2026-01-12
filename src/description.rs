@@ -2,11 +2,22 @@ use std::collections::HashMap;
 
 use crate::{bookmark::BranchStack, config::StackFormat, error::Result, forge::ForgeMergeRequest};
 
+pub trait FormatMergeRequest {
+    /// Formats the ID of a merge request as a string for display in the
+    /// description.
+    fn format_merge_request_id(&self, mr_iid: &str) -> String;
+}
+
 /// Stack description management and formatting for MR descriptions
 /// Abstraction for different stack visualization formats
 pub trait DescriptionFormatter {
     /// Format the stack visualization
-    fn format_stack(&self, stack: &StackContext, current_bookmark: &str) -> String;
+    fn format_stack(
+        &self,
+        stack: &StackContext,
+        current_bookmark: &str,
+        format_merge_request: &dyn FormatMergeRequest,
+    ) -> String;
 
     /// Start marker for the stack section
     fn start_marker(&self) -> &'static str;
@@ -19,7 +30,12 @@ pub trait DescriptionFormatter {
 pub struct LinearListFormatter;
 
 impl DescriptionFormatter for LinearListFormatter {
-    fn format_stack(&self, stack: &StackContext, current_bookmark: &str) -> String {
+    fn format_stack(
+        &self,
+        stack: &StackContext,
+        current_bookmark: &str,
+        format_merge_request: &dyn FormatMergeRequest,
+    ) -> String {
         let mut lines = Vec::new();
 
         // Header
@@ -38,8 +54,14 @@ impl DescriptionFormatter for LinearListFormatter {
                 // Current bookmark - bold with marker
                 lines.push(format!("{}. **{} ← this MR**", num, display_name));
             } else if let Some(iid) = bookmark.mr_iid {
-                // Other bookmark with MR - use !{iid} format (GitLab auto-links)
-                lines.push(format!("{}. {} - !{}", num, display_name, iid));
+                // Other bookmark with MR - use forge-specific prefix (! for GitLab, # for
+                // GitHub)
+                lines.push(format!(
+                    "{}. {} - {}",
+                    num,
+                    display_name,
+                    format_merge_request.format_merge_request_id(&iid.to_string())
+                ));
             } else {
                 // Bookmark without MR yet
                 lines.push(format!("{}. {}", num, display_name));
@@ -176,8 +198,11 @@ impl DescriptionManager {
         content_after: Option<&str>,
         stack_context: &StackContext,
         current_bookmark: &str,
+        format_merge_request: &dyn FormatMergeRequest,
     ) -> String {
-        let stack_section = self.formatter.format_stack(stack_context, current_bookmark);
+        let stack_section =
+            self.formatter
+                .format_stack(stack_context, current_bookmark, format_merge_request);
         self.build_description(content_before, content_after, &stack_section)
     }
 
@@ -223,6 +248,7 @@ pub fn generate_multi_stack_description(
     existing_mrs: &HashMap<String, ForgeMergeRequest>,
     format: &StackFormat,
     base_branch: &str,
+    format_merge_request: &dyn FormatMergeRequest,
 ) -> Result<String> {
     if stacks.is_empty() {
         return Ok(String::new());
@@ -252,7 +278,7 @@ pub fn generate_multi_stack_description(
             base_branch: base_branch.to_string(),
         };
 
-        return Ok(formatter.format_stack(&context, bookmark));
+        return Ok(formatter.format_stack(&context, bookmark, format_merge_request));
     }
 
     // Multiple stacks - format each separately
@@ -284,7 +310,7 @@ pub fn generate_multi_stack_description(
             base_branch: base_branch.to_string(),
         };
 
-        let stack_desc = formatter.format_stack(&context, bookmark);
+        let stack_desc = formatter.format_stack(&context, bookmark, format_merge_request);
 
         for line in stack_desc.lines().skip(2) {
             lines.push(line.to_string());
@@ -301,6 +327,14 @@ pub fn generate_multi_stack_description(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct DefaultFormatMergeRequest;
+
+    impl FormatMergeRequest for DefaultFormatMergeRequest {
+        fn format_merge_request_id(&self, mr_iid: &str) -> String {
+            format!("!{}", mr_iid)
+        }
+    }
 
     #[test]
     fn test_parse_empty_description() {
@@ -353,7 +387,13 @@ mod tests {
             base_branch: "main".to_string(),
         };
 
-        let desc = manager.generate_description(None, None, &stack, "bookmark-b");
+        let desc = manager.generate_description(
+            None,
+            None,
+            &stack,
+            "bookmark-b",
+            &DefaultFormatMergeRequest,
+        );
 
         assert!(desc.contains("<!-- start jj-vine stack -->"));
         assert!(desc.contains("<!-- end jj-vine stack -->"));
@@ -374,7 +414,13 @@ mod tests {
             base_branch: "main".to_string(),
         };
 
-        let desc = manager.generate_description(None, Some("User stuff"), &stack, "bookmark-a");
+        let desc = manager.generate_description(
+            None,
+            Some("User stuff"),
+            &stack,
+            "bookmark-a",
+            &DefaultFormatMergeRequest,
+        );
         assert!(desc.ends_with("User stuff"));
     }
 
@@ -400,7 +446,7 @@ mod tests {
             base_branch: "main".to_string(),
         };
 
-        let output = formatter.format_stack(&stack, "bookmark-b");
+        let output = formatter.format_stack(&stack, "bookmark-b", &DefaultFormatMergeRequest);
         assert!(output.contains("**bookmark-b ← this MR**"));
         assert!(output.contains("bookmark-a - !100"));
     }
@@ -439,7 +485,7 @@ mod tests {
             base_branch: "main".to_string(),
         };
 
-        let output = formatter.format_stack(&stack, "feature-2");
+        let output = formatter.format_stack(&stack, "feature-2", &DefaultFormatMergeRequest);
 
         // Should NOT include the base branch in the list
         assert!(!output.contains("1. `main`"));
@@ -490,6 +536,7 @@ mod tests {
             parsed.content_after.as_deref(),
             &stack,
             "feature",
+            &DefaultFormatMergeRequest,
         );
         assert!(new_desc.contains("My notes"));
     }
@@ -507,7 +554,8 @@ mod tests {
             base_branch: "main".to_string(),
         };
 
-        let desc = manager.generate_description(None, None, &stack, "f");
+        let desc =
+            manager.generate_description(None, None, &stack, "f", &DefaultFormatMergeRequest);
         assert!(desc.ends_with("<!-- end jj-vine stack -->"));
     }
 
@@ -539,6 +587,7 @@ mod tests {
             Some("After content"),
             &stack,
             "feature",
+            &DefaultFormatMergeRequest,
         );
 
         assert!(desc.starts_with("Before content"));
@@ -575,7 +624,7 @@ mod tests {
             base_branch: "main".to_string(),
         };
 
-        let output = formatter.format_stack(&stack, "push-xyzabc123");
+        let output = formatter.format_stack(&stack, "push-xyzabc123", &DefaultFormatMergeRequest);
 
         // Should show MR title, not bookmark name
         assert!(output.contains("Add user authentication - !18"));

@@ -74,7 +74,12 @@ pub async fn cli_main() -> Result<()> {
         .repository
         .unwrap_or_else(|| std::env::current_dir().expect("Failed to get current directory"));
 
-    let output: Box<dyn Output> = if verbose {
+    let can_have_interactive_output = match cli.command {
+        Commands::Submit(_) => true,
+        Commands::Init => false,
+    };
+
+    let output: Box<dyn Output> = if verbose || !can_have_interactive_output {
         Box::new(FlatOutput::new())
     } else {
         Box::new(InteractiveOutput::new())

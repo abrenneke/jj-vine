@@ -857,49 +857,49 @@ mod tests {
         let (_temp, repo_path) = create_test_repo();
 
         // Create initial commit
-        run_jj_command(&repo_path, &["describe", "-m", "initial"]).expect("Failed to describe");
+        run_jj_command(&repo_path, ["describe", "-m", "initial"]).expect("Failed to describe");
 
         // Create first branch
-        run_jj_command(&repo_path, &["bookmark", "create", "branch1"])
+        run_jj_command(&repo_path, ["bookmark", "create", "branch1"])
             .expect("Failed to create branch1");
-        run_jj_command(&repo_path, &["new"]).expect("Failed to create new commit");
-        run_jj_command(&repo_path, &["describe", "-m", "branch1-commit"])
+        run_jj_command(&repo_path, ["new"]).expect("Failed to create new commit");
+        run_jj_command(&repo_path, ["describe", "-m", "branch1-commit"])
             .expect("Failed to describe");
 
         // Go back and create second branch
-        run_jj_command(&repo_path, &["new", "branch1-"]).expect("Failed to checkout parent");
-        run_jj_command(&repo_path, &["bookmark", "create", "branch2"])
+        run_jj_command(&repo_path, ["new", "branch1-"]).expect("Failed to checkout parent");
+        run_jj_command(&repo_path, ["bookmark", "create", "branch2"])
             .expect("Failed to create branch2");
-        run_jj_command(&repo_path, &["describe", "-m", "branch2-commit"])
+        run_jj_command(&repo_path, ["describe", "-m", "branch2-commit"])
             .expect("Failed to describe");
 
         // Create merge commit
         let branch1_id = run_jj_command(
             &repo_path,
-            &["log", "-r", "branch1", "--no-graph", "-T", "commit_id"],
+            ["log", "-r", "branch1", "--no-graph", "-T", "commit_id"],
         )
         .expect("Failed to get branch1 id");
         let branch2_id = run_jj_command(
             &repo_path,
-            &["log", "-r", "branch2", "--no-graph", "-T", "commit_id"],
+            ["log", "-r", "branch2", "--no-graph", "-T", "commit_id"],
         )
         .expect("Failed to get branch2 id");
 
         run_jj_command(
             &repo_path,
-            &["new", branch1_id.stdout.trim(), branch2_id.stdout.trim()],
+            ["new", branch1_id.stdout.trim(), branch2_id.stdout.trim()],
         )
         .expect("Failed to create merge");
-        run_jj_command(&repo_path, &["describe", "-m", "merge-commit"])
+        run_jj_command(&repo_path, ["describe", "-m", "merge-commit"])
             .expect("Failed to describe merge");
-        run_jj_command(&repo_path, &["bookmark", "create", "wip"])
+        run_jj_command(&repo_path, ["bookmark", "create", "wip"])
             .expect("Failed to create wip bookmark");
 
         // Create a normal linear bookmark
-        run_jj_command(&repo_path, &["new", "root()"]).expect("Failed to create new change");
-        run_jj_command(&repo_path, &["describe", "-m", "feature-a-commit"])
+        run_jj_command(&repo_path, ["new", "root()"]).expect("Failed to create new change");
+        run_jj_command(&repo_path, ["describe", "-m", "feature-a-commit"])
             .expect("Failed to describe");
-        run_jj_command(&repo_path, &["bookmark", "create", "feature-a"])
+        run_jj_command(&repo_path, ["bookmark", "create", "feature-a"])
             .expect("Failed to create feature-a");
 
         let jj = Jujutsu::new(repo_path.clone()).unwrap();

@@ -13,7 +13,7 @@ use crate::{
     cli::CliConfig,
     config::Config,
     error::{Error, Result},
-    forge::gitlab::GitLabForge,
+    forge::create_forge,
     jj::Jujutsu,
     submit::{
         analyze,
@@ -77,13 +77,7 @@ pub async fn submit(config: SubmitCommandConfig, cli_config: CliConfig<'_>) -> R
     debug!("Loading configuration");
     let repo_config = Config::load(&cli_config.repository)?;
 
-    let gitlab = GitLabForge::new(
-        repo_config.gitlab_host.clone(),
-        repo_config.gitlab_project.clone(),
-        repo_config.gitlab_token.clone(),
-        repo_config.ca_bundle.clone(),
-        repo_config.tls_accept_non_compliant_certs,
-    )?;
+    let forge = create_forge(&repo_config)?;
 
     debug!(
         "Using default branch from config: {}",
@@ -130,7 +124,7 @@ pub async fn submit(config: SubmitCommandConfig, cli_config: CliConfig<'_>) -> R
     let submission_plan = plan::plan(
         &analysis,
         &jj,
-        &gitlab,
+        forge.as_ref(),
         &repo_config,
         &bookmark_graph,
         config.dry_run,
@@ -139,7 +133,8 @@ pub async fn submit(config: SubmitCommandConfig, cli_config: CliConfig<'_>) -> R
     .await?;
 
     debug!("Executing submission plan");
-    let result = execute::execute(&submission_plan, &jj, &gitlab, &repo_config, output).await?;
+    let result =
+        execute::execute(&submission_plan, &jj, forge.as_ref(), &repo_config, output).await?;
 
     output.finish();
 

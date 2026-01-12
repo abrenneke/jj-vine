@@ -1,10 +1,11 @@
+pub mod github;
 pub mod gitlab;
 
 use async_trait::async_trait;
 use bon::Builder;
 use serde::{Deserialize, Serialize};
 
-use crate::error::Result;
+use crate::{description::FormatMergeRequest, error::Result};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ForgeUser {
@@ -18,36 +19,42 @@ pub struct ForgeUser {
 #[derive(Debug, Clone)]
 pub enum ForgeMergeRequest {
     GitLab(gitlab::MergeRequest),
+    GitHub(github::PullRequest),
 }
 
 impl ForgeMergeRequest {
     pub fn iid(&self) -> u64 {
         match self {
             ForgeMergeRequest::GitLab(mr) => mr.iid,
+            ForgeMergeRequest::GitHub(pr) => pr.number,
         }
     }
 
     pub fn title(&self) -> &str {
         match self {
             ForgeMergeRequest::GitLab(mr) => &mr.title,
+            ForgeMergeRequest::GitHub(pr) => &pr.title,
         }
     }
 
     pub fn description(&self) -> &str {
         match self {
             ForgeMergeRequest::GitLab(mr) => mr.description.as_deref().unwrap_or(""),
+            ForgeMergeRequest::GitHub(pr) => pr.body.as_deref().unwrap_or(""),
         }
     }
 
     pub fn source_branch(&self) -> &str {
         match self {
             ForgeMergeRequest::GitLab(mr) => &mr.source_branch,
+            ForgeMergeRequest::GitHub(pr) => &pr.head.ref_name,
         }
     }
 
     pub fn target_branch(&self) -> &str {
         match self {
             ForgeMergeRequest::GitLab(mr) => &mr.target_branch,
+            ForgeMergeRequest::GitHub(pr) => &pr.base.ref_name,
         }
     }
 
@@ -64,18 +71,29 @@ impl ForgeMergeRequest {
                     ForgeMergeRequestState::Open
                 }
             }
+            ForgeMergeRequest::GitHub(pr) => {
+                if pr.merged {
+                    ForgeMergeRequestState::Merged
+                } else if pr.state == "open" {
+                    ForgeMergeRequestState::Open
+                } else {
+                    ForgeMergeRequestState::Closed
+                }
+            }
         }
     }
 
     pub fn url(&self) -> &str {
         match self {
             ForgeMergeRequest::GitLab(mr) => &mr.web_url,
+            ForgeMergeRequest::GitHub(pr) => &pr.html_url,
         }
     }
 
     pub fn author_username(&self) -> &str {
         match self {
             ForgeMergeRequest::GitLab(mr) => &mr.author.username,
+            ForgeMergeRequest::GitHub(pr) => &pr.user.login,
         }
     }
 
@@ -85,12 +103,22 @@ impl ForgeMergeRequest {
                 .created_at
                 .parse()
                 .expect("Failed to parse created at timestamp from GitLab API response"),
+            ForgeMergeRequest::GitHub(pr) => pr
+                .created_at
+                .parse()
+                .expect("Failed to parse created at timestamp from GitHub API response"),
         }
     }
 
     pub fn assignees(&self) -> Vec<ForgeUser> {
         match self {
             ForgeMergeRequest::GitLab(mr) => mr
+                .assignees
+                .clone()
+                .into_iter()
+                .map(ForgeUser::from)
+                .collect(),
+            ForgeMergeRequest::GitHub(pr) => pr
                 .assignees
                 .clone()
                 .into_iter()
@@ -103,6 +131,12 @@ impl ForgeMergeRequest {
         match self {
             ForgeMergeRequest::GitLab(mr) => mr
                 .reviewers
+                .clone()
+                .into_iter()
+                .map(ForgeUser::from)
+                .collect(),
+            ForgeMergeRequest::GitHub(pr) => pr
+                .requested_reviewers
                 .clone()
                 .into_iter()
                 .map(ForgeUser::from)
@@ -147,7 +181,7 @@ pub struct ForgeCreateMergeRequestOptions {
 
 /// A trait for a code forge (e.g. GitLab, GitHub, Forgejo, etc.)
 #[async_trait]
-pub trait Forge: Send + Sync {
+pub trait Forge: Send + Sync + FormatMergeRequest {
     /// The project ID of the project in the forge. E.g. "group/project" or
     /// "12345" for a numeric project ID. Combined with the base URL, this forms
     /// the full URL to the project in the forge.
@@ -196,4 +230,42 @@ pub trait Forge: Send + Sync {
 
     /// Get a specific merge request by IID
     async fn get_merge_request(&self, merge_request_iid: u64) -> Result<ForgeMergeRequest>;
+}
+
+/// Create a forge instance based on configuration
+pub fn create_forge(config: &crate::config::Config) -> Result<Box<dyn Forge>> {
+    match config.forge {
+        crate::config::ForgeType::GitLab => {
+            let gitlab_host = if !config.gitlab.host.is_empty() {
+                config.gitlab.host.clone()
+            } else {
+                "https://gitlab.com".to_string()
+            };
+
+            let forge = gitlab::GitLabForge::new(
+                gitlab_host,
+                config.gitlab.project.clone(),
+                config.gitlab.token.clone(),
+                config.ca_bundle.clone(),
+                config.tls_accept_non_compliant_certs,
+            )?;
+            Ok(Box::new(forge))
+        }
+        crate::config::ForgeType::GitHub => {
+            let github_host = if !config.github.host.is_empty() {
+                config.github.host.clone()
+            } else {
+                "https://api.github.com".to_string()
+            };
+
+            let forge = github::GitHubForge::new(
+                github_host,
+                config.github.project.clone(),
+                config.github.token.clone(),
+                config.ca_bundle.clone(),
+                config.tls_accept_non_compliant_certs,
+            )?;
+            Ok(Box::new(forge))
+        }
+    }
 }

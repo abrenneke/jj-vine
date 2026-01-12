@@ -8,7 +8,7 @@ use crate::{
     cli::CliConfig,
     commands::submit::SubmitCommandConfig,
     error::Result,
-    forge::gitlab::GitLabForge,
+    forge::{github::GitHubForge, gitlab::GitLabForge},
     jj::Jujutsu,
     output::BufferedOutput,
 };
@@ -29,6 +29,9 @@ pub struct TestRepo {
 
     /// GitLab API client
     client: Option<GitLabForge>,
+
+    /// GitHub API client
+    github_client: Option<GitHubForge>,
 }
 
 impl TestRepo {
@@ -52,6 +55,7 @@ impl TestRepo {
             dir,
             path,
             client: None,
+            github_client: None,
         }
     }
 
@@ -69,9 +73,16 @@ impl TestRepo {
 
         let mut repo = Self::new();
 
-        repo.jj(["config", "set", "--repo", "jj-vine.gitlabHost", &host]);
-        repo.jj(["config", "set", "--repo", "jj-vine.gitlabProject", &project]);
-        repo.jj(["config", "set", "--repo", "jj-vine.gitlabToken", &token]);
+        repo.jj(["config", "set", "--repo", "jj-vine.forge", "gitlab"]);
+        repo.jj(["config", "set", "--repo", "jj-vine.gitlab.host", &host]);
+        repo.jj([
+            "config",
+            "set",
+            "--repo",
+            "jj-vine.gitlab.project",
+            &project,
+        ]);
+        repo.jj(["config", "set", "--repo", "jj-vine.gitlab.token", &token]);
 
         if let Some(ref bundle) = ca_bundle {
             repo.jj(["config", "set", "--repo", "jj-vine.caBundle", bundle]);
@@ -108,10 +119,81 @@ impl TestRepo {
         repo
     }
 
+    pub fn with_github_remote() -> Self {
+        dotenv::dotenv().ok();
+
+        let host =
+            std::env::var("GITHUB_HOST").unwrap_or_else(|_| "https://api.github.com".to_string());
+        let project = std::env::var("GITHUB_PROJECT").expect("GITHUB_PROJECT required");
+        let token = std::env::var("GITHUB_TOKEN").expect("GITHUB_TOKEN required");
+        let ca_bundle = std::env::var("GITHUB_CA_BUNDLE").ok();
+        let accept_non_compliant = std::env::var("GITHUB_TLS_ACCEPT_NON_COMPLIANT_CERTS")
+            .ok()
+            .and_then(|v| v.parse::<bool>().ok())
+            .unwrap_or(false);
+
+        let mut repo = Self::new();
+
+        repo.jj(["config", "set", "--repo", "jj-vine.forge", "github"]);
+        repo.jj(["config", "set", "--repo", "jj-vine.github.host", &host]);
+        repo.jj([
+            "config",
+            "set",
+            "--repo",
+            "jj-vine.github.project",
+            &project,
+        ]);
+        repo.jj(["config", "set", "--repo", "jj-vine.github.token", &token]);
+
+        if let Some(ref bundle) = ca_bundle {
+            repo.jj(["config", "set", "--repo", "jj-vine.caBundle", bundle]);
+        }
+
+        if accept_non_compliant {
+            repo.jj([
+                "config",
+                "set",
+                "--repo",
+                "jj-vine.tlsAcceptNonCompliantCerts",
+                "true",
+            ]);
+        }
+
+        // Add git remote
+        // Convert API URL to git remote host: api.github.com -> github.com
+        let hostname = host
+            .trim_end_matches('/')
+            .trim_start_matches("https://")
+            .trim_start_matches("http://")
+            .replace("api.github.com", "github.com")
+            .trim_end_matches("/api/v3")
+            .to_string();
+        let remote_url = format!("git@{}:{}.git", hostname, project);
+
+        repo.jj(["git", "remote", "add", "origin", &remote_url]);
+
+        let client = GitHubForge::new(host, project, token, ca_bundle, accept_non_compliant)
+            .expect("Failed to create GitHub client");
+
+        repo.github_client = Some(client);
+
+        // Fetch and track main so tests don't have to
+        repo.jj(["git", "fetch"]);
+        repo.jj(["bookmark", "track", "main@origin"]);
+
+        repo
+    }
+
     pub fn gitlab(&self) -> &GitLabForge {
         self.client
             .as_ref()
             .expect("GitLab client not initialized, use with_gitlab_remote() instead of new()")
+    }
+
+    pub fn github(&self) -> &GitHubForge {
+        self.github_client
+            .as_ref()
+            .expect("GitHub client not initialized, use with_github_remote() instead of new()")
     }
 
     pub fn jj<'a>(&self, args: impl AsRef<[&'a str]>) -> String {
@@ -139,7 +221,7 @@ impl TestRepo {
     /// If a remote is configured, also tracks the bookmark.
     pub fn create_bookmark(&self, name: &str) -> &Self {
         self.jj(["bookmark", "create", name]);
-        if self.client.is_some() {
+        if self.client.is_some() || self.github_client.is_some() {
             self.jj(["bookmark", "track", &format!("{}@origin", name)]);
         }
         self

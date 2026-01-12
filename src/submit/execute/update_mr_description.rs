@@ -101,6 +101,7 @@ impl ExecuteAction for UpdateMRDescriptionAction {
                     &all_mrs,
                     &ctx.config.stack_format,
                     &ctx.config.default_branch,
+                    ctx.forge,
                 ) {
                     Ok(stack_content) => {
                         let new_description = desc_manager.build_description(

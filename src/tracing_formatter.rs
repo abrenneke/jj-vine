@@ -54,7 +54,7 @@ where
         // Optionally write timestamp
         if self.display_timestamp {
             let now = jiff::Timestamp::now();
-            write!(writer, "{} ", now.to_string())?;
+            write!(writer, "{} ", now)?;
         }
 
         // Optionally write level

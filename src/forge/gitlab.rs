@@ -3,6 +3,7 @@ use reqwest::Method;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::{
+    description::FormatMergeRequest,
     error::{Error, Result},
     forge::{Forge, ForgeCreateMergeRequestOptions, ForgeMergeRequest, ForgeUser},
 };
@@ -272,6 +273,12 @@ impl Forge for GitLabForge {
             .await?;
 
         Ok(ForgeMergeRequest::GitLab(mr))
+    }
+}
+
+impl FormatMergeRequest for GitLabForge {
+    fn format_merge_request_id(&self, mr_iid: &str) -> String {
+        format!("!{}", mr_iid)
     }
 }
 

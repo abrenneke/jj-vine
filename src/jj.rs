@@ -1,5 +1,5 @@
 use std::{
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{Command, ExitStatus},
 };
 
@@ -390,18 +390,21 @@ pub fn which_jj() -> Result<PathBuf> {
 }
 
 /// Run a jj command and return the output
-pub fn run_jj_command(repo_path: &PathBuf, args: &[&str]) -> Result<CommandOutput> {
+pub fn run_jj_command<'a>(
+    repo_path: impl AsRef<Path>,
+    args: impl AsRef<[&'a str]>,
+) -> Result<CommandOutput> {
     let jj_bin = which_jj()?;
     let output = Command::new(&jj_bin)
         .current_dir(repo_path)
-        .args(args)
+        .args(args.as_ref())
         .output()?;
 
     if !output.status.success() {
         return Err(Error::JjCommand {
             message: format!(
                 "jj {} failed: {}",
-                args.join(" "),
+                args.as_ref().join(" "),
                 String::from_utf8_lossy(&output.stderr)
             ),
             output: Some(output),
@@ -465,19 +468,19 @@ mod tests {
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
         let repo_path = temp_dir.path().to_path_buf();
 
-        run_jj_command(&repo_path, &["git", "init"]).expect("Failed to init jj repo");
+        run_jj_command(&repo_path, ["git", "init"]).expect("Failed to init jj repo");
         run_jj_command(
             &repo_path,
-            &["config", "set", "--repo", "user.name", "Test User"],
+            ["config", "set", "--repo", "user.name", "Test User"],
         )
         .expect("Failed to set user name");
         run_jj_command(
             &repo_path,
-            &["config", "set", "--repo", "user.email", "test@example.com"],
+            ["config", "set", "--repo", "user.email", "test@example.com"],
         )
         .expect("Failed to set user email");
 
-        run_jj_command(&repo_path, &["metaedit", "--update-author"])
+        run_jj_command(&repo_path, ["metaedit", "--update-author"])
             .expect("Failed to update author");
 
         // Create an initial commit
@@ -632,7 +635,7 @@ mod tests {
         std::fs::write(repo_path.join("test.txt"), "test content\n")
             .expect("Failed to write test file");
 
-        run_jj_command(&repo_path, &["describe", "-m", "Second commit"])
+        run_jj_command(&repo_path, ["describe", "-m", "Second commit"])
             .expect("Failed to describe commit");
 
         // Get changes between root and current
@@ -775,7 +778,7 @@ mod tests {
         let jj = Jujutsu::new(repo_path.clone()).expect("Failed to create Jujutsu instance");
 
         // Create a local bookmark
-        run_jj_command(&repo_path, &["bookmark", "create", "local-only"])
+        run_jj_command(&repo_path, ["bookmark", "create", "local-only"])
             .expect("Failed to create bookmark");
 
         // The bookmark exists locally but hasn't been pushed to any remote
@@ -797,7 +800,7 @@ mod tests {
         let jj = Jujutsu::new(repo_path.clone()).expect("Failed to create Jujutsu instance");
 
         // Create a bookmark
-        run_jj_command(&repo_path, &["bookmark", "create", "feature-a"])
+        run_jj_command(&repo_path, ["bookmark", "create", "feature-a"])
             .expect("Failed to create bookmark");
 
         // Set up a bare git repo to act as a remote
@@ -812,8 +815,8 @@ mod tests {
 
         // Add the remote
         run_jj_command(
-            &repo_path,
-            &[
+            repo_path,
+            [
                 "git",
                 "remote",
                 "add",

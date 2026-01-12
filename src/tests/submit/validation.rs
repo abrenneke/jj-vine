@@ -140,9 +140,15 @@ async fn test_push_failure_skips_mr_creation() {
     repo.jj(["bookmark", "track", "main@origin"]);
 
     // Configure jj-vine to point to GitLab (for MR creation attempt)
-    repo.jj(["config", "set", "--repo", "jj-vine.gitlabHost", &host]);
-    repo.jj(["config", "set", "--repo", "jj-vine.gitlabProject", &project]);
-    repo.jj(["config", "set", "--repo", "jj-vine.gitlabToken", &token]);
+    repo.jj(["config", "set", "--repo", "jj-vine.gitlab.host", &host]);
+    repo.jj([
+        "config",
+        "set",
+        "--repo",
+        "jj-vine.gitlab.project",
+        &project,
+    ]);
+    repo.jj(["config", "set", "--repo", "jj-vine.gitlab.token", &token]);
 
     // Create feature bookmark
     repo.jj(["new", "main"]);
