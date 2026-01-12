@@ -1,0 +1,205 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Tag name for the Codeberg release"
+        required: true
+        type: string
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@nightly
+
+      - uses: extractions/setup-just@v3
+
+      - name: Cache cargo registry
+        uses: actions/cache@v5
+        with:
+          path: ~/.cargo/registry
+          key: linux-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo index
+        uses: actions/cache@v5
+        with:
+          path: ~/.cargo/git
+          key: linux-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo build
+        uses: actions/cache@v5
+        with:
+          path: target
+          key: linux-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build, lint, and test
+        run: just
+
+  build:
+    name: Build - ${{ matrix.platform.target }}
+    runs-on: ${{ matrix.platform.os }}
+    needs: test
+    permissions:
+      id-token: write
+      contents: read
+      attestations: write
+    strategy:
+      fail-fast: true
+      matrix:
+        # https://github.com/actions/runner-images
+        # https://github.com/actions/partner-runner-images
+        platform:
+          - os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            arch: x64
+            name: linux-x64
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            arch: arm64
+            name: linux-arm64
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+            arch: x64
+            name: macos-x64
+          - os: macos-15
+            target: aarch64-apple-darwin
+            arch: arm64
+            name: macos-arm64
+          - os: windows-2025
+            target: x86_64-pc-windows-msvc
+            arch: x64
+            name: windows-x64
+          - os: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            arch: arm64
+            name: windows-arm64
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: ${{ matrix.platform.target }}
+
+      - name: Cache cargo registry
+        uses: actions/cache@v5
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-${{ matrix.platform.target }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo index
+        uses: actions/cache@v5
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-${{ matrix.platform.target }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo build
+        uses: actions/cache@v5
+        with:
+          path: target
+          key: ${{ runner.os }}-${{ matrix.platform.target }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.platform.target }}
+
+      - name: Prepare binary (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p dist
+          cp target/${{ matrix.platform.target }}/release/jj-vine dist/jj-vine-${{ matrix.platform.target }}-v${{ github.ref_name }}
+          chmod +x dist/jj-vine-${{ matrix.platform.target }}-v${{ github.ref_name }}
+
+      - name: Prepare binary (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          New-Item -ItemType Directory -Force -Path dist
+          Copy-Item target/${{ matrix.platform.target }}/release/jj-vine.exe dist/jj-vine-${{ matrix.platform.target }}-v${{ github.ref_name }}.exe
+
+      - name: Generate SHA256 checksum (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          cd dist
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            shasum -a 256 jj-vine-${{ matrix.platform.target }}-v${{ github.ref_name }} > jj-vine-${{ matrix.platform.target }}-v${{ github.ref_name }}.sha256
+          else
+            sha256sum jj-vine-${{ matrix.platform.target }}-v${{ github.ref_name }} > jj-vine-${{ matrix.platform.target }}-v${{ github.ref_name }}.sha256
+          fi
+
+      - name: Generate SHA256 checksum (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          cd dist
+          $hash = (Get-FileHash -Algorithm SHA256 jj-vine-${{ matrix.platform.target }}-v${{ github.ref_name }}.exe).Hash.ToLower()
+          "$hash  jj-vine-${{ matrix.platform.target }}-v${{ github.ref_name }}.exe" | Out-File -Encoding ASCII jj-vine-${{ matrix.platform.target }}-v${{ github.ref_name }}.exe.sha256
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: jj-vine-${{ matrix.platform.target }}
+          path: dist/*
+          retention-days: 30
+
+      - name: Generate attestation (Unix)
+        if: runner.os != 'Windows'
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: dist/jj-vine-${{ matrix.platform.target }}-v${{ github.ref_name }}
+
+      - name: Generate attestation (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: dist/jj-vine-${{ matrix.platform.target }}-v${{ github.ref_name }}.exe
+
+  release:
+    name: Update Codeberg Release
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v7
+        with:
+          path: artifacts
+
+      - name: Upload to Existing Codeberg Release
+        env:
+          CODEBERG_TOKEN: ${{ secrets.CODEBERG_TOKEN }}
+          TAG_NAME: ${{ inputs.tag_name }}
+        run: |
+          # Find existing release on Codeberg by tag
+          RELEASE_RESPONSE=$(curl -s \
+            -H "Authorization: token $CODEBERG_TOKEN" \
+            "https://codeberg.org/api/v1/repos/abrenneke/jj-vine/releases/tags/$TAG_NAME")
+
+          RELEASE_ID=$(echo "$RELEASE_RESPONSE" | jq -r '.id')
+
+          if [ "$RELEASE_ID" = "null" ] || [ -z "$RELEASE_ID" ]; then
+            echo "Error: Release not found for tag $TAG_NAME"
+            exit 1
+          fi
+
+          echo "Found release with ID: $RELEASE_ID"
+
+          # Upload all artifacts to the release
+          find artifacts -type f | while read -r file; do
+            filename=$(basename "$file")
+            echo "Uploading $filename..."
+            curl -X POST \
+              -H "Authorization: token $CODEBERG_TOKEN" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary "@$file" \
+              "https://codeberg.org/api/v1/repos/abrenneke/jj-vine/releases/$RELEASE_ID/assets?name=$filename"
+          done
