@@ -170,8 +170,9 @@ Enabled when `jj-vine.forge` is set to `gitlab`.
 | Setting | Description |
 |---------|-------------|
 | `gitlab.host` | GitLab instance URL (e.g., `https://gitlab.example.com`) |
-| `gitlab.project` | Project ID (`group/project` or numeric ID like `12345`) |
+| `gitlab.project` | Project ID where branches are pushed (`group/project` or numeric ID like `12345`) |
 | `gitlab.token` | Personal Access Token with `api` scope |
+| `gitlab.target_project` | *(Optional)* Target project ID for merge requests (e.g., `upstream/project`). If set and different from `project` (forks). |
 
 #### GitHub
 
@@ -180,8 +181,9 @@ Enabled when `jj-vine.forge` is set to `github`.
 | Setting | Description |
 |---------|-------------|
 | `github.host` | GitHub API URL (defaults to `https://api.github.com` for GitHub.com, or `https://github.example.com/api/v3` for Enterprise) |
-| `github.project` | Repository in `owner/repo` format |
+| `github.project` | Repository where branches are pushed in `owner/repo` format |
 | `github.token` | Personal Access Token with `repo` scope |
+| `github.target_project` | *(Optional)* Target repository for pull requests (e.g., `upstream-owner/repo`). If set and different from `project` (forks). |
 
 #### Forgejo/Codeberg/Gitea
 
@@ -190,8 +192,9 @@ Enabled when `jj-vine.forge` is set to `forgejo`.
 | Setting | Description |
 |---------|-------------|
 | `forgejo.host` | Forgejo/Codeberg/Gitea instance URL (e.g., `https://codeberg.org`) |
-| `forgejo.project` | Repository in `owner/repo` format |
+| `forgejo.project` | Repository where branches are pushed in `owner/repo` format |
 | `forgejo.token` | API access token with `repo` scope |
+| `forgejo.target_project` | *(Optional)* Target repository for pull requests (e.g., `upstream-owner/repo`). If set and different from `project` (forks). |
 
 ### Common Optional Settings
 

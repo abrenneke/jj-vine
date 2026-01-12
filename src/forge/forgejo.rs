@@ -13,9 +13,15 @@ use crate::{
 /// Forgejo/Gitea REST API client
 pub struct ForgejoForge {
     base_url: String,
-    project_id: String,
-    owner: String,
-    repo: String,
+    source_project_id: String,
+    target_project_id: String,
+    source_owner: String,
+
+    #[allow(dead_code)]
+    source_repo: String,
+
+    target_owner: String,
+    target_repo: String,
     token: String,
     client: reqwest::Client,
 }
@@ -112,7 +118,8 @@ impl ForgejoForge {
     /// * `accept_non_compliant_certs` - Accept non-compliant TLS certificates
     pub fn new(
         base_url: impl Into<String>,
-        project_id: impl Into<String>,
+        source_project_id: impl Into<String>,
+        target_project_id: impl Into<String>,
         token: impl Into<String>,
         ca_bundle: Option<impl AsRef<Path>>,
         accept_non_compliant_certs: bool,
@@ -150,18 +157,33 @@ impl ForgejoForge {
         // URLs
         let base_url = base_url.into().trim_end_matches('/').to_string();
 
-        let project_id = project_id.into();
+        let source_project_id = source_project_id.into();
+        let target_project_id = target_project_id.into();
 
-        let project_id_temp = project_id.clone();
-        let (owner, repo) = project_id_temp.split_once('/').ok_or(Error::Config {
-            message: format!("Invalid project ID: {}", project_id),
-        })?;
+        let source_project_id_clone = source_project_id.clone();
+        let (source_owner, source_repo) =
+            source_project_id_clone
+                .split_once('/')
+                .ok_or(Error::Config {
+                    message: format!("Invalid source project ID: {}", source_project_id),
+                })?;
+
+        let target_project_id_clone = target_project_id.clone();
+        let (target_owner, target_repo) =
+            target_project_id_clone
+                .split_once('/')
+                .ok_or(Error::Config {
+                    message: format!("Invalid target project ID: {}", target_project_id),
+                })?;
 
         Ok(Self {
             base_url,
-            project_id,
-            owner: owner.into(),
-            repo: repo.into(),
+            source_project_id,
+            target_project_id,
+            source_owner: source_owner.into(),
+            source_repo: source_repo.into(),
+            target_owner: target_owner.into(),
+            target_repo: target_repo.into(),
             token: token.into(),
             client,
         })
@@ -213,7 +235,7 @@ impl ForgejoForge {
             Method::POST,
             format!(
                 "/repos/{}/{}/issues/{}/assignees",
-                self.owner, self.repo, pr_number
+                self.target_owner, self.target_repo, pr_number
             ),
             Some(serde_json::json!({
                 "assignees": assignee_usernames,
@@ -232,7 +254,7 @@ impl ForgejoForge {
             Method::POST,
             format!(
                 "/repos/{}/{}/pulls/{}/requested_reviewers",
-                self.owner, self.repo, pr_number
+                self.target_owner, self.target_repo, pr_number
             ),
             Some(serde_json::json!({
                 "reviewers": reviewer_usernames,
@@ -246,7 +268,15 @@ impl ForgejoForge {
 #[async_trait]
 impl Forge for ForgejoForge {
     fn project_id(&self) -> &str {
-        &self.project_id
+        &self.target_project_id
+    }
+
+    fn source_project_id(&self) -> &str {
+        &self.source_project_id
+    }
+
+    fn target_project_id(&self) -> &str {
+        &self.target_project_id
     }
 
     fn base_url(&self) -> &str {
@@ -254,7 +284,7 @@ impl Forge for ForgejoForge {
     }
 
     fn project_url(&self) -> String {
-        format!("{}/{}", self.base_url, self.project_id)
+        format!("{}/{}", self.base_url, self.target_project_id)
     }
 
     async fn current_user(&self) -> Result<ForgeUser> {
@@ -296,8 +326,8 @@ impl Forge for ForgejoForge {
                     Method::GET,
                     format!(
                         "/repos/{}/{}/pulls?state=open&poster={}&page={}&limit={}",
-                        self.owner,
-                        self.repo,
+                        self.target_owner,
+                        self.target_repo,
                         urlencoding::encode(&user),
                         page,
                         limit
@@ -326,11 +356,18 @@ impl Forge for ForgejoForge {
         &self,
         options: ForgeCreateMergeRequestOptions,
     ) -> Result<ForgeMergeRequest> {
-        let url = format!("/repos/{}/{}/pulls", self.owner, self.repo);
+        let url = format!("/repos/{}/{}/pulls", self.target_owner, self.target_repo);
+
+        // For fork workflows, head needs to be "owner:branch"
+        let head = if self.source_project_id != self.target_project_id {
+            format!("{}:{}", self.source_owner, options.source_branch)
+        } else {
+            options.source_branch.clone()
+        };
 
         let mut payload = serde_json::json!({
             "title": options.title,
-            "head": options.source_branch,
+            "head": head,
             "base": options.target_branch,
         });
 
@@ -363,7 +400,10 @@ impl Forge for ForgejoForge {
         let pr: PullRequest = self
             .request(
                 Method::PATCH,
-                format!("/repos/{}/{}/pulls/{}", self.owner, self.repo, pr_number),
+                format!(
+                    "/repos/{}/{}/pulls/{}",
+                    self.target_owner, self.target_repo, pr_number
+                ),
                 Some(serde_json::json!({
                     "base": new_base,
                 })),
@@ -381,7 +421,10 @@ impl Forge for ForgejoForge {
         let pr: PullRequest = self
             .request(
                 Method::PATCH,
-                format!("/repos/{}/{}/pulls/{}", self.owner, self.repo, pr_number),
+                format!(
+                    "/repos/{}/{}/pulls/{}",
+                    self.target_owner, self.target_repo, pr_number
+                ),
                 Some(serde_json::json!({
                     "body": new_description,
                 })),
@@ -395,7 +438,10 @@ impl Forge for ForgejoForge {
         let pr: PullRequest = self
             .request(
                 Method::GET,
-                format!("/repos/{}/{}/pulls/{}", self.owner, self.repo, pr_number),
+                format!(
+                    "/repos/{}/{}/pulls/{}",
+                    self.target_owner, self.target_repo, pr_number
+                ),
                 None::<()>,
             )
             .await?;
@@ -419,6 +465,7 @@ mod tests {
         let forge = ForgejoForge::new(
             "https://codeberg.org".to_string(),
             "owner/repo".to_string(),
+            "owner/repo".to_string(),
             "test-token".to_string(),
             None::<&str>,
             false,
@@ -427,16 +474,20 @@ mod tests {
         assert!(forge.is_ok());
         let forge = forge.unwrap();
         assert_eq!(forge.base_url, "https://codeberg.org");
-        assert_eq!(forge.project_id, "owner/repo");
+        assert_eq!(forge.source_project_id, "owner/repo");
+        assert_eq!(forge.target_project_id, "owner/repo");
         assert_eq!(forge.token, "test-token");
-        assert_eq!(forge.owner, "owner");
-        assert_eq!(forge.repo, "repo");
+        assert_eq!(forge.source_owner, "owner");
+        assert_eq!(forge.source_repo, "repo");
+        assert_eq!(forge.target_owner, "owner");
+        assert_eq!(forge.target_repo, "repo");
     }
 
     #[test]
     fn test_forgejo_client_new_with_trailing_slash() {
         let forge = ForgejoForge::new(
             "https://codeberg.org/".to_string(),
+            "owner/repo".to_string(),
             "owner/repo".to_string(),
             "test-token".to_string(),
             None::<&str>,

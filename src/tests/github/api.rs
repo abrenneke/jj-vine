@@ -212,6 +212,7 @@ async fn test_invalid_token_errors_clearly() {
     // Create client with invalid token
     let client = GitHubForge::new(
         host,
+        project.clone(),
         project,
         "ghp_invalid_token_12345".to_string(),
         ca_bundle,
@@ -259,6 +260,7 @@ async fn test_nonexistent_project_errors_clearly() {
     // Create client with nonexistent project
     let client = GitHubForge::new(
         host,
+        "nonexistent/fake-project-12345".to_string(),
         "nonexistent/fake-project-12345".to_string(),
         token,
         ca_bundle,

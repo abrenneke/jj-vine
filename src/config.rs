@@ -149,7 +149,7 @@ pub struct Config {
     pub forgejo: ForgejoConfig,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct GitLabConfig {
     /// GitLab instance URL (e.g., <https://gitlab.example.com>)
@@ -160,22 +160,38 @@ pub struct GitLabConfig {
     #[serde(default)]
     pub project: String,
 
+    /// Target project for MRs (if different from project, enables fork
+    /// workflow)
+    #[serde(default)]
+    pub target_project: String,
+
     /// GitLab Personal Access Token
     #[serde(default)]
     pub token: String,
 }
 
-impl Default for GitLabConfig {
-    fn default() -> Self {
-        Self {
-            host: "".to_string(),
-            project: "".to_string(),
-            token: "".to_string(),
+impl GitLabConfig {
+    /// Get the project where MRs target
+    pub fn target_project(&self) -> &str {
+        if self.target_project.is_empty() {
+            &self.project
+        } else {
+            &self.target_project
         }
+    }
+
+    /// Get the project where branches are pushed
+    pub fn source_project(&self) -> &str {
+        &self.project
+    }
+
+    /// Check if this is a fork workflow (target differs from source)
+    pub fn is_fork_workflow(&self) -> bool {
+        self.target_project() != self.project
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct GitHubConfig {
     /// GitHub API URL (e.g., "https://api.github.com" or "https://github.example.com/api/v3")
@@ -186,22 +202,38 @@ pub struct GitHubConfig {
     #[serde(default)]
     pub project: String,
 
+    /// Target repository for PRs (if different from project, enables fork
+    /// workflow)
+    #[serde(default)]
+    pub target_project: String,
+
     /// GitHub Personal Access Token
     #[serde(default)]
     pub token: String,
 }
 
-impl Default for GitHubConfig {
-    fn default() -> Self {
-        Self {
-            host: "".to_string(),
-            project: "".to_string(),
-            token: "".to_string(),
+impl GitHubConfig {
+    /// Get the repository where PRs target
+    pub fn target_project(&self) -> &str {
+        if self.target_project.is_empty() {
+            &self.project
+        } else {
+            &self.target_project
         }
+    }
+
+    /// Get the repository where branches are pushed
+    pub fn source_project(&self) -> &str {
+        &self.project
+    }
+
+    /// Check if this is a fork workflow (target differs from source)
+    pub fn is_fork_workflow(&self) -> bool {
+        self.target_project() != self.project
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ForgejoConfig {
     /// Forgejo/Gitea instance URL (e.g., <https://codeberg.org>)
@@ -212,18 +244,34 @@ pub struct ForgejoConfig {
     #[serde(default)]
     pub project: String,
 
+    /// Target repository for PRs (if different from project, enables fork
+    /// workflow)
+    #[serde(default)]
+    pub target_project: String,
+
     /// API access token
     #[serde(default)]
     pub token: String,
 }
 
-impl Default for ForgejoConfig {
-    fn default() -> Self {
-        Self {
-            host: "".to_string(),
-            project: "".to_string(),
-            token: "".to_string(),
+impl ForgejoConfig {
+    /// Get the repository where PRs target
+    pub fn target_project(&self) -> &str {
+        if self.target_project.is_empty() {
+            &self.project
+        } else {
+            &self.target_project
         }
+    }
+
+    /// Get the repository where branches are pushed
+    pub fn source_project(&self) -> &str {
+        &self.project
+    }
+
+    /// Check if this is a fork workflow (target differs from source)
+    pub fn is_fork_workflow(&self) -> bool {
+        self.target_project() != self.project
     }
 }
 
@@ -959,5 +1007,103 @@ mod tests {
             config.default_reviewers,
             vec!["reviewer1", "reviewer2", "reviewer3"]
         );
+    }
+
+    #[test]
+    fn test_gitlab_direct_mode_without_target() {
+        let config = GitLabConfig {
+            host: "https://gitlab.com".to_string(),
+            project: "myuser/myrepo".to_string(),
+            target_project: "".to_string(),
+            token: "token".to_string(),
+        };
+
+        assert_eq!(config.target_project(), "myuser/myrepo");
+        assert_eq!(config.source_project(), "myuser/myrepo");
+        assert!(!config.is_fork_workflow());
+    }
+
+    #[test]
+    fn test_gitlab_fork_mode_with_different_target() {
+        let config = GitLabConfig {
+            host: "https://gitlab.com".to_string(),
+            project: "myuser/fork".to_string(),
+            target_project: "upstream/repo".to_string(),
+            token: "token".to_string(),
+        };
+
+        assert_eq!(config.target_project(), "upstream/repo");
+        assert_eq!(config.source_project(), "myuser/fork");
+        assert!(config.is_fork_workflow());
+    }
+
+    #[test]
+    fn test_gitlab_fork_mode_with_same_target() {
+        let config = GitLabConfig {
+            host: "https://gitlab.com".to_string(),
+            project: "myuser/repo".to_string(),
+            target_project: "myuser/repo".to_string(),
+            token: "token".to_string(),
+        };
+
+        assert_eq!(config.target_project(), "myuser/repo");
+        assert_eq!(config.source_project(), "myuser/repo");
+        assert!(!config.is_fork_workflow());
+    }
+
+    #[test]
+    fn test_github_direct_mode_without_target() {
+        let config = GitHubConfig {
+            host: "https://api.github.com".to_string(),
+            project: "myuser/myrepo".to_string(),
+            target_project: "".to_string(),
+            token: "token".to_string(),
+        };
+
+        assert_eq!(config.target_project(), "myuser/myrepo");
+        assert_eq!(config.source_project(), "myuser/myrepo");
+        assert!(!config.is_fork_workflow());
+    }
+
+    #[test]
+    fn test_github_fork_mode_with_different_target() {
+        let config = GitHubConfig {
+            host: "https://api.github.com".to_string(),
+            project: "myuser/fork".to_string(),
+            target_project: "upstream/repo".to_string(),
+            token: "token".to_string(),
+        };
+
+        assert_eq!(config.target_project(), "upstream/repo");
+        assert_eq!(config.source_project(), "myuser/fork");
+        assert!(config.is_fork_workflow());
+    }
+
+    #[test]
+    fn test_forgejo_direct_mode_without_target() {
+        let config = ForgejoConfig {
+            host: "https://codeberg.org".to_string(),
+            project: "myuser/myrepo".to_string(),
+            target_project: "".to_string(),
+            token: "token".to_string(),
+        };
+
+        assert_eq!(config.target_project(), "myuser/myrepo");
+        assert_eq!(config.source_project(), "myuser/myrepo");
+        assert!(!config.is_fork_workflow());
+    }
+
+    #[test]
+    fn test_forgejo_fork_mode_with_different_target() {
+        let config = ForgejoConfig {
+            host: "https://codeberg.org".to_string(),
+            project: "myuser/fork".to_string(),
+            target_project: "upstream/repo".to_string(),
+            token: "token".to_string(),
+        };
+
+        assert_eq!(config.target_project(), "upstream/repo");
+        assert_eq!(config.source_project(), "myuser/fork");
+        assert!(config.is_fork_workflow());
     }
 }

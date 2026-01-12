@@ -13,7 +13,8 @@ use crate::{
 /// GitLab REST API client
 pub struct GitLabForge {
     base_url: String,
-    project_id: String,
+    source_project_id: String,
+    target_project_id: String,
     token: String,
     client: reqwest::Client,
 }
@@ -38,13 +39,17 @@ impl GitLabForge {
     ///
     /// # Arguments
     /// * `base_url` - GitLab instance URL (e.g., <https://gitlab.example.com>)
-    /// * `project_id` - Project ID (e.g., "group/project" or "12345")
+    /// * `source_project_id` - Source project ID where branches are pushed
+    ///   (e.g., "user/fork")
+    /// * `target_project_id` - Target project ID where MRs are created (e.g.,
+    ///   "group/project")
     /// * `token` - Personal Access Token
     /// * `ca_bundle` - Optional path to CA bundle for TLS verification
     /// * `accept_non_compliant_certs` - Accept non-compliant TLS certificates
     pub fn new(
         base_url: impl Into<String>,
-        project_id: impl Into<String>,
+        source_project_id: impl Into<String>,
+        target_project_id: impl Into<String>,
         token: impl Into<String>,
         ca_bundle: Option<impl AsRef<Path>>,
         accept_non_compliant_certs: bool,
@@ -82,14 +87,15 @@ impl GitLabForge {
 
         Ok(Self {
             base_url: base_url.into(),
-            project_id: project_id.into(),
+            source_project_id: source_project_id.into(),
+            target_project_id: target_project_id.into(),
             token: token.into(),
             client,
         })
     }
 
-    fn encoded_project_id(&self) -> String {
-        urlencoding::encode(&self.project_id).to_string()
+    fn encoded_target_project_id(&self) -> String {
+        urlencoding::encode(&self.target_project_id).to_string()
     }
 
     async fn request<T: DeserializeOwned>(
@@ -133,7 +139,15 @@ impl GitLabForge {
 #[async_trait]
 impl Forge for GitLabForge {
     fn project_id(&self) -> &str {
-        &self.project_id
+        &self.target_project_id
+    }
+
+    fn source_project_id(&self) -> &str {
+        &self.source_project_id
+    }
+
+    fn target_project_id(&self) -> &str {
+        &self.target_project_id
     }
 
     fn base_url(&self) -> &str {
@@ -171,7 +185,7 @@ impl Forge for GitLabForge {
                 Method::GET,
                 format!(
                     "/api/v4/projects/{}/merge_requests?source_branch={}&state=opened",
-                    self.encoded_project_id(),
+                    self.encoded_target_project_id(),
                     urlencoding::encode(branch)
                 ),
                 None::<()>,
@@ -187,7 +201,7 @@ impl Forge for GitLabForge {
     ) -> Result<ForgeMergeRequest> {
         let url = format!(
             "/api/v4/projects/{}/merge_requests",
-            self.encoded_project_id()
+            self.encoded_target_project_id()
         );
 
         let mut payload = serde_json::json!({
@@ -197,6 +211,11 @@ impl Forge for GitLabForge {
             "remove_source_branch": options.remove_source_branch.unwrap_or(true),
             "squash": options.squash.unwrap_or(false),
         });
+
+        // For fork workflows, specify the source project ID
+        if self.source_project_id != self.target_project_id {
+            payload["source_project_id"] = serde_json::json!(self.source_project_id);
+        }
 
         if let Some(desc) = options.description {
             payload["description"] = serde_json::json!(desc);
@@ -229,7 +248,7 @@ impl Forge for GitLabForge {
                 Method::PUT,
                 format!(
                     "/api/v4/projects/{}/merge_requests/{}",
-                    self.encoded_project_id(),
+                    self.encoded_target_project_id(),
                     mr_iid
                 ),
                 Some(serde_json::json!({
@@ -252,7 +271,7 @@ impl Forge for GitLabForge {
                 Method::PUT,
                 format!(
                     "/api/v4/projects/{}/merge_requests/{}",
-                    self.encoded_project_id(),
+                    self.encoded_target_project_id(),
                     mr_iid,
                 ),
                 Some(serde_json::json!({
@@ -271,7 +290,7 @@ impl Forge for GitLabForge {
                 Method::GET,
                 format!(
                     "/api/v4/projects/{}/merge_requests/{}",
-                    self.encoded_project_id(),
+                    self.encoded_target_project_id(),
                     merge_request_iid
                 ),
                 None::<()>,
@@ -337,6 +356,7 @@ mod tests {
         let client = GitLabForge::new(
             "https://gitlab.example.com".to_string(),
             "group/project".to_string(),
+            "group/project".to_string(),
             "token123".to_string(),
             None::<&str>,
             false,
@@ -344,7 +364,8 @@ mod tests {
         .expect("Failed to create client");
 
         assert_eq!(client.base_url, "https://gitlab.example.com");
-        assert_eq!(client.project_id, "group/project");
+        assert_eq!(client.source_project_id, "group/project");
+        assert_eq!(client.target_project_id, "group/project");
         assert_eq!(client.token, "token123");
     }
 
@@ -353,13 +374,14 @@ mod tests {
         let client = GitLabForge::new(
             "https://gitlab.example.com".to_string(),
             "group/project".to_string(),
+            "group/project".to_string(),
             "token123".to_string(),
             None::<&str>,
             false,
         )
         .expect("Failed to create client");
 
-        let encoded = client.encoded_project_id();
+        let encoded = client.encoded_target_project_id();
         assert_eq!(encoded, "group%2Fproject");
     }
 
@@ -425,8 +447,9 @@ uYyBeUf6LmQswHqXfxOmAoy1HbXDtNvmClznsb0=
         GitLabForge::new(
             "https://gitlab.example.com".to_string(),
             "group/project".to_string(),
+            "group/project".to_string(),
             "token123".to_string(),
-            Some(&path),
+            Some(path.as_str()),
             false,
         )
         .expect("Failed to create client with multi-cert bundle");

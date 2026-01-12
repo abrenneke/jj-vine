@@ -223,6 +223,12 @@ pub trait Forge: Send + Sync + FormatMergeRequest {
     /// the full URL to the project in the forge.
     fn project_id(&self) -> &str;
 
+    /// The project ID where branches are pushed (source/fork project)
+    fn source_project_id(&self) -> &str;
+
+    /// The project ID where MRs/PRs are created (target/upstream project)
+    fn target_project_id(&self) -> &str;
+
     /// The base URL of the forge. E.g. <https://gitlab.example.com>
     fn base_url(&self) -> &str;
 
@@ -274,9 +280,12 @@ pub fn create_forge(config: &crate::config::Config) -> Result<Box<dyn Forge>> {
 
     match config.forge {
         ForgeType::GitLab => {
+            let source = config.gitlab.source_project();
+            let target = config.gitlab.target_project();
             let forge = gitlab::GitLabForge::new(
                 config.gitlab.host.clone(),
-                config.gitlab.project.clone(),
+                source.to_string(),
+                target.to_string(),
                 config.gitlab.token.clone(),
                 config.ca_bundle.clone(),
                 config.tls_accept_non_compliant_certs,
@@ -284,9 +293,12 @@ pub fn create_forge(config: &crate::config::Config) -> Result<Box<dyn Forge>> {
             Ok(Box::new(forge))
         }
         ForgeType::GitHub => {
+            let source = config.github.source_project();
+            let target = config.github.target_project();
             let forge = github::GitHubForge::new(
                 config.github.host.clone(),
-                config.github.project.clone(),
+                source.to_string(),
+                target.to_string(),
                 config.github.token.clone(),
                 config.ca_bundle.clone(),
                 config.tls_accept_non_compliant_certs,
@@ -294,9 +306,12 @@ pub fn create_forge(config: &crate::config::Config) -> Result<Box<dyn Forge>> {
             Ok(Box::new(forge))
         }
         ForgeType::Forgejo => {
+            let source = config.forgejo.source_project();
+            let target = config.forgejo.target_project();
             let forge = forgejo::ForgejoForge::new(
                 config.forgejo.host.clone(),
-                config.forgejo.project.clone(),
+                source.to_string(),
+                target.to_string(),
                 config.forgejo.token.clone(),
                 config.ca_bundle.clone(),
                 config.tls_accept_non_compliant_certs,

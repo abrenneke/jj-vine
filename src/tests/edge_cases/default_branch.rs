@@ -75,6 +75,7 @@ async fn test_base_branch_not_included_in_submission() {
         gitlab: GitLabConfig {
             host: "https://gitlab.example.com".to_string(),
             project: "test/project".to_string(),
+            target_project: "".to_string(),
             token: "fake-token".to_string(),
         },
         forgejo: Default::default(),
@@ -129,6 +130,7 @@ async fn test_submit_base_branch_errors() {
         gitlab: GitLabConfig {
             host: "https://gitlab.example.com".to_string(),
             project: "test/project".to_string(),
+            target_project: "".to_string(),
             token: "fake-token".to_string(),
         },
         forgejo: Default::default(),

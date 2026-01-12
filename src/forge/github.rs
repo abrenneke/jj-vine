@@ -13,7 +13,8 @@ use crate::{
 /// GitHub REST API client
 pub struct GitHubForge {
     base_url: String,
-    project_id: String,
+    source_project_id: String,
+    target_project_id: String,
     token: String,
     client: reqwest::Client,
 }
@@ -114,7 +115,8 @@ impl GitHubForge {
     /// * `accept_non_compliant_certs` - Accept non-compliant TLS certificates
     pub fn new(
         base_url: impl Into<String>,
-        project_id: impl Into<String>,
+        source_project_id: impl Into<String>,
+        target_project_id: impl Into<String>,
         token: impl Into<String>,
         ca_bundle: Option<impl AsRef<Path>>,
         accept_non_compliant_certs: bool,
@@ -154,7 +156,8 @@ impl GitHubForge {
 
         Ok(Self {
             base_url,
-            project_id: project_id.into(),
+            source_project_id: source_project_id.into(),
+            target_project_id: target_project_id.into(),
             token: token.into(),
             client,
         })
@@ -204,7 +207,15 @@ impl GitHubForge {
 #[async_trait]
 impl Forge for GitHubForge {
     fn project_id(&self) -> &str {
-        &self.project_id
+        &self.target_project_id
+    }
+
+    fn source_project_id(&self) -> &str {
+        &self.source_project_id
+    }
+
+    fn target_project_id(&self) -> &str {
+        &self.target_project_id
     }
 
     fn base_url(&self) -> &str {
@@ -219,7 +230,7 @@ impl Forge for GitHubForge {
         } else {
             &self.base_url
         };
-        format!("{}/{}", base_url, self.project_id)
+        format!("{}/{}", base_url, self.target_project_id)
     }
 
     async fn current_user(&self) -> Result<ForgeUser> {
@@ -242,15 +253,15 @@ impl Forge for GitHubForge {
         &self,
         branch: &str,
     ) -> Result<Option<ForgeMergeRequest>> {
-        let owner = self.project_id.split('/').next().unwrap();
+        let source_owner = self.source_project_id.split('/').next().unwrap();
 
         let prs: Vec<PullRequest> = self
             .request(
                 Method::GET,
                 format!(
                     "/repos/{}/pulls?head={}:{}&state=open",
-                    self.project_id,
-                    owner,
+                    self.target_project_id,
+                    source_owner,
                     urlencoding::encode(branch)
                 ),
                 None::<()>,
@@ -263,11 +274,19 @@ impl Forge for GitHubForge {
         &self,
         options: ForgeCreateMergeRequestOptions,
     ) -> Result<ForgeMergeRequest> {
-        let url = format!("/repos/{}/pulls", self.project_id);
+        let url = format!("/repos/{}/pulls", self.target_project_id);
+
+        // For fork workflows, head needs to be "owner:branch"
+        let head = if self.source_project_id != self.target_project_id {
+            let source_owner = self.source_project_id.split('/').next().unwrap();
+            format!("{}:{}", source_owner, options.source_branch)
+        } else {
+            options.source_branch.clone()
+        };
 
         let mut payload = serde_json::json!({
             "title": options.title,
-            "head": options.source_branch,
+            "head": head,
             "base": options.target_branch,
         });
 
@@ -300,7 +319,7 @@ impl Forge for GitHubForge {
         let pr: PullRequest = self
             .request(
                 Method::PATCH,
-                format!("/repos/{}/pulls/{}", self.project_id, pr_number),
+                format!("/repos/{}/pulls/{}", self.target_project_id, pr_number),
                 Some(serde_json::json!({
                     "base": new_base,
                 })),
@@ -318,7 +337,7 @@ impl Forge for GitHubForge {
         let pr: PullRequest = self
             .request(
                 Method::PATCH,
-                format!("/repos/{}/pulls/{}", self.project_id, pr_number),
+                format!("/repos/{}/pulls/{}", self.target_project_id, pr_number),
                 Some(serde_json::json!({
                     "body": new_description,
                 })),
@@ -332,7 +351,7 @@ impl Forge for GitHubForge {
         let pr: PullRequest = self
             .request(
                 Method::GET,
-                format!("/repos/{}/pulls/{}", self.project_id, pr_number),
+                format!("/repos/{}/pulls/{}", self.target_project_id, pr_number),
                 None::<()>,
             )
             .await?;
@@ -351,7 +370,7 @@ impl GitHubForge {
     async fn add_assignees(&self, pr_number: u64, assignee_usernames: Vec<String>) -> Result<()> {
         self.request::<serde_json::Value>(
             Method::POST,
-            format!("/repos/{}/issues/{}/assignees", self.project_id, pr_number),
+            format!("/repos/{}/issues/{}/assignees", self.target_project_id, pr_number),
             Some(serde_json::json!({
                 "assignees": assignee_usernames,
             })),
@@ -369,7 +388,7 @@ impl GitHubForge {
             Method::POST,
             format!(
                 "/repos/{}/pulls/{}/requested_reviewers",
-                self.project_id, pr_number
+                self.target_project_id, pr_number
             ),
             Some(serde_json::json!({
                 "reviewers": reviewer_usernames,
@@ -389,6 +408,7 @@ mod tests {
         let client = GitHubForge::new(
             "https://api.github.com".to_string(),
             "owner/repo".to_string(),
+            "owner/repo".to_string(),
             "ghp_token123".to_string(),
             None::<&str>,
             false,
@@ -396,7 +416,8 @@ mod tests {
         .expect("Failed to create client");
 
         assert_eq!(client.base_url, "https://api.github.com");
-        assert_eq!(client.project_id, "owner/repo");
+        assert_eq!(client.source_project_id, "owner/repo");
+        assert_eq!(client.target_project_id, "owner/repo");
         assert_eq!(client.token, "ghp_token123");
     }
 
@@ -404,6 +425,7 @@ mod tests {
     fn test_project_url() {
         let client = GitHubForge::new(
             "https://api.github.com".to_string(),
+            "owner/repo".to_string(),
             "owner/repo".to_string(),
             "token".to_string(),
             None::<&str>,
@@ -418,6 +440,7 @@ mod tests {
     fn test_github_enterprise_url() {
         let client = GitHubForge::new(
             "https://github.example.com/api/v3".to_string(),
+            "owner/repo".to_string(),
             "owner/repo".to_string(),
             "token".to_string(),
             None::<&str>,
