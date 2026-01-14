@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use clap::Args;
 use cli_table::{
     Cell,
@@ -7,6 +9,7 @@ use cli_table::{
 use itertools::Itertools;
 use owo_colors::OwoColorize;
 use tracing::{debug, info};
+use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{
     bookmark::BookmarkGraph,
@@ -168,7 +171,7 @@ pub async fn submit(config: SubmitCommandConfig, cli_config: CliConfig<'_>) -> R
                 MRUpdateType::Created => {
                     table.push(vec![
                         bookmark.magenta().cell(),
-                        mr.title().cell(),
+                        mr.title().wrap(60).cell(),
                         mr.url().dimmed().cell(),
                         "[created]".green().cell(),
                     ]);
@@ -178,7 +181,7 @@ pub async fn submit(config: SubmitCommandConfig, cli_config: CliConfig<'_>) -> R
                 | MRUpdateType::DescriptionUpdated => {
                     table.push(vec![
                         bookmark.magenta().cell(),
-                        mr.title().cell(),
+                        mr.title().wrap(60).cell(),
                         mr.url().dimmed().cell(),
                         "[updated]".green().cell(),
                     ]);
@@ -186,7 +189,7 @@ pub async fn submit(config: SubmitCommandConfig, cli_config: CliConfig<'_>) -> R
                 MRUpdateType::Unchanged => {
                     table.push(vec![
                         bookmark.magenta().cell(),
-                        mr.title().cell(),
+                        mr.title().wrap(60).cell(),
                         mr.url().dimmed().cell(),
                         " ".cell(),
                     ]);
@@ -223,6 +226,44 @@ pub async fn submit(config: SubmitCommandConfig, cli_config: CliConfig<'_>) -> R
     }
 
     Ok(())
+}
+
+trait WrapText {
+    /// Wrap text to the given width by adding newlines at word boundaries
+    fn wrap(&self, max_width: usize) -> Cow<'_, str>;
+}
+
+impl<T> WrapText for T
+where
+    T: AsRef<str>,
+{
+    /// Wrap text to the given width by adding newlines at word boundaries
+    fn wrap(&self, max_width: usize) -> Cow<'_, str> {
+        let str_width = |text: &str| strip_ansi_escapes::strip_str(text).graphemes(true).count();
+
+        if str_width(self.as_ref()) <= max_width {
+            return Cow::Borrowed(self.as_ref());
+        }
+
+        let mut lines = Vec::new();
+        let mut current = String::new();
+
+        for word in self.as_ref().split_word_bounds() {
+            let word_width = str_width(word);
+            if str_width(&current) + word_width > max_width {
+                lines.push(current);
+                current = word.trim_start().to_string();
+            } else {
+                current.push_str(word);
+            }
+        }
+
+        if !current.is_empty() {
+            lines.push(current);
+        }
+
+        Cow::Owned(lines.join("\n"))
+    }
 }
 
 /// Validate: either bookmark or tracked must be set, but not both
