@@ -175,7 +175,7 @@ pub async fn execute(
                     new_target_branch,
                 } => Box::new(UpdateMRBaseAction::new(
                     bookmark.clone(),
-                    *mr_iid,
+                    mr_iid.clone(),
                     new_target_branch.clone(),
                 )),
                 Action::UpdateMRDescription {
@@ -201,9 +201,8 @@ pub async fn execute(
                 let action_text = action.action.get_substep_text();
                 let output = ctx.output;
 
-                output.add_substep(&action_text);
+                let _substep = output.start_substep(action_text);
                 let result = execute_action.execute(ctx).await;
-                output.remove_substep(&action_text);
 
                 (action_id, result)
             });

@@ -5,7 +5,7 @@ use tracing::Level;
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
 use crate::{
-    commands::submit::SubmitCommandConfig,
+    commands::{status::StatusCommandConfig, submit::SubmitCommandConfig},
     error::Result,
     output::{FlatOutput, InteractiveOutput, Output},
     tracing_formatter::PlainFormatter,
@@ -34,6 +34,9 @@ enum Commands {
 
     /// Initialize jj-vine configuration for this repository
     Init,
+
+    /// Show status of tracked bookmarks and their MRs/PRs
+    Status(StatusCommandConfig),
 }
 
 pub struct CliConfig<'a> {
@@ -76,6 +79,7 @@ pub async fn cli_main() -> Result<()> {
 
     let can_have_interactive_output = match cli.command {
         Commands::Submit(_) => true,
+        Commands::Status(_) => true,
         Commands::Init => false,
     };
 
@@ -97,6 +101,10 @@ pub async fn cli_main() -> Result<()> {
         }
         Commands::Init => {
             crate::commands::init::init(main_config).await?;
+            Ok(())
+        }
+        Commands::Status(options) => {
+            crate::commands::status::status(options, main_config).await?;
             Ok(())
         }
     }

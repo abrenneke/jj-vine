@@ -1,13 +1,24 @@
-use std::path::Path;
+use std::{collections::HashMap, path::Path};
 
 use async_trait::async_trait;
+use futures::{join, try_join};
+use itertools::Itertools;
 use reqwest::Method;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::{
     description::FormatMergeRequest,
     error::{Error, Result},
-    forge::{Forge, ForgeCreateMergeRequestOptions, ForgeMergeRequest, ForgeUser},
+    forge::{
+        ApprovalSatisfaction,
+        ApprovalStatus,
+        CheckStatus,
+        Forge,
+        ForgeCreateMergeRequestOptions,
+        ForgeMergeRequest,
+        ForgeUser,
+        MergeRequestStatus,
+    },
 };
 
 /// GitHub REST API client
@@ -44,6 +55,9 @@ pub struct BranchRef {
     /// Branch name
     #[serde(rename = "ref")]
     pub ref_name: String,
+
+    /// Commit SHA
+    pub sha: String,
 
     /// Repository information (for cross-repo PRs)
     pub repo: Option<GitHubRepo>,
@@ -102,6 +116,121 @@ pub struct PullRequest {
     /// list)
     #[serde(default)]
     pub merged: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+enum ReviewState {
+    #[serde(rename = "APPROVED")]
+    Approved,
+
+    #[serde(rename = "CHANGES_REQUESTED")]
+    ChangesRequested,
+
+    #[serde(rename = "COMMENTED")]
+    Commented,
+
+    #[serde(rename = "DISMISSED")]
+    Dismissed,
+
+    #[serde(rename = "PENDING")]
+    Pending,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct Review {
+    /// Review ID
+    pub id: u64,
+
+    /// User who submitted the review
+    pub user: GitHubUser,
+
+    /// Review body/comment
+    pub body: Option<String>,
+
+    /// Review state: APPROVED, CHANGES_REQUESTED, COMMENTED, DISMISSED, PENDING
+    pub state: ReviewState,
+
+    /// HTML URL to view the review
+    pub html_url: String,
+
+    /// Submitted at timestamp (ISO 8601)
+    pub submitted_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+enum BranchRuleType {
+    PullRequest,
+
+    #[serde(other)]
+    Unknown,
+}
+
+/// GitHub Branch Rule
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct BranchRule {
+    /// Rule type
+    #[serde(rename = "type")]
+    pub rule_type: BranchRuleType,
+
+    /// Rule parameters (contains required_approving_review_count for
+    /// pull_request rule)
+    #[serde(default)]
+    pub parameters: Option<BranchRuleParameters>,
+}
+
+/// Parameters for branch rules
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct BranchRuleParameters {
+    /// Required approving review count (for pull_request rules)
+    #[serde(default)]
+    pub required_approving_review_count: Option<u32>,
+}
+
+/// Response from listing check runs
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CheckRunsResponse {
+    /// Total count of check runs
+    pub total_count: u32,
+
+    /// List of check runs
+    pub check_runs: Vec<CheckRun>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+enum CheckRunStatus {
+    Queued,
+    InProgress,
+    Completed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+enum CheckRunConclusion {
+    Success,
+    Failure,
+    Neutral,
+    Cancelled,
+    Skipper,
+    TimedOut,
+    ActionRequired,
+}
+
+/// GitHub Check Run
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CheckRun {
+    /// Check run ID
+    pub id: u64,
+
+    /// Check run name
+    pub name: String,
+
+    /// Status of the check run
+    pub status: CheckRunStatus,
+
+    /// Conclusion (only present when status is completed)
+    pub conclusion: Option<CheckRunConclusion>,
 }
 
 impl GitHubForge {
@@ -313,7 +442,7 @@ impl Forge for GitHubForge {
 
     async fn update_merge_request_base(
         &self,
-        pr_number: u64,
+        pr_number: &str,
         new_base: &str,
     ) -> Result<ForgeMergeRequest> {
         let pr: PullRequest = self
@@ -331,7 +460,7 @@ impl Forge for GitHubForge {
 
     async fn update_merge_request_description(
         &self,
-        pr_number: u64,
+        pr_number: &str,
         new_description: &str,
     ) -> Result<ForgeMergeRequest> {
         let pr: PullRequest = self
@@ -347,7 +476,7 @@ impl Forge for GitHubForge {
         Ok(ForgeMergeRequest::GitHub(pr))
     }
 
-    async fn get_merge_request(&self, pr_number: u64) -> Result<ForgeMergeRequest> {
+    async fn get_merge_request(&self, pr_number: &str) -> Result<ForgeMergeRequest> {
         let pr: PullRequest = self
             .request(
                 Method::GET,
@@ -357,6 +486,132 @@ impl Forge for GitHubForge {
             .await?;
 
         Ok(ForgeMergeRequest::GitHub(pr))
+    }
+
+    async fn get_approval_status(&self, pr_number: &str) -> Result<ApprovalStatus> {
+        let pr = self.get_merge_request(pr_number).await?;
+        let base_branch = pr.target_branch();
+
+        let (reviews, required_count): (Result<Vec<Review>, _>, _) = join!(
+            self.request(
+                Method::GET,
+                format!(
+                    "/repos/{}/pulls/{}/reviews",
+                    self.target_project_id, pr_number
+                ),
+                None::<()>,
+            ),
+            self.get_required_approvals(base_branch),
+        );
+
+        let user_reviews: Result<HashMap<u64, ReviewState>, _> = reviews.map(|reviews| {
+            reviews
+                .iter()
+                .filter(|review| review.submitted_at.is_some())
+                .sorted_by_key(|review| review.submitted_at.as_ref().unwrap())
+                .map(|review| (review.user.id, review.state.clone()))
+                .collect()
+        });
+
+        let approved_count = user_reviews.as_ref().map(|reviews| {
+            reviews
+                .values()
+                .filter(|state| matches!(state, ReviewState::Approved))
+                .count() as u32
+        });
+
+        let blocking_count = user_reviews.as_ref().map(|reviews| {
+            reviews
+                .values()
+                .filter(|state| matches!(state, ReviewState::ChangesRequested))
+                .count() as u32
+        });
+
+        Ok(ApprovalStatus {
+            approved_count: approved_count.unwrap_or(0),
+            required_count: *required_count.as_ref().unwrap_or(&0),
+            blocking_count: blocking_count.unwrap_or(0),
+            satisfaction: match (required_count, approved_count) {
+                (Ok(count), Ok(approved_count)) => {
+                    if approved_count >= count {
+                        ApprovalSatisfaction::Satisfied
+                    } else {
+                        ApprovalSatisfaction::Unsatisfied
+                    }
+                }
+                (_, _) => ApprovalSatisfaction::Unknown,
+            },
+        })
+    }
+
+    async fn get_check_status(&self, pr_number: &str) -> Result<CheckStatus> {
+        let pr = self.get_merge_request(pr_number).await?;
+
+        let head_sha = match pr {
+            ForgeMergeRequest::GitHub(pr) => pr.head.sha,
+            _ => unreachable!(),
+        };
+
+        let response: CheckRunsResponse = self
+            .request(
+                Method::GET,
+                format!(
+                    "/repos/{}/commits/{}/check-runs",
+                    self.target_project_id,
+                    urlencoding::encode(&head_sha)
+                ),
+                None::<()>,
+            )
+            .await?;
+
+        if response.total_count == 0 {
+            return Ok(CheckStatus::None);
+        }
+
+        let mut has_pending = false;
+        let mut has_failed = false;
+
+        for check_run in response.check_runs {
+            match (check_run.status, check_run.conclusion) {
+                (
+                    CheckRunStatus::Completed,
+                    Some(
+                        CheckRunConclusion::Failure
+                        | CheckRunConclusion::Cancelled
+                        | CheckRunConclusion::TimedOut
+                        | CheckRunConclusion::ActionRequired,
+                    ),
+                ) => {
+                    has_failed = true;
+                }
+                (CheckRunStatus::Completed, _) => {}
+                (CheckRunStatus::Queued, _) | (CheckRunStatus::InProgress, _) => {
+                    has_pending = true;
+                }
+            }
+        }
+
+        // Return the aggregated status
+        if has_failed {
+            Ok(CheckStatus::Failed)
+        } else if has_pending {
+            Ok(CheckStatus::Pending)
+        } else {
+            Ok(CheckStatus::Success)
+        }
+    }
+
+    async fn get_merge_request_status(&self, pr_number: &str) -> Result<MergeRequestStatus> {
+        let (approval_status, check_status) = try_join!(
+            self.get_approval_status(pr_number),
+            self.get_check_status(pr_number),
+        )?;
+
+        Ok(MergeRequestStatus {
+            iid: pr_number.to_string(),
+            approval_status,
+            check_status,
+        })
     }
 }
 
@@ -370,7 +625,10 @@ impl GitHubForge {
     async fn add_assignees(&self, pr_number: u64, assignee_usernames: Vec<String>) -> Result<()> {
         self.request::<serde_json::Value>(
             Method::POST,
-            format!("/repos/{}/issues/{}/assignees", self.target_project_id, pr_number),
+            format!(
+                "/repos/{}/issues/{}/assignees",
+                self.target_project_id, pr_number
+            ),
             Some(serde_json::json!({
                 "assignees": assignee_usernames,
             })),
@@ -396,6 +654,32 @@ impl GitHubForge {
         )
         .await?;
         Ok(())
+    }
+
+    /// Get required approval count from branch protection rules
+    async fn get_required_approvals(&self, branch: &str) -> Result<u32> {
+        let rules: Vec<BranchRule> = self
+            .request(
+                Method::GET,
+                format!(
+                    "/repos/{}/rules/branches/{}",
+                    self.target_project_id,
+                    urlencoding::encode(branch)
+                ),
+                None::<()>,
+            )
+            .await?;
+
+        for rule in rules {
+            if rule.rule_type == BranchRuleType::PullRequest
+                && let Some(params) = rule.parameters
+                && let Some(count) = params.required_approving_review_count
+            {
+                return Ok(count);
+            }
+        }
+
+        Ok(0)
     }
 }
 

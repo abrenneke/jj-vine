@@ -2,6 +2,8 @@ pub mod forgejo;
 pub mod github;
 pub mod gitlab;
 
+use std::borrow::Cow;
+
 use async_trait::async_trait;
 use bon::Builder;
 use serde::{Deserialize, Serialize};
@@ -25,11 +27,11 @@ pub enum ForgeMergeRequest {
 }
 
 impl ForgeMergeRequest {
-    pub fn iid(&self) -> u64 {
+    pub fn iid(&self) -> Cow<'_, str> {
         match self {
-            ForgeMergeRequest::GitLab(mr) => mr.iid,
-            ForgeMergeRequest::GitHub(pr) => pr.number,
-            ForgeMergeRequest::Forgejo(pr) => pr.number,
+            ForgeMergeRequest::GitLab(mr) => Cow::Owned(mr.iid.to_string()),
+            ForgeMergeRequest::GitHub(pr) => Cow::Owned(pr.number.to_string()),
+            ForgeMergeRequest::Forgejo(pr) => Cow::Owned(pr.number.to_string()),
         }
     }
 
@@ -188,6 +190,68 @@ pub enum ForgeMergeRequestState {
     Merged,
 }
 
+/// Status of CI/Pipeline checks
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CheckStatus {
+    /// All checks passed
+    Success,
+    /// Checks are still running
+    Pending,
+    /// Some checks failed
+    Failed,
+    /// No checks configured or required
+    None,
+}
+
+/// Satisfaction of approval requirements
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ApprovalSatisfaction {
+    /// All approval requirements are satisfied
+    Satisfied,
+
+    /// Some approval requirements are not satisfied
+    Unsatisfied,
+
+    /// Approval requirements are unknown
+    Unknown,
+}
+
+/// Approval status of a merge request
+#[derive(Debug, Clone)]
+pub struct ApprovalStatus {
+    /// Number of approvals received
+    pub approved_count: u32,
+
+    /// Number of approvals required
+    pub required_count: u32,
+
+    /// Number of approvals that are blocking the merge request
+    pub blocking_count: u32,
+
+    /// Whether approval requirements are satisfied
+    pub satisfaction: ApprovalSatisfaction,
+}
+
+/// Complete status information for a merge request
+#[derive(Debug, Clone)]
+pub struct MergeRequestStatus {
+    /// The internal ID of the merge request
+    pub iid: String,
+
+    /// CI/Pipeline check status
+    pub check_status: CheckStatus,
+
+    /// Approval status
+    pub approval_status: ApprovalStatus,
+}
+
+impl MergeRequestStatus {
+    pub fn ready_to_merge(&self) -> bool {
+        self.approval_status.satisfaction == ApprovalSatisfaction::Satisfied
+            && (self.check_status == CheckStatus::Success || self.check_status == CheckStatus::None)
+    }
+}
+
 #[derive(Builder)]
 pub struct ForgeCreateMergeRequestOptions {
     /// The source branch of the merge request
@@ -259,19 +323,29 @@ pub trait Forge: Send + Sync + FormatMergeRequest {
     /// Update the target branch (base) of an existing merge request
     async fn update_merge_request_base(
         &self,
-        merge_request_iid: u64,
+        merge_request_iid: &str,
         new_base: &str,
     ) -> Result<ForgeMergeRequest>;
 
     /// Update the description of an existing merge request
     async fn update_merge_request_description(
         &self,
-        merge_request_iid: u64,
+        merge_request_iid: &str,
         new_description: &str,
     ) -> Result<ForgeMergeRequest>;
 
     /// Get a specific merge request by IID
-    async fn get_merge_request(&self, merge_request_iid: u64) -> Result<ForgeMergeRequest>;
+    async fn get_merge_request(&self, merge_request_iid: &str) -> Result<ForgeMergeRequest>;
+
+    /// Get approval status for a merge request
+    async fn get_approval_status(&self, merge_request_iid: &str) -> Result<ApprovalStatus>;
+
+    /// Get CI/pipeline check status for a merge request
+    async fn get_check_status(&self, merge_request_iid: &str) -> Result<CheckStatus>;
+
+    /// Get complete status information for a merge request
+    async fn get_merge_request_status(&self, merge_request_iid: &str)
+    -> Result<MergeRequestStatus>;
 }
 
 /// Create a forge instance based on configuration

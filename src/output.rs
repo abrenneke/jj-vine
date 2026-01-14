@@ -9,8 +9,7 @@ pub trait Output: Send + Sync {
 
     fn set_substep(&self, message: &str);
 
-    fn add_substep(&self, message: &str);
-    fn remove_substep(&self, message: &str);
+    fn start_substep(&self, message: String) -> Substep<'_>;
 
     fn log_message(&self, message: &str);
     fn log_completed(&self, message: &str);
@@ -49,6 +48,22 @@ impl Default for InteractiveOutput {
     }
 }
 
+pub struct Substep<'a> {
+    finish: Box<dyn Fn() + 'a>,
+}
+
+impl<'a> Substep<'a> {
+    pub fn new(finish: Box<dyn Fn() + 'a>) -> Self {
+        Self { finish }
+    }
+}
+
+impl<'a> Drop for Substep<'a> {
+    fn drop(&mut self) {
+        (self.finish)();
+    }
+}
+
 impl Output for InteractiveOutput {
     fn log_current(&self, message: &str) {
         let mut current_text = self.current_text.write().unwrap();
@@ -69,16 +84,16 @@ impl Output for InteractiveOutput {
         }
     }
 
-    fn add_substep(&self, message: &str) {
+    fn start_substep(&self, message: String) -> Substep<'_> {
         let mut substeps = self.substeps.write().unwrap();
-        substeps.push(message.to_string());
+        substeps.push(message.clone());
         self.set_substep(&substeps.join(", "));
-    }
 
-    fn remove_substep(&self, message: &str) {
-        let mut substeps = self.substeps.write().unwrap();
-        substeps.retain(|s| s != message);
-        self.set_substep(&substeps.join(", "));
+        Substep::new(Box::new(move || {
+            let mut substeps = self.substeps.write().unwrap();
+            substeps.retain(|s| s != &message);
+            self.set_substep(&substeps.join(", "));
+        }))
     }
 
     fn log_message(&self, message: &str) {
@@ -137,16 +152,16 @@ impl Output for FlatOutput {
         );
     }
 
-    fn add_substep(&self, message: &str) {
+    fn start_substep(&self, message: String) -> Substep<'_> {
         let mut substeps = self.substeps.write().unwrap();
-        substeps.push(message.to_string());
+        substeps.push(message.clone());
         self.set_substep(&substeps.join(", "));
-    }
 
-    fn remove_substep(&self, message: &str) {
-        let mut substeps = self.substeps.write().unwrap();
-        substeps.retain(|s| s != message);
-        self.set_substep(&substeps.join(", "));
+        Substep::new(Box::new(move || {
+            let mut substeps = self.substeps.write().unwrap();
+            substeps.retain(|s| s != &message);
+            self.set_substep(&substeps.join(", "));
+        }))
     }
 
     fn log_message(&self, message: &str) {
@@ -193,31 +208,31 @@ impl Output for BufferedOutput {
         buffer.push_str(&format!("{}...\n", message));
     }
 
-    fn add_substep(&self, message: &str) {
+    fn start_substep(&self, message: String) -> Substep<'_> {
         let mut substeps = self.substeps.write().unwrap();
-        substeps.push(message.to_string());
+        substeps.push(message.clone());
         let mut buffer = self.buffer.write().unwrap();
         buffer.push_str(&format!(
             "{} {}...\n",
             self.current_text.read().unwrap(),
             format!("({})", message).dimmed()
         ));
-    }
 
-    fn remove_substep(&self, message: &str) {
-        let mut substeps = self.substeps.write().unwrap();
-        substeps.retain(|s| s != message);
-        let mut buffer = self.buffer.write().unwrap();
+        Substep::new(Box::new(move || {
+            let mut substeps = self.substeps.write().unwrap();
+            substeps.retain(|s| s != &message);
+            let mut buffer = self.buffer.write().unwrap();
 
-        if substeps.is_empty() {
-            buffer.push_str(&format!("{}...\n", self.current_text.read().unwrap()));
-        } else {
-            buffer.push_str(&format!(
-                "{} {}...\n",
-                self.current_text.read().unwrap(),
-                format!("({})", substeps.join(", ")).dimmed()
-            ));
-        }
+            if substeps.is_empty() {
+                buffer.push_str(&format!("{}...\n", self.current_text.read().unwrap()));
+            } else {
+                buffer.push_str(&format!(
+                    "{} {}...\n",
+                    self.current_text.read().unwrap(),
+                    format!("({})", substeps.join(", ")).dimmed()
+                ));
+            }
+        }))
     }
 
     fn set_substep(&self, message: &str) {

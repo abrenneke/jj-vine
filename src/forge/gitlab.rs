@@ -1,13 +1,23 @@
 use std::path::Path;
 
 use async_trait::async_trait;
-use reqwest::Method;
+use futures::try_join;
+use reqwest::{Method, StatusCode};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::{
     description::FormatMergeRequest,
     error::{Error, Result},
-    forge::{Forge, ForgeCreateMergeRequestOptions, ForgeMergeRequest, ForgeUser},
+    forge::{
+        ApprovalSatisfaction,
+        ApprovalStatus,
+        CheckStatus,
+        Forge,
+        ForgeCreateMergeRequestOptions,
+        ForgeMergeRequest,
+        ForgeUser,
+        MergeRequestStatus,
+    },
 };
 
 /// GitLab REST API client
@@ -240,7 +250,7 @@ impl Forge for GitLabForge {
     /// Update the target branch (base) of an existing merge request
     async fn update_merge_request_base(
         &self,
-        mr_iid: u64,
+        merge_request_iid: &str,
         new_target_branch: &str,
     ) -> Result<ForgeMergeRequest> {
         let mr: MergeRequest = self
@@ -249,7 +259,7 @@ impl Forge for GitLabForge {
                 format!(
                     "/api/v4/projects/{}/merge_requests/{}",
                     self.encoded_target_project_id(),
-                    mr_iid
+                    merge_request_iid
                 ),
                 Some(serde_json::json!({
                     "target_branch": new_target_branch,
@@ -263,7 +273,7 @@ impl Forge for GitLabForge {
     /// Update the description of an existing merge request
     async fn update_merge_request_description(
         &self,
-        mr_iid: u64,
+        merge_request_iid: &str,
         new_description: &str,
     ) -> Result<ForgeMergeRequest> {
         let mr: MergeRequest = self
@@ -272,7 +282,7 @@ impl Forge for GitLabForge {
                 format!(
                     "/api/v4/projects/{}/merge_requests/{}",
                     self.encoded_target_project_id(),
-                    mr_iid,
+                    merge_request_iid,
                 ),
                 Some(serde_json::json!({
                     "description": new_description,
@@ -284,7 +294,7 @@ impl Forge for GitLabForge {
     }
 
     /// Get a specific merge request by IID
-    async fn get_merge_request(&self, merge_request_iid: u64) -> Result<ForgeMergeRequest> {
+    async fn get_merge_request(&self, merge_request_iid: &str) -> Result<ForgeMergeRequest> {
         let mr: MergeRequest = self
             .request(
                 Method::GET,
@@ -298,6 +308,107 @@ impl Forge for GitLabForge {
             .await?;
 
         Ok(ForgeMergeRequest::GitLab(mr))
+    }
+
+    /// Get approval status for a merge request
+    async fn get_approval_status(&self, merge_request_iid: &str) -> Result<ApprovalStatus> {
+        let approvals: Result<MergeRequestApprovals, _> = self
+            .request(
+                Method::GET,
+                format!(
+                    "/api/v4/projects/{}/merge_requests/{}/approvals",
+                    self.encoded_target_project_id(),
+                    merge_request_iid
+                ),
+                None::<()>,
+            )
+            .await;
+
+        // Can't figure out how to get the blocking count
+        // https://stackoverflow.com/questions/78573772/how-to-get-changes-requested-info-on-gitlab-mr
+
+        let approved_count = approvals
+            .as_ref()
+            .map(|approvals| approvals.approved_by.len() as u32)
+            .unwrap_or(0);
+        let required_count = approvals
+            .as_ref()
+            .map(|approvals| approvals.approvals_required)
+            .unwrap_or(0);
+
+        Ok(ApprovalStatus {
+            blocking_count: 0,
+            approved_count,
+            required_count,
+            satisfaction: match approvals {
+                Ok(approvals) if approvals.approvals_left == 0 => ApprovalSatisfaction::Satisfied,
+                Ok(_) => ApprovalSatisfaction::Unsatisfied,
+                Err(_) => ApprovalSatisfaction::Unknown,
+            },
+        })
+    }
+
+    /// Get CI/pipeline check status for a merge request
+    async fn get_check_status(&self, merge_request_iid: &str) -> Result<CheckStatus> {
+        let mr = self.get_merge_request(merge_request_iid).await?;
+        let source_branch = mr.source_branch();
+
+        // So for whatever reason for us, `/pipelines/latest` just... doesn't work?
+        // `/pipelines` will return something in the array, but not `/latest` (403) 🤷
+        let response = self
+            .client
+            .request(
+                Method::GET,
+                format!(
+                    "{}/api/v4/projects/{}/pipelines?ref={}",
+                    self.base_url,
+                    self.encoded_target_project_id(),
+                    urlencoding::encode(source_branch)
+                ),
+            )
+            .header("Authorization", format!("Bearer {}", &self.token))
+            .send()
+            .await?;
+
+        match response.status() {
+            StatusCode::OK => {
+                let pipelines: Vec<Pipeline> = response.json().await?;
+                match pipelines.first() {
+                    Some(Pipeline {
+                        status: PipelineStatus::Success,
+                        ..
+                    }) => Ok(CheckStatus::Success),
+                    Some(Pipeline {
+                        status: PipelineStatus::Failed | PipelineStatus::Canceled,
+                        ..
+                    }) => Ok(CheckStatus::Failed),
+                    Some(_) => Ok(CheckStatus::Pending),
+                    _ => Ok(CheckStatus::None),
+                }
+            }
+            StatusCode::NOT_FOUND => Ok(CheckStatus::None),
+            // Shrug, guess this means no pipeline is configured
+            StatusCode::FORBIDDEN => Ok(CheckStatus::None),
+            _ => Err(Error::GitLabApi {
+                message: format!("Failed to get pipeline status: {}", response.status()),
+            }),
+        }
+    }
+
+    async fn get_merge_request_status(
+        &self,
+        merge_request_iid: &str,
+    ) -> Result<MergeRequestStatus> {
+        let (approval_status, check_status) = try_join!(
+            self.get_approval_status(merge_request_iid),
+            self.get_check_status(merge_request_iid),
+        )?;
+
+        Ok(MergeRequestStatus {
+            iid: merge_request_iid.to_string(),
+            approval_status,
+            check_status,
+        })
     }
 }
 
@@ -345,6 +456,65 @@ pub struct MergeRequest {
 
     /// Reviewers of the MR
     pub reviewers: Vec<GitLabUser>,
+}
+
+/// GitLab MR approval information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct MergeRequestApprovals {
+    /// Number of approvals required
+    pub approvals_required: u32,
+
+    /// Number of approvals still needed
+    pub approvals_left: u32,
+
+    /// Whether the MR is approved (approvals_left == 0)
+    pub approved: bool,
+
+    /// List of users who approved
+    pub approved_by: Vec<ApprovedBy>,
+}
+
+/// Represents an approval on a merge request
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ApprovedBy {
+    /// User who approved
+    pub user: GitLabUser,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+enum PipelineStatus {
+    Created,
+    WaitingForResource,
+    Preparing,
+    Pending,
+    Running,
+    Success,
+    Failed,
+    Canceled,
+    Skipped,
+    Manual,
+    Scheduled,
+}
+
+/// GitLab pipeline information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct Pipeline {
+    /// Pipeline ID
+    pub id: u64,
+
+    /// Pipeline status
+    pub status: PipelineStatus,
+
+    /// Reference (branch/tag) the pipeline ran on
+    #[serde(rename = "ref")]
+    pub ref_name: String,
+
+    /// Commit SHA
+    pub sha: String,
+
+    /// Web URL to view the pipeline
+    pub web_url: String,
 }
 
 #[cfg(test)]

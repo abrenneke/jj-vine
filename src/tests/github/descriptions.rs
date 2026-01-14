@@ -128,7 +128,7 @@ async fn test_user_content_preserved_on_resubmit() {
     let user_content = "My important notes about this PR";
     let new_desc = format!("{}\n\n{}", pr_a.description(), user_content);
     repo.forge()
-        .update_merge_request_description(pr_a.iid(), &new_desc)
+        .update_merge_request_description(pr_a.iid().as_ref(), &new_desc)
         .await
         .expect("Failed to update description");
 
@@ -188,7 +188,7 @@ async fn test_add_markers_to_description_without_markers() {
 
     let user_description = "Custom description without markers";
     repo.forge()
-        .update_merge_request_description(pr_a.iid(), user_description)
+        .update_merge_request_description(pr_a.iid().as_ref(), user_description)
         .await
         .expect("Failed to update description");
 

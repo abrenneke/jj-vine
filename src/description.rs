@@ -53,14 +53,14 @@ impl DescriptionFormatter for LinearListFormatter {
             if bookmark.name == current_bookmark {
                 // Current bookmark - bold with marker
                 lines.push(format!("{}. **{} ← this MR**", num, display_name));
-            } else if let Some(iid) = bookmark.mr_iid {
+            } else if let Some(iid) = &bookmark.mr_iid {
                 // Other bookmark with MR - use forge-specific prefix (! for GitLab, # for
                 // GitHub)
                 lines.push(format!(
                     "{}. {} - {}",
                     num,
                     display_name,
-                    format_merge_request.format_merge_request_id(&iid.to_string())
+                    format_merge_request.format_merge_request_id(iid)
                 ));
             } else {
                 // Bookmark without MR yet
@@ -98,7 +98,7 @@ pub struct StackBookmarkInfo {
     pub title: Option<String>,
 
     /// MR IID if it exists
-    pub mr_iid: Option<u64>,
+    pub mr_iid: Option<String>,
 
     /// MR URL if it exists
     pub mr_url: Option<String>,
@@ -268,7 +268,7 @@ pub fn generate_multi_stack_description(
             .map(|bm| StackBookmarkInfo {
                 name: bm.clone(),
                 title: existing_mrs.get(bm).map(|mr| mr.title().to_string()),
-                mr_iid: existing_mrs.get(bm).map(|mr| mr.iid()),
+                mr_iid: existing_mrs.get(bm).map(|mr| mr.iid().to_string()),
                 mr_url: existing_mrs.get(bm).map(|mr| mr.url().to_string()),
             })
             .collect();
@@ -300,7 +300,7 @@ pub fn generate_multi_stack_description(
             .map(|bm| StackBookmarkInfo {
                 name: bm.clone(),
                 title: existing_mrs.get(bm).map(|mr| mr.title().to_string()),
-                mr_iid: existing_mrs.get(bm).map(|mr| mr.iid()),
+                mr_iid: existing_mrs.get(bm).map(|mr| mr.iid().to_string()),
                 mr_url: existing_mrs.get(bm).map(|mr| mr.url().to_string()),
             })
             .collect();
@@ -374,13 +374,13 @@ mod tests {
                 StackBookmarkInfo {
                     name: "bookmark-a".to_string(),
                     title: None,
-                    mr_iid: Some(100),
+                    mr_iid: Some("100".to_string()),
                     mr_url: Some("https://gitlab.com/project/-/merge_requests/100".to_string()),
                 },
                 StackBookmarkInfo {
                     name: "bookmark-b".to_string(),
                     title: None,
-                    mr_iid: Some(101),
+                    mr_iid: Some("101".to_string()),
                     mr_url: Some("https://gitlab.com/project/-/merge_requests/101".to_string()),
                 },
             ],
@@ -392,7 +392,7 @@ mod tests {
             None,
             &stack,
             "bookmark-b",
-            &DefaultFormatMergeRequest,
+            &DefaultFormatMergeRequest {},
         );
 
         assert!(desc.contains("<!-- start jj-vine stack -->"));
@@ -419,7 +419,7 @@ mod tests {
             Some("User stuff"),
             &stack,
             "bookmark-a",
-            &DefaultFormatMergeRequest,
+            &DefaultFormatMergeRequest {},
         );
         assert!(desc.ends_with("User stuff"));
     }
@@ -433,7 +433,7 @@ mod tests {
                 StackBookmarkInfo {
                     name: "bookmark-a".to_string(),
                     title: None,
-                    mr_iid: Some(100),
+                    mr_iid: Some("100".to_string()),
                     mr_url: Some("https://gitlab.com/mrs/100".to_string()),
                 },
                 StackBookmarkInfo {
@@ -446,7 +446,7 @@ mod tests {
             base_branch: "main".to_string(),
         };
 
-        let output = formatter.format_stack(&stack, "bookmark-b", &DefaultFormatMergeRequest);
+        let output = formatter.format_stack(&stack, "bookmark-b", &DefaultFormatMergeRequest {});
         assert!(output.contains("**bookmark-b ← this MR**"));
         assert!(output.contains("bookmark-a - !100"));
     }
@@ -460,7 +460,7 @@ mod tests {
                 StackBookmarkInfo {
                     name: "feature-1".to_string(),
                     title: None,
-                    mr_iid: Some(18),
+                    mr_iid: Some("18".to_string()),
                     mr_url: Some(
                         "https://gitlab.internal.valence.nl/abrenneke/testing/-/merge_requests/18"
                             .to_string(),
@@ -475,7 +475,7 @@ mod tests {
                 StackBookmarkInfo {
                     name: "alt-feature".to_string(),
                     title: None,
-                    mr_iid: Some(19),
+                    mr_iid: Some("19".to_string()),
                     mr_url: Some(
                         "https://gitlab.internal.valence.nl/abrenneke/testing/-/merge_requests/19"
                             .to_string(),
@@ -485,7 +485,7 @@ mod tests {
             base_branch: "main".to_string(),
         };
 
-        let output = formatter.format_stack(&stack, "feature-2", &DefaultFormatMergeRequest);
+        let output = formatter.format_stack(&stack, "feature-2", &DefaultFormatMergeRequest {});
 
         // Should NOT include the base branch in the list
         assert!(!output.contains("1. `main`"));
@@ -525,7 +525,7 @@ mod tests {
             bookmarks: vec![StackBookmarkInfo {
                 name: "feature".to_string(),
                 title: None,
-                mr_iid: Some(100),
+                mr_iid: Some("100".to_string()),
                 mr_url: Some("url".to_string()),
             }],
             base_branch: "main".to_string(),
@@ -536,7 +536,7 @@ mod tests {
             parsed.content_after.as_deref(),
             &stack,
             "feature",
-            &DefaultFormatMergeRequest,
+            &DefaultFormatMergeRequest {},
         );
         assert!(new_desc.contains("My notes"));
     }
@@ -548,14 +548,14 @@ mod tests {
             bookmarks: vec![StackBookmarkInfo {
                 name: "f".to_string(),
                 title: None,
-                mr_iid: Some(1),
+                mr_iid: Some("1".to_string()),
                 mr_url: Some("u".to_string()),
             }],
             base_branch: "main".to_string(),
         };
 
         let desc =
-            manager.generate_description(None, None, &stack, "f", &DefaultFormatMergeRequest);
+            manager.generate_description(None, None, &stack, "f", &DefaultFormatMergeRequest {});
         assert!(desc.ends_with("<!-- end jj-vine stack -->"));
     }
 
@@ -576,7 +576,7 @@ mod tests {
             bookmarks: vec![StackBookmarkInfo {
                 name: "feature".to_string(),
                 title: None,
-                mr_iid: Some(100),
+                mr_iid: Some("100".to_string()),
                 mr_url: Some("url".to_string()),
             }],
             base_branch: "main".to_string(),
@@ -587,7 +587,7 @@ mod tests {
             Some("After content"),
             &stack,
             "feature",
-            &DefaultFormatMergeRequest,
+            &DefaultFormatMergeRequest {},
         );
 
         assert!(desc.starts_with("Before content"));
@@ -605,13 +605,13 @@ mod tests {
                 StackBookmarkInfo {
                     name: "push-rzmzwomlxplr".to_string(),
                     title: Some("Add user authentication".to_string()),
-                    mr_iid: Some(18),
+                    mr_iid: Some("18".to_string()),
                     mr_url: Some("https://gitlab.com/project/-/merge_requests/18".to_string()),
                 },
                 StackBookmarkInfo {
                     name: "push-xyzabc123".to_string(),
                     title: Some("Implement login form".to_string()),
-                    mr_iid: Some(19),
+                    mr_iid: Some("19".to_string()),
                     mr_url: Some("https://gitlab.com/project/-/merge_requests/19".to_string()),
                 },
                 StackBookmarkInfo {

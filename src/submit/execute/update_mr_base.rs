@@ -15,12 +15,12 @@ use crate::{
 
 pub struct UpdateMRBaseAction {
     pub bookmark: String,
-    pub mr_iid: u64,
+    pub mr_iid: String,
     pub new_target_branch: String,
 }
 
 impl UpdateMRBaseAction {
-    pub fn new(bookmark: String, mr_iid: u64, new_target_branch: String) -> Self {
+    pub fn new(bookmark: String, mr_iid: String, new_target_branch: String) -> Self {
         Self {
             bookmark,
             mr_iid,
@@ -56,7 +56,7 @@ impl ExecuteAction for UpdateMRBaseAction {
 
             match ctx
                 .forge
-                .update_merge_request_base(self.mr_iid, &self.new_target_branch)
+                .update_merge_request_base(&self.mr_iid, &self.new_target_branch)
                 .await
             {
                 Ok(mr) => {

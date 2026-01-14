@@ -1,13 +1,20 @@
-use std::path::Path;
+use std::{collections::HashMap, path::Path};
 
 use async_trait::async_trait;
+use futures::try_join;
 use reqwest::Method;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::{
     description::FormatMergeRequest,
     error::{Error, Result},
-    forge::{Forge, ForgeCreateMergeRequestOptions, ForgeMergeRequest, ForgeUser},
+    forge::{
+        Forge,
+        ForgeCreateMergeRequestOptions,
+        ForgeMergeRequest,
+        ForgeUser,
+        MergeRequestStatus,
+    },
 };
 
 /// Forgejo/Gitea REST API client
@@ -107,6 +114,72 @@ pub struct PullRequest {
     pub merged: bool,
 }
 
+/// Review state type (APPROVED, REQUEST_CHANGES, COMMENT, etc.)
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+enum ReviewStateType {
+    Approved,
+    RequestChanges,
+    Comment,
+    Pending,
+    #[serde(other)]
+    Unknown,
+}
+
+/// Forgejo Pull Request Review
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PullReview {
+    /// Review ID
+    pub id: u64,
+
+    /// User who submitted the review
+    pub user: ForgejoUser,
+
+    /// Review state
+    pub state: ReviewStateType,
+
+    /// Whether the review was dismissed
+    #[serde(default)]
+    pub dismissed: bool,
+
+    /// When the review was submitted
+    pub submitted_at: Option<String>,
+}
+
+/// Commit status state (pending, success, error, failure)
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+enum CommitStatusState {
+    Pending,
+    Success,
+    Error,
+    Failure,
+    #[serde(other)]
+    Unknown,
+}
+
+/// Individual commit status
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CommitStatus {
+    /// Status state
+    pub state: CommitStatusState,
+}
+
+/// Combined status for a commit
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CombinedStatus {
+    /// Combined state across all statuses
+    pub state: CommitStatusState,
+
+    /// Individual statuses
+    #[serde(default)]
+    pub statuses: Vec<CommitStatus>,
+
+    /// Total count of statuses
+    #[serde(default)]
+    pub total_count: i64,
+}
+
 impl ForgejoForge {
     /// Create a new Forgejo/Gitea client
     ///
@@ -196,7 +269,6 @@ impl ForgejoForge {
         payload: Option<impl Serialize>,
     ) -> Result<T> {
         let url = format!("{}/api/v1{}", self.base_url, path.as_ref());
-        dbg!(&url);
         let mut req = self
             .client
             .request(method, url)
@@ -394,7 +466,7 @@ impl Forge for ForgejoForge {
 
     async fn update_merge_request_base(
         &self,
-        pr_number: u64,
+        pr_number: &str,
         new_base: &str,
     ) -> Result<ForgeMergeRequest> {
         let pr: PullRequest = self
@@ -415,7 +487,7 @@ impl Forge for ForgejoForge {
 
     async fn update_merge_request_description(
         &self,
-        pr_number: u64,
+        pr_number: &str,
         new_description: &str,
     ) -> Result<ForgeMergeRequest> {
         let pr: PullRequest = self
@@ -434,7 +506,7 @@ impl Forge for ForgejoForge {
         Ok(ForgeMergeRequest::Forgejo(pr))
     }
 
-    async fn get_merge_request(&self, pr_number: u64) -> Result<ForgeMergeRequest> {
+    async fn get_merge_request(&self, pr_number: &str) -> Result<ForgeMergeRequest> {
         let pr: PullRequest = self
             .request(
                 Method::GET,
@@ -447,6 +519,132 @@ impl Forge for ForgejoForge {
             .await?;
 
         Ok(ForgeMergeRequest::Forgejo(pr))
+    }
+
+    async fn get_approval_status(&self, pr_number: &str) -> Result<crate::forge::ApprovalStatus> {
+        let reviews: Result<Vec<PullReview>, _> = self
+            .request(
+                Method::GET,
+                format!(
+                    "/repos/{}/{}/pulls/{}/reviews",
+                    self.target_owner, self.target_repo, pr_number
+                ),
+                None::<()>,
+            )
+            .await;
+
+        let reviews = match reviews {
+            Ok(reviews) => reviews,
+            Err(_) => {
+                // If we can't fetch reviews (e.g., feature not available), return Unknown
+                return Ok(crate::forge::ApprovalStatus {
+                    approved_count: 0,
+                    required_count: 0,
+                    blocking_count: 0,
+                    satisfaction: crate::forge::ApprovalSatisfaction::Unknown,
+                });
+            }
+        };
+
+        // Group reviews by user, keeping only the most recent review from each user
+        let mut user_reviews: HashMap<u64, &PullReview> = HashMap::new();
+
+        for review in &reviews {
+            if review.dismissed {
+                continue;
+            }
+
+            // Keep the most recent review by comparing submitted_at
+            if let Some(existing) = user_reviews.get(&review.user.id) {
+                if let (Some(new_time), Some(existing_time)) =
+                    (&review.submitted_at, &existing.submitted_at)
+                    && new_time > existing_time
+                {
+                    user_reviews.insert(review.user.id, review);
+                }
+            } else {
+                user_reviews.insert(review.user.id, review);
+            }
+        }
+
+        let approved_count = user_reviews
+            .values()
+            .filter(|review| review.state == ReviewStateType::Approved)
+            .count() as u32;
+
+        let blocking_count = user_reviews
+            .values()
+            .filter(|review| review.state == ReviewStateType::RequestChanges)
+            .count() as u32;
+
+        // Forgejo doesn't expose required approval count via API
+        Ok(crate::forge::ApprovalStatus {
+            approved_count,
+            required_count: 0,
+            blocking_count,
+            satisfaction: crate::forge::ApprovalSatisfaction::Unknown,
+        })
+    }
+
+    async fn get_check_status(&self, pr_number: &str) -> Result<crate::forge::CheckStatus> {
+        let pr = self.get_merge_request(pr_number).await?;
+        let head_branch = pr.source_branch();
+
+        // Get combined status for the head branch
+        let response = self
+            .client
+            .request(
+                Method::GET,
+                format!(
+                    "{}/api/v1/repos/{}/{}/commits/{}/status",
+                    self.base_url,
+                    self.target_owner,
+                    self.target_repo,
+                    urlencoding::encode(head_branch)
+                ),
+            )
+            .header("Authorization", format!("Bearer {}", &self.token))
+            .header("Accept", "application/json")
+            .header("User-Agent", "jj-vine")
+            .send()
+            .await?;
+
+        // Handle different status codes
+        match response.status() {
+            reqwest::StatusCode::OK => {
+                let status: CombinedStatus = response.json().await?;
+
+                if status.total_count == 0 {
+                    return Ok(crate::forge::CheckStatus::None);
+                }
+
+                match status.state {
+                    CommitStatusState::Success => Ok(crate::forge::CheckStatus::Success),
+                    CommitStatusState::Pending => Ok(crate::forge::CheckStatus::Pending),
+                    CommitStatusState::Error | CommitStatusState::Failure => {
+                        Ok(crate::forge::CheckStatus::Failed)
+                    }
+                    CommitStatusState::Unknown => Ok(crate::forge::CheckStatus::None),
+                }
+            }
+            reqwest::StatusCode::NOT_FOUND => Ok(crate::forge::CheckStatus::None),
+            status => Err(Error::ForgejoApi {
+                message: format!("Failed to get commit status: {}", status),
+            }),
+        }
+    }
+
+    async fn get_merge_request_status(&self, pr_number: &str) -> Result<MergeRequestStatus> {
+        let (approval_status, check_status) = try_join!(
+            self.get_approval_status(pr_number),
+            self.get_check_status(pr_number),
+        )?;
+
+        Ok(MergeRequestStatus {
+            iid: pr_number.to_string(),
+            approval_status,
+            check_status,
+        })
     }
 }
 

@@ -120,7 +120,7 @@ impl ExecuteAction for UpdateMRDescriptionAction {
                             match ctx
                                 .forge
                                 .update_merge_request_description(
-                                    current_mr.iid(),
+                                    current_mr.iid().as_ref(),
                                     &new_description,
                                 )
                                 .await

@@ -112,7 +112,7 @@ impl TestRepo<GitLabForge> {
             forge: GitLabForge::new(
                 &host,
                 &project,
-                &project,  // For tests, source and target are the same (direct mode)
+                &project, // For tests, source and target are the same (direct mode)
                 &token,
                 ca_bundle.as_ref(),
                 accept_non_compliant,
@@ -185,7 +185,7 @@ impl TestRepo<GitHubForge> {
             forge: GitHubForge::new(
                 &host,
                 &project,
-                &project,  // For tests, source and target are the same (direct mode)
+                &project, // For tests, source and target are the same (direct mode)
                 &token,
                 ca_bundle.as_deref(),
                 accept_non_compliant,
@@ -261,7 +261,7 @@ impl TestRepo<ForgejoForge> {
             forge: ForgejoForge::new(
                 &host,
                 &project,
-                &project,  // For tests, source and target are the same (direct mode)
+                &project, // For tests, source and target are the same (direct mode)
                 &token,
                 ca_bundle.as_deref(),
                 accept_non_compliant,

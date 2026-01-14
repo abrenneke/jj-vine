@@ -29,7 +29,7 @@ pub enum Action {
     /// Update the target branch (base) of an existing MR
     UpdateMRBase {
         bookmark: String,
-        mr_iid: u64,
+        mr_iid: String,
         new_target_branch: String,
     },
 
@@ -179,7 +179,7 @@ pub async fn plan(
                         id: action_id,
                         action: Action::UpdateMRBase {
                             bookmark: bookmark.clone(),
-                            mr_iid: existing_mr.iid(),
+                            mr_iid: existing_mr.iid().to_string(),
                             new_target_branch: target_branch.clone(),
                         },
                         dependencies: push_dependency,
