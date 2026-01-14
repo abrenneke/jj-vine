@@ -18,8 +18,8 @@ async fn test_deleted_middle_bookmark() {
 
     // Build the bookmark graph
     let jj = repo.jujutsu();
-    let bookmarks = jj.get_bookmarks().expect("Failed to get bookmarks");
-    let graph = BookmarkGraph::build(&jj, "main", bookmarks)
+    let bookmarks = jj.get_my_bookmarks().expect("Failed to get bookmarks");
+    let graph = BookmarkGraph::build(&jj, "main", &bookmarks)
         .await
         .expect("Failed to build graph");
 
@@ -38,7 +38,10 @@ async fn test_deleted_middle_bookmark() {
 
     assert_eq!(
         stack.bookmarks,
-        vec!["bookmark-a", "bookmark-c"],
+        vec![
+            bookmarks.iter().find(|b| b.name == "bookmark-a").unwrap(),
+            bookmarks.iter().find(|b| b.name == "bookmark-c").unwrap()
+        ],
         "Stack should contain bookmark-a and bookmark-c in order"
     );
 }

@@ -7,7 +7,7 @@ use owo_colors::OwoColorize;
 use tracing::error;
 
 use crate::{
-    bookmark::BookmarkGraph,
+    bookmark::{BookmarkGraph, BranchStack},
     config::StackFormat,
     description::{
         DescriptionFormatter,
@@ -26,13 +26,13 @@ use crate::{
     },
 };
 
-pub struct UpdateMRDescriptionAction {
+pub struct UpdateMRDescriptionAction<'a> {
     pub bookmark: String,
-    pub bookmark_graph: BookmarkGraph,
+    pub bookmark_graph: BookmarkGraph<'a>,
 }
 
-impl UpdateMRDescriptionAction {
-    pub fn new(bookmark: String, bookmark_graph: BookmarkGraph) -> Self {
+impl<'a> UpdateMRDescriptionAction<'a> {
+    pub fn new(bookmark: String, bookmark_graph: BookmarkGraph<'a>) -> Self {
         Self {
             bookmark,
             bookmark_graph,
@@ -41,8 +41,8 @@ impl UpdateMRDescriptionAction {
 }
 
 #[async_trait]
-impl ExecuteAction for UpdateMRDescriptionAction {
-    async fn execute(&self, ctx: ExecutionActionContext<'_>) -> Result<ActionResultData> {
+impl<'a> ExecuteAction for UpdateMRDescriptionAction<'a> {
+    async fn execute(&self, ctx: ExecutionActionContext<'_, '_>) -> Result<ActionResultData> {
         if ctx.plan.dry_run {
             let msg = format!(
                 "Would try to {} MR description for {}",
@@ -52,18 +52,30 @@ impl ExecuteAction for UpdateMRDescriptionAction {
             ctx.output.log_message(&msg);
             Ok(ActionResultData::DryRun)
         } else {
-            let containing_stacks: Vec<&crate::bookmark::BranchStack> = self
+            let containing_stacks: Vec<&BranchStack> = self
                 .bookmark_graph
                 .stacks
                 .iter()
-                .filter(|stack| stack.bookmarks.contains(&self.bookmark.to_string()))
-                .sorted_by(|a, b| a.bookmarks.cmp(&b.bookmarks))
+                .filter(|stack| stack.bookmarks.iter().any(|bm| bm.name == self.bookmark))
+                .sorted_by(|a, b| {
+                    let a = a
+                        .bookmarks
+                        .iter()
+                        .map(|bm| bm.name.clone())
+                        .collect::<Vec<_>>();
+                    let b = b
+                        .bookmarks
+                        .iter()
+                        .map(|bm| bm.name.clone())
+                        .collect::<Vec<_>>();
+                    a.cmp(&b)
+                })
                 .collect();
 
             let mut to_check = HashSet::new();
             for stack in &containing_stacks {
                 for bm in &stack.bookmarks {
-                    to_check.insert(bm.clone());
+                    to_check.insert(bm.name.clone());
                 }
             }
 

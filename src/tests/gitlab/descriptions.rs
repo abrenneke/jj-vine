@@ -23,7 +23,7 @@ async fn test_mr_description_includes_stack_info() {
 
     // Submit the stack
     repo.submit(SubmitCommandConfig {
-        bookmark: Some(branch_b.clone()),
+        revset: Some(branch_b.clone()),
         ..Default::default()
     })
     .await;
@@ -68,7 +68,7 @@ async fn test_mr_description_links_to_dependent_mrs() {
 
     // Submit the stack
     repo.submit(SubmitCommandConfig {
-        bookmark: Some(branch_b.clone()),
+        revset: Some(branch_b.clone()),
         ..Default::default()
     })
     .await;
@@ -112,7 +112,7 @@ async fn test_user_content_preserved_on_resubmit() {
         .create_and_push_bookmark(&branch_a);
 
     repo.submit(SubmitCommandConfig {
-        bookmark: Some(branch_a.clone()),
+        revset: Some(branch_a.clone()),
         ..Default::default()
     })
     .await;
@@ -138,7 +138,7 @@ async fn test_user_content_preserved_on_resubmit() {
         .create_and_push_bookmark(&branch_b);
 
     repo.submit(SubmitCommandConfig {
-        bookmark: Some(branch_b.clone()),
+        revset: Some(branch_b.clone()),
         ..Default::default()
     })
     .await;
@@ -173,7 +173,7 @@ async fn test_add_markers_to_description_without_markers() {
         .create_and_push_bookmark(&branch_a);
 
     repo.submit(SubmitCommandConfig {
-        bookmark: Some(branch_a.clone()),
+        revset: Some(branch_a.clone()),
         ..Default::default()
     })
     .await;
@@ -198,7 +198,7 @@ async fn test_add_markers_to_description_without_markers() {
         .create_and_push_bookmark(&branch_b);
 
     repo.submit(SubmitCommandConfig {
-        bookmark: Some(branch_b.clone()),
+        revset: Some(branch_b.clone()),
         ..Default::default()
     })
     .await;
@@ -248,7 +248,7 @@ async fn test_skip_update_when_description_unchanged() {
         .create_and_push_bookmark(&branch_b);
 
     repo.submit(SubmitCommandConfig {
-        bookmark: Some(branch_b.clone()),
+        revset: Some(branch_b.clone()),
         ..Default::default()
     })
     .await;
@@ -264,7 +264,7 @@ async fn test_skip_update_when_description_unchanged() {
 
     // Resubmit (no changes)
     repo.submit(SubmitCommandConfig {
-        bookmark: Some(branch_b.clone()),
+        revset: Some(branch_b.clone()),
         ..Default::default()
     })
     .await;

@@ -8,14 +8,16 @@ use cli_table::{
 };
 use itertools::Itertools;
 use owo_colors::OwoColorize;
+use snafu::ensure;
 use tracing::{debug, info};
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{
     bookmark::BookmarkGraph,
     cli::CliConfig,
+    commands::{GetBookmarksOptions, get_bookmarks},
     config::Config,
-    error::{Error, Result},
+    error::{CLISnafu, Error, Result},
     forge::create_forge,
     jj::Jujutsu,
     submit::{
@@ -27,10 +29,11 @@ use crate::{
 
 #[derive(Args)]
 pub struct SubmitCommandConfig {
-    /// The bookmark to submit (mutually exclusive with --tracked)
-    pub bookmark: Option<String>,
+    /// The revset to submit (mutually exclusive with --tracked)
+    pub revset: Option<String>,
 
-    /// Submit all tracked bookmarks (mutually exclusive with bookmark)
+    /// Submit all tracked bookmarks (equivalent to "(mine() &
+    /// tracked_remote_bookmarks()) ~ trunk()")
     #[arg(long)]
     pub tracked: bool,
 
@@ -46,10 +49,20 @@ pub struct SubmitCommandConfig {
 impl Default for SubmitCommandConfig {
     fn default() -> Self {
         Self {
-            bookmark: None,
+            revset: None,
             tracked: false,
             remote: "origin".to_string(),
             dry_run: false,
+        }
+    }
+}
+
+impl SubmitCommandConfig {
+    fn to_get_bookmarks_options(&self) -> GetBookmarksOptions {
+        GetBookmarksOptions {
+            mine: false,
+            revset: self.revset.clone(),
+            tracked: self.tracked,
         }
     }
 }
@@ -59,23 +72,23 @@ pub async fn submit(config: SubmitCommandConfig, cli_config: CliConfig<'_>) -> R
     debug!("Creating Jujutsu and GitLab clients");
     let jj = Jujutsu::new(cli_config.repository.clone())?;
 
-    let bookmarks = get_bookmarks(&config, &jj)?;
+    let bookmarks = get_bookmarks(&config.to_get_bookmarks_options(), &jj)?;
     let output = cli_config.output;
 
     output.log_message(&format!(
         "Submitting bookmarks: {}",
         bookmarks
             .iter()
-            .map(|b| b.magenta().to_string())
-            .collect::<Vec<_>>()
+            .map(|b| b.name.magenta().to_string())
             .join(", ")
     ));
 
-    if bookmarks.is_empty() {
-        return Err(Error::Config {
+    ensure!(
+        !bookmarks.is_empty(),
+        CLISnafu {
             message: "No bookmarks to submit".to_string(),
-        });
-    }
+        }
+    );
 
     debug!("Loading configuration");
     let repo_config = Config::load(&cli_config.repository)?;
@@ -92,8 +105,7 @@ pub async fn submit(config: SubmitCommandConfig, cli_config: CliConfig<'_>) -> R
         "({}) & mine() & bookmarks()",
         bookmarks
             .iter()
-            .map(|b| format!("::{}", b))
-            .collect::<Vec<_>>()
+            .map(|b| format!("::{}", b.name))
             .join(" | ")
     );
     debug!("Querying bookmarks with revset: {}", revset);
@@ -107,11 +119,12 @@ pub async fn submit(config: SubmitCommandConfig, cli_config: CliConfig<'_>) -> R
         "Building bookmark graph for default branch: {}",
         default_branch
     );
-    let bookmark_graph = BookmarkGraph::build(&jj, default_branch, relevant_bookmarks).await?;
+    let bookmark_graph = BookmarkGraph::build(&jj, default_branch, &relevant_bookmarks).await?;
     debug!("Validating bookmarks");
     bookmark_graph.validate_bookmarks(&jj, &bookmarks)?;
     debug!("Performing topological sort");
-    let sorted_bookmarks = bookmark_graph.topological_sort(&bookmarks)?;
+    let sorted_bookmarks =
+        bookmark_graph.topological_sort(bookmarks.iter().map(|b| b.name.as_str()))?;
 
     debug!(
         "Submission order (topological): {}",
@@ -263,34 +276,5 @@ where
         }
 
         Cow::Owned(lines.join("\n"))
-    }
-}
-
-/// Validate: either bookmark or tracked must be set, but not both
-fn get_bookmarks(config: &SubmitCommandConfig, jj: &Jujutsu) -> Result<Vec<String>> {
-    match (&config.bookmark, config.tracked) {
-        (Some(_), true) => Err(Error::Config {
-            message:
-                "Cannot specify both a bookmark and --tracked flag. Please use one or the other."
-                    .to_string(),
-        }),
-        (None, false) => Err(Error::Config {
-            message: "Must specify either a bookmark or use --tracked flag".to_string(),
-        }),
-        (Some(bookmark), false) => {
-            // Single bookmark mode
-            Ok(vec![bookmark.clone()])
-        }
-        (None, true) => {
-            let tracked_bookmarks = jj.get_tracked_bookmarks(&config.remote)?;
-
-            if tracked_bookmarks.is_empty() {
-                return Err(Error::Config {
-                    message: "No tracked bookmarks found. Tracked bookmarks must be authored by you and pushed to remote.".to_string(),
-                });
-            }
-
-            Ok(tracked_bookmarks)
-        }
     }
 }

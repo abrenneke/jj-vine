@@ -13,7 +13,7 @@ mod e2e {
 
         let output = repo
             .submit(crate::commands::submit::SubmitCommandConfig {
-                bookmark: Some(branch.clone()),
+                revset: Some(branch.clone()),
                 dry_run: true,
                 ..Default::default()
             })
@@ -51,7 +51,7 @@ mod e2e {
         // Submit C - should process A, B, C in order
         let output = repo
             .submit(crate::commands::submit::SubmitCommandConfig {
-                bookmark: Some(branch_c.clone()),
+                revset: Some(branch_c.clone()),
                 dry_run: true,
                 ..Default::default()
             })

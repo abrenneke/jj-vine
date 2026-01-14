@@ -60,11 +60,11 @@ pub struct ActionResult {
 
 #[async_trait]
 pub trait ExecuteAction {
-    async fn execute(&self, ctx: ExecutionActionContext<'_>) -> Result<ActionResultData>;
+    async fn execute(&self, ctx: ExecutionActionContext<'_, '_>) -> Result<ActionResultData>;
 }
 
-pub struct ExecutionActionContext<'a> {
-    pub plan: &'a SubmissionPlan,
+pub struct ExecutionActionContext<'a, 'b> {
+    pub plan: &'a SubmissionPlan<'b>,
     pub jj: &'a Jujutsu,
     pub forge: &'a dyn Forge,
     pub config: &'a Config,
@@ -102,7 +102,7 @@ pub enum MRUpdateType {
 /// - Push bookmarks to remote
 /// - Create or update merge requests
 pub async fn execute(
-    plan: &SubmissionPlan,
+    plan: &SubmissionPlan<'_>,
     jj: &Jujutsu,
     forge: &dyn Forge,
     config: &Config,

@@ -11,7 +11,7 @@ mod e2e {
 
         let result = repo
             .try_submit(SubmitCommandConfig {
-                bookmark: Some("some-bookmark".to_string()),
+                revset: Some("some-bookmark".to_string()),
                 tracked: true,
                 ..Default::default()
             })
@@ -36,7 +36,7 @@ mod e2e {
 
         let result = repo
             .try_submit(SubmitCommandConfig {
-                bookmark: None,
+                revset: None,
                 tracked: false,
                 ..Default::default()
             })
@@ -164,7 +164,7 @@ mod e2e {
         // Try to submit - should fail on push
         let result = repo
             .try_submit(SubmitCommandConfig {
-                bookmark: Some("feature-push-fail".to_string()),
+                revset: Some("feature-push-fail".to_string()),
                 ..Default::default()
             })
             .await;

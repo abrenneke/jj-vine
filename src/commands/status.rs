@@ -10,6 +10,7 @@ use tracing::info;
 
 use crate::{
     cli::CliConfig,
+    commands::{GetBookmarksOptions, get_bookmarks},
     config::Config,
     description::FormatMergeRequest,
     error::{Error, Result},
@@ -29,6 +30,24 @@ pub struct StatusCommandConfig {
     /// - flat: Flat list of bookmarks and their status
     #[arg(short = 'o', long = "output", default_value = "flat")]
     output_mode: DisplayStatusMode,
+
+    /// Include only `(mine() & tracked_remote_bookmarks()) ~ trunk()`
+    #[arg(long)]
+    tracked: bool,
+
+    /// Use a manual revset
+    #[arg(short = 'r', long)]
+    revset: Option<String>,
+}
+
+impl StatusCommandConfig {
+    fn to_get_bookmarks_options(&self) -> GetBookmarksOptions {
+        GetBookmarksOptions {
+            mine: self.revset.is_none() && !self.tracked,
+            revset: self.revset.clone(),
+            tracked: self.tracked,
+        }
+    }
 }
 
 enum BookmarkStatus {
@@ -55,9 +74,9 @@ pub async fn status(config: StatusCommandConfig, cli_config: CliConfig<'_>) -> R
 
     output.log_current("Finding tracked bookmarks");
 
-    let tracked_bookmarks = jj.get_tracked_bookmarks(&repo_config.remote_name)?;
+    let bookmarks = get_bookmarks(&config.to_get_bookmarks_options(), &jj)?;
 
-    if tracked_bookmarks.is_empty() {
+    if bookmarks.is_empty() {
         output.finish();
         info!("No tracked bookmarks found.");
         return Ok(());
@@ -67,15 +86,15 @@ pub async fn status(config: StatusCommandConfig, cli_config: CliConfig<'_>) -> R
 
     let futures = FuturesUnordered::new();
 
-    for bookmark in &tracked_bookmarks {
+    for bookmark in &bookmarks {
         futures.push(async {
-            let _substep = output.start_substep(bookmark.clone());
+            let _substep = output.start_substep(bookmark.name.clone());
 
             let mr_option = forge
-                .find_merge_request_by_source_branch(bookmark)
+                .find_merge_request_by_source_branch(&bookmark.name)
                 .await
                 .map_err(|e| BookmarkStatusError {
-                    bookmark: bookmark.clone(),
+                    bookmark: bookmark.name.clone(),
                     error: e,
                 })?;
 
@@ -85,17 +104,17 @@ pub async fn status(config: StatusCommandConfig, cli_config: CliConfig<'_>) -> R
                         .get_merge_request_status(mr.iid().as_ref())
                         .await
                         .map_err(|e| BookmarkStatusError {
-                            bookmark: bookmark.clone(),
+                            bookmark: bookmark.name.clone(),
                             error: e,
                         })?;
                     BookmarkStatus::HasMergeRequest {
-                        bookmark: bookmark.clone(),
+                        bookmark: bookmark.name.clone(),
                         merge_request: Box::new(mr),
                         status: mr_status,
                     }
                 }
                 None => BookmarkStatus::NoMergeRequest {
-                    bookmark: bookmark.clone(),
+                    bookmark: bookmark.name.clone(),
                 },
             };
 

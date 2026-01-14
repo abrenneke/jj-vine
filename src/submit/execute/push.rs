@@ -20,7 +20,7 @@ impl PushAction {
 
 #[async_trait]
 impl ExecuteAction for PushAction {
-    async fn execute(&self, ctx: ExecutionActionContext<'_>) -> Result<ActionResultData> {
+    async fn execute(&self, ctx: ExecutionActionContext<'_, '_>) -> Result<ActionResultData> {
         if ctx.plan.dry_run {
             ctx.output.log_message(&format!(
                 "Would push {} to {}",

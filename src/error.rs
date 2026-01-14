@@ -28,6 +28,9 @@ pub enum Error {
     #[snafu(display("Forgejo API error: {message}"))]
     ForgejoApi { message: String },
 
+    #[snafu(display("CLI error: {message}"))]
+    CLI { message: String },
+
     #[snafu(display("Configuration error: {message}"))]
     Config { message: String },
 

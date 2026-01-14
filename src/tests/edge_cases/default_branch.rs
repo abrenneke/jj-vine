@@ -21,10 +21,10 @@ async fn test_default_branch_configuration() {
     repo.create_bookmark("feature-b");
 
     let jj = Jujutsu::new(repo.path.clone()).expect("Failed to create Jujutsu");
-    let bookmarks = jj.get_bookmarks().expect("Failed to get bookmarks");
+    let bookmarks = jj.get_my_bookmarks().expect("Failed to get bookmarks");
 
     // Test with "main" as default
-    let graph_main = BookmarkGraph::build(&jj, "main", bookmarks.clone())
+    let graph_main = BookmarkGraph::build(&jj, "main", &bookmarks)
         .await
         .expect("Failed to build graph");
     let stack = graph_main
@@ -33,7 +33,7 @@ async fn test_default_branch_configuration() {
     assert_eq!(stack.base, "main");
 
     // Test with "develop" as default
-    let graph_develop = BookmarkGraph::build(&jj, "develop", bookmarks.clone())
+    let graph_develop = BookmarkGraph::build(&jj, "develop", &bookmarks)
         .await
         .expect("Failed to build graph");
     let stack = graph_develop
@@ -42,7 +42,7 @@ async fn test_default_branch_configuration() {
     assert_eq!(stack.base, "develop");
 
     // Test with "master" as default
-    let graph_master = BookmarkGraph::build(&jj, "master", bookmarks)
+    let graph_master = BookmarkGraph::build(&jj, "master", &bookmarks)
         .await
         .expect("Failed to build graph");
     let stack = graph_master
@@ -185,9 +185,9 @@ async fn test_graph_skips_default_branch_history() {
 
     // Build graph - should complete quickly, not traverse all 50+ commits
     let jj = Jujutsu::new(repo.path.clone()).expect("Failed to create Jujutsu");
-    let bookmarks = jj.get_bookmarks().expect("Failed to get bookmarks");
+    let bookmarks = jj.get_my_bookmarks().expect("Failed to get bookmarks");
 
-    let graph = BookmarkGraph::build(&jj, "master", bookmarks)
+    let graph = BookmarkGraph::build(&jj, "master", &bookmarks)
         .await
         .expect("Failed to build graph");
 

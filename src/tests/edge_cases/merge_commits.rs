@@ -37,14 +37,17 @@ async fn test_merge_commit_detection_in_bookmark_graph() {
 
     // Build the bookmark graph (should succeed - validation is separate)
     let jj = Jujutsu::new(repo.path.clone()).expect("Failed to create Jujutsu instance");
-    let bookmarks = jj.get_bookmarks().expect("Failed to get bookmarks");
-    let graph = BookmarkGraph::build(&jj, "main", bookmarks)
+    let bookmarks = jj.get_my_bookmarks().expect("Failed to get bookmarks");
+    let graph = BookmarkGraph::build(&jj, "main", &bookmarks)
         .await
         .expect("Failed to build graph");
 
     // The graph was built successfully - it only constructs the structure
     // Now validate the "merged" bookmark - this should detect the merge commit
-    let result = graph.validate_bookmarks(&jj, &["merged".to_string()]);
+    let result = graph.validate_bookmarks(
+        &jj,
+        [bookmarks.iter().find(|b| b.name == "merged").unwrap()],
+    );
 
     match result {
         Ok(_) => {
@@ -81,14 +84,17 @@ async fn test_submit_bookmark_with_merge_in_stack() {
 
     // Build the graph (should succeed - validation is separate)
     let jj = Jujutsu::new(repo.path.clone()).expect("Failed to create Jujutsu instance");
-    let bookmarks = jj.get_bookmarks().expect("Failed to get bookmarks");
-    let graph = BookmarkGraph::build(&jj, "main", bookmarks)
+    let bookmarks = jj.get_my_bookmarks().expect("Failed to get bookmarks");
+    let graph = BookmarkGraph::build(&jj, "main", &bookmarks)
         .await
         .expect("Failed to build graph");
 
     // Now validate the merged-top bookmark - should fail due to merge commit in its
     // history
-    let result = graph.validate_bookmarks(&jj, &["merged-top".to_string()]);
+    let result = graph.validate_bookmarks(
+        &jj,
+        [bookmarks.iter().find(|b| b.name == "merged-top").unwrap()],
+    );
 
     // The validation should fail because we detect the merge in the stack
     match result {

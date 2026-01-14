@@ -14,7 +14,7 @@ use crate::{
 
 /// Action to perform during execution
 #[derive(Debug, Clone, PartialEq)]
-pub enum Action {
+pub enum Action<'a> {
     /// Push a bookmark to remote
     Push { bookmark: String, remote: String },
 
@@ -36,12 +36,12 @@ pub enum Action {
     /// Update MR description (after all MRs created)
     UpdateMRDescription {
         bookmark: String,
-        bookmark_graph: crate::bookmark::BookmarkGraph,
+        bookmark_graph: BookmarkGraph<'a>,
         bookmarks_being_submitted: Vec<String>,
     },
 }
 
-impl Action {
+impl<'a> Action<'a> {
     pub fn get_group_text(&self) -> String {
         match self {
             Action::Push { .. } => "Pushing bookmarks".to_string(),
@@ -83,12 +83,12 @@ impl Action {
 
 /// A planned action with ID and dependencies
 #[derive(Debug, Clone, PartialEq)]
-pub struct PlannedAction {
+pub struct PlannedAction<'a> {
     /// Sequential ID for this action
     pub id: usize,
 
     /// The actual action to perform
-    pub action: Action,
+    pub action: Action<'a>,
 
     /// IDs of actions that must complete successfully before this action can
     /// run
@@ -97,25 +97,25 @@ pub struct PlannedAction {
 
 /// Plan for submission execution
 #[derive(Debug, Clone)]
-pub struct SubmissionPlan {
+pub struct SubmissionPlan<'a> {
     /// Actions organized into batches. Each batch's actions execute in
     /// parallel, and batches execute sequentially.
-    pub actions: Vec<Vec<PlannedAction>>,
+    pub actions: Vec<Vec<PlannedAction<'a>>>,
 
     /// Whether this is a dry run (don't actually execute)
     pub dry_run: bool,
 }
 
 /// Create a submission plan based on analysis
-pub async fn plan(
+pub async fn plan<'a>(
     analysis: &SubmissionAnalysis,
     jj: &Jujutsu,
     forge: &dyn Forge,
     config: &Config,
-    bookmark_graph: &BookmarkGraph,
+    bookmark_graph: &BookmarkGraph<'a>,
     dry_run: bool,
     output: &dyn Output,
-) -> Result<SubmissionPlan> {
+) -> Result<SubmissionPlan<'a>> {
     let mut batches = Vec::new();
     let mut current_id = 1;
     let get_id = &mut || {

@@ -16,7 +16,7 @@ async fn test_submit_creates_mr() {
 
     // Submit the bookmark
     repo.submit(SubmitCommandConfig {
-        bookmark: Some(branch.clone()),
+        revset: Some(branch.clone()),
         ..Default::default()
     })
     .await;
@@ -58,7 +58,7 @@ async fn test_submit_creates_stacked_mrs() {
 
     // Submit the entire stack via C
     repo.submit(SubmitCommandConfig {
-        bookmark: Some(branch_c.clone()),
+        revset: Some(branch_c.clone()),
         ..Default::default()
     })
     .await;
@@ -103,7 +103,7 @@ async fn test_submit_is_idempotent() {
 
     // First submit
     repo.submit(SubmitCommandConfig {
-        bookmark: Some(branch.clone()),
+        revset: Some(branch.clone()),
         ..Default::default()
     })
     .await;
@@ -117,7 +117,7 @@ async fn test_submit_is_idempotent() {
 
     // Second submit (should reuse existing MR)
     repo.submit(SubmitCommandConfig {
-        bookmark: Some(branch.clone()),
+        revset: Some(branch.clone()),
         ..Default::default()
     })
     .await;
@@ -157,7 +157,7 @@ async fn test_submit_retargets_after_middle_bookmark_deleted() {
 
     // Submit all three
     repo.submit(SubmitCommandConfig {
-        bookmark: Some(branch_c.clone()),
+        revset: Some(branch_c.clone()),
         ..Default::default()
     })
     .await;
@@ -176,7 +176,7 @@ async fn test_submit_retargets_after_middle_bookmark_deleted() {
 
     // Resubmit C - should retarget to A
     repo.submit(SubmitCommandConfig {
-        bookmark: Some(branch_c.clone()),
+        revset: Some(branch_c.clone()),
         ..Default::default()
     })
     .await;

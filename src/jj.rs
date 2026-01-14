@@ -3,7 +3,7 @@ use std::{
     process::{Command, ExitStatus},
 };
 
-use tracing::{debug, trace};
+use tracing::trace;
 
 use crate::error::{Error, Result};
 
@@ -33,63 +33,11 @@ impl Jujutsu {
     }
 
     /// Get all bookmarks authored by the current user with their commit info
-    pub fn get_bookmarks(&self) -> Result<Vec<Bookmark>> {
-        // Use jj log with mine() & bookmarks() revset to get only user's bookmarks
-        // Each bookmark will appear on its own line with its commit/change ID
-        let output = self.run_captured(&[
-            "log",
-            "-r",
-            "mine() & bookmarks()",
-            "--no-graph",
-            "--template",
-            // For each commit with bookmarks, output each bookmark name on a separate line
-            r#"bookmarks.map(|b| b ++ "\t" ++ commit_id ++ "\t" ++ change_id).join("\n") ++ "\n""#,
-        ])?;
-
-        let mut bookmarks = Vec::new();
-        for line in output.stdout.lines() {
-            let line = line.trim();
-            if line.is_empty() {
-                continue;
-            }
-
-            let parts: Vec<&str> = line.split('\t').collect();
-            if parts.len() >= 3 {
-                // Parse bookmark name (might have @remote suffix and/or * suffix for tracking
-                // conflicts)
-                let full_name = parts[0];
-
-                // Strip trailing * if present (indicates tracking conflict/divergence)
-                let full_name = full_name.strip_suffix('*').unwrap_or(full_name);
-
-                let (name, remote) = if let Some(at_pos) = full_name.rfind('@') {
-                    let name = full_name[..at_pos].to_string();
-                    let remote = full_name[at_pos + 1..].to_string();
-                    (name, Some(remote))
-                } else {
-                    (full_name.to_string(), None)
-                };
-
-                let is_local = remote.is_none();
-                // For now, assume local bookmarks might have remotes (we'd need git ls-remote
-                // to check)
-                let has_remote = false;
-
-                bookmarks.push(Bookmark {
-                    name,
-                    commit_id: parts[1].to_string(),
-                    change_id: parts[2].to_string(),
-                    remote,
-                    is_local,
-                    has_remote,
-                });
-            }
-        }
-
-        Ok(bookmarks)
+    pub fn get_my_bookmarks(&self) -> Result<Vec<Bookmark>> {
+        self.get_bookmarks_with_revset("mine() & bookmarks()")
     }
 
-    /// Get bookmarks matching a custom revset
+    /// Get bookmarks matching a revset
     pub fn get_bookmarks_with_revset(&self, revset: &str) -> Result<Vec<Bookmark>> {
         let output = self.run_captured(&[
             "log",
@@ -121,7 +69,6 @@ impl Jujutsu {
                 };
 
                 let is_local = remote.is_none();
-                let has_remote = false;
 
                 bookmarks.push(Bookmark {
                     name,
@@ -129,7 +76,6 @@ impl Jujutsu {
                     change_id: parts[2].to_string(),
                     remote,
                     is_local,
-                    has_remote,
                 });
             }
         }
@@ -293,89 +239,6 @@ impl Jujutsu {
             Err(e) => Err(e),
         }
     }
-
-    /// Get all tracked bookmarks for the current user
-    ///
-    /// A bookmark is "tracked" if:
-    /// 1. It was authored by the current user (mine() revset)
-    /// 2. It is a local bookmark (not a remote-tracking bookmark)
-    /// 3. It has been pushed to the remote
-    /// 4. It is not the default branch (main/master/trunk)
-    pub fn get_tracked_bookmarks(&self, remote: &str) -> Result<Vec<String>> {
-        debug!("Getting tracked bookmarks for remote: {}", remote);
-
-        // Get the default branch to filter it out
-        // If no default branch exists, we'll skip filtering (though this is an unusual
-        // case)
-        let default_branch = match self.get_default_branch() {
-            Ok(branch) => {
-                debug!("Default branch is '{}'", branch);
-                Some(branch)
-            }
-            Err(_) => {
-                debug!("No default branch found, will not filter any branches");
-                None
-            }
-        };
-
-        // Use mine() & bookmarks() to get user's local bookmarks
-        debug!("Running jj log to get mine() & bookmarks()");
-        let output = self.run_captured(&[
-            "log",
-            "-r",
-            "mine() & bookmarks()",
-            "--no-graph",
-            "--template",
-            r#"bookmarks.map(|b| b ++ "\n").join("")"#,
-        ])?;
-
-        debug!("Got bookmarks output, processing lines");
-
-        let mut tracked = Vec::new();
-        for line in output.stdout.lines() {
-            let line = line.trim();
-            if line.is_empty() {
-                continue;
-            }
-
-            // Strip trailing * if present (indicates tracking conflict/divergence)
-            let bookmark_name = line.strip_suffix('*').unwrap_or(line);
-
-            // Skip remote-tracking bookmarks (those with @remote suffix)
-            if bookmark_name.contains('@') {
-                continue;
-            }
-
-            // Skip the default branch - it should never be submitted
-            if let Some(ref default_branch) = default_branch
-                && bookmark_name == default_branch
-            {
-                debug!(
-                    "Skipping default branch '{}' from tracked bookmarks",
-                    bookmark_name
-                );
-                continue;
-            }
-
-            // Check if the bookmark exists on the remote
-            debug!("Checking if bookmark '{}' exists on remote", bookmark_name);
-            if self.remote_bookmark_exists(bookmark_name, remote)? {
-                debug!(
-                    "Bookmark '{}' exists on remote, adding to tracked list",
-                    bookmark_name
-                );
-                tracked.push(bookmark_name.to_string());
-            } else {
-                debug!(
-                    "Bookmark '{}' does not exist on remote, skipping",
-                    bookmark_name
-                );
-            }
-        }
-
-        debug!("Found {} tracked bookmarks", tracked.len());
-        Ok(tracked)
-    }
 }
 
 /// Find the jj binary in PATH or JJ environment variable
@@ -442,9 +305,6 @@ pub struct Bookmark {
 
     /// true if this is a local bookmark (not remote@name)
     pub is_local: bool,
-
-    /// true if local bookmark has a remote counterpart
-    pub has_remote: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -566,7 +426,7 @@ mod tests {
         );
 
         // Get bookmarks
-        let bookmarks = jj.get_bookmarks().expect("Failed to get bookmarks");
+        let bookmarks = jj.get_my_bookmarks().expect("Failed to get bookmarks");
 
         // Should have at least our test bookmark
         assert!(bookmarks.iter().any(|b| b.name == "test-feature"));
@@ -601,12 +461,10 @@ mod tests {
             change_id: "xyz789".to_string(),
             remote: None,
             is_local: true,
-            has_remote: false,
         };
 
         assert_eq!(bookmark.name, "feature");
         assert!(bookmark.is_local);
-        assert!(!bookmark.has_remote);
     }
 
     #[test]
@@ -744,7 +602,6 @@ mod tests {
                     change_id: parts[2].to_string(),
                     remote,
                     is_local,
-                    has_remote: false,
                 });
             }
         }
@@ -765,7 +622,7 @@ mod tests {
 
         // No bookmarks created yet, should return empty list
         let tracked = jj
-            .get_tracked_bookmarks("origin")
+            .get_bookmarks_with_revset("(mine() & tracked_remote_bookmarks()) ~ trunk()")
             .expect("Failed to get tracked bookmarks");
 
         assert_eq!(tracked.len(), 0, "Should have no tracked bookmarks");
@@ -783,7 +640,7 @@ mod tests {
         // The bookmark exists locally but hasn't been pushed to any remote
         // so it should not appear in tracked bookmarks
         let tracked = jj
-            .get_tracked_bookmarks("origin")
+            .get_bookmarks_with_revset("(mine() & tracked_remote_bookmarks()) ~ trunk()")
             .expect("Failed to get tracked bookmarks");
 
         assert_eq!(
@@ -831,10 +688,10 @@ mod tests {
 
         // Now the bookmark should appear in tracked bookmarks
         let tracked = jj
-            .get_tracked_bookmarks("origin")
+            .get_bookmarks_with_revset("(mine() & tracked_remote_bookmarks()) ~ trunk()")
             .expect("Failed to get tracked bookmarks");
 
         assert_eq!(tracked.len(), 1, "Should have 1 tracked bookmark");
-        assert_eq!(tracked[0], "feature-a", "Should track feature-a");
+        assert_eq!(tracked[0].name, "feature-a", "Should track feature-a");
     }
 }

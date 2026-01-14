@@ -265,11 +265,14 @@ pub fn generate_multi_stack_description(
         let stack_info: Vec<StackBookmarkInfo> = stack
             .bookmarks
             .iter()
-            .map(|bm| StackBookmarkInfo {
-                name: bm.clone(),
-                title: existing_mrs.get(bm).map(|mr| mr.title().to_string()),
-                mr_iid: existing_mrs.get(bm).map(|mr| mr.iid().to_string()),
-                mr_url: existing_mrs.get(bm).map(|mr| mr.url().to_string()),
+            .map(|bm| {
+                let mr = existing_mrs.get(bm.name.as_str()).unwrap();
+                StackBookmarkInfo {
+                    name: bm.name.clone(),
+                    title: Some(mr.title().to_string()),
+                    mr_iid: Some(mr.iid().to_string()),
+                    mr_url: Some(mr.url().to_string()),
+                }
             })
             .collect();
 
@@ -297,11 +300,14 @@ pub fn generate_multi_stack_description(
         let stack_info: Vec<StackBookmarkInfo> = stack
             .bookmarks
             .iter()
-            .map(|bm| StackBookmarkInfo {
-                name: bm.clone(),
-                title: existing_mrs.get(bm).map(|mr| mr.title().to_string()),
-                mr_iid: existing_mrs.get(bm).map(|mr| mr.iid().to_string()),
-                mr_url: existing_mrs.get(bm).map(|mr| mr.url().to_string()),
+            .map(|bm| {
+                let mr = existing_mrs.get(&bm.name).unwrap();
+                StackBookmarkInfo {
+                    name: bm.name.clone(),
+                    title: Some(mr.title().to_string()),
+                    mr_iid: Some(mr.iid().to_string()),
+                    mr_url: Some(mr.url().to_string()),
+                }
             })
             .collect();
 

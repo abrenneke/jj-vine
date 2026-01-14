@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use crate::{bookmark::BookmarkGraph, config::Config, error::Result, jj::Jujutsu};
 
 /// Result of analyzing bookmarks for submission
@@ -36,7 +38,7 @@ pub async fn analyze(
     let relevant_bookmarks = jj.get_bookmarks_with_revset(&revset)?;
 
     // Build the bookmark graph
-    let graph = BookmarkGraph::build(jj, &config.default_branch, relevant_bookmarks).await?;
+    let graph = BookmarkGraph::build(jj, &config.default_branch, &relevant_bookmarks).await?;
 
     // Get the downstack for each target bookmark and collect them
     let mut all_downstack_bookmarks = Vec::new();
@@ -46,17 +48,17 @@ pub async fn analyze(
     }
 
     // Deduplicate while maintaining order
-    let mut seen = std::collections::HashSet::new();
+    let mut seen = HashSet::new();
     let mut bookmarks_to_submit = Vec::new();
     for bookmark in all_downstack_bookmarks {
-        if !seen.contains(&bookmark) {
-            seen.insert(bookmark.clone());
+        if !seen.contains(bookmark.name.as_str()) {
+            seen.insert(bookmark.name.clone());
             bookmarks_to_submit.push(bookmark);
         }
     }
 
     // Validate the bookmarks have no merge commits
-    graph.validate_bookmarks(jj, &bookmarks_to_submit)?;
+    graph.validate_bookmarks(jj, bookmarks_to_submit.iter().copied())?;
 
     // Find the stack for the first bookmark to get the base branch
     // All bookmarks should share the same base branch since they're tracked
@@ -71,7 +73,8 @@ pub async fn analyze(
     // We need the base for MR targeting, but we should never push it
     let bookmarks_to_submit: Vec<String> = bookmarks_to_submit
         .into_iter()
-        .filter(|bookmark| bookmark != &stack.base)
+        .filter(|bookmark| bookmark.name != stack.base)
+        .map(|bookmark| bookmark.name.clone())
         .collect();
 
     // Validate we have at least one bookmark to submit

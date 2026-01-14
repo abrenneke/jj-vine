@@ -74,12 +74,15 @@ async fn test_linear_bookmark_on_trunk_with_merge_history() {
         .get_bookmarks_with_revset("my-feature & bookmarks()")
         .expect("Failed to get bookmarks");
 
-    let graph = BookmarkGraph::build(&jj, "trunk", bookmarks)
+    let graph = BookmarkGraph::build(&jj, "trunk", &bookmarks)
         .await
         .expect("Failed to build graph");
 
     // Validation should PASS because merge is in trunk, not in new commits
-    let result = graph.validate_bookmarks(&jj, &["my-feature".to_string()]);
+    let result = graph.validate_bookmarks(
+        &jj,
+        [bookmarks.iter().find(|b| b.name == "my-feature").unwrap()],
+    );
 
     assert!(
         result.is_ok(),

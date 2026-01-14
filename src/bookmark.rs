@@ -11,29 +11,29 @@ use crate::{
 ///
 /// Represents the relationships between bookmarks in a jujutsu repository
 #[derive(Debug, Clone, PartialEq)]
-pub struct BookmarkGraph {
+pub struct BookmarkGraph<'b> {
     /// All bookmarks in the repository (keyed by name)
-    pub bookmarks: HashMap<String, Bookmark>,
+    pub bookmarks: HashMap<String, &'b Bookmark>,
 
     /// Adjacency list representing parent relationships
     /// Maps child bookmark name -> parent bookmark name
     pub adjacency_list: HashMap<String, String>,
 
     /// Stacks of related bookmarks
-    pub stacks: Vec<BranchStack>,
+    pub stacks: Vec<BranchStack<'b>>,
 }
 
 /// A stack of related bookmarks
 #[derive(Debug, Clone, PartialEq)]
-pub struct BranchStack {
+pub struct BranchStack<'b> {
     /// Bookmarks in this stack, ordered from root to leaf
-    pub bookmarks: Vec<String>,
+    pub bookmarks: Vec<&'b Bookmark>,
 
     /// The base branch this stack builds on (e.g., "main")
     pub base: String,
 }
 
-impl BookmarkGraph {
+impl<'b> BookmarkGraph<'b> {
     /// Build a bookmark graph from a list of bookmarks
     ///
     /// # Arguments
@@ -44,21 +44,19 @@ impl BookmarkGraph {
     pub async fn build(
         jj: &Jujutsu,
         default_branch: &str,
-        bookmarks_list: Vec<Bookmark>,
+        bookmarks_list: impl IntoIterator<Item = &'b Bookmark>,
     ) -> Result<Self> {
+        let bookmarks_list: Vec<_> = bookmarks_list.into_iter().collect();
         debug!("Building graph for {} bookmarks", bookmarks_list.len());
 
-        // Filter to only local bookmarks (not remote-tracking ones)
         let local_bookmarks: Vec<_> = bookmarks_list.into_iter().filter(|b| b.is_local).collect();
         debug!("Filtered to {} local bookmarks", local_bookmarks.len());
 
-        // Build a map of bookmarks by name
-        let mut bookmarks = HashMap::new();
-        for bookmark in &local_bookmarks {
-            bookmarks.insert(bookmark.name.clone(), bookmark.clone());
-        }
+        let bookmarks: HashMap<_, _> = local_bookmarks
+            .iter()
+            .map(|b| (b.name.clone(), *b))
+            .collect();
 
-        // Build adjacency list by finding parent relationships
         let mut adjacency_list = HashMap::new();
 
         debug!(
@@ -66,7 +64,6 @@ impl BookmarkGraph {
             local_bookmarks.len()
         );
         for (i, bookmark) in local_bookmarks.iter().enumerate() {
-            // Skip the default branch - it has no parent bookmark by definition
             if bookmark.name == default_branch {
                 debug!(
                     "Skipping default branch '{}' during adjacency list building",
@@ -81,19 +78,19 @@ impl BookmarkGraph {
                 local_bookmarks.len(),
                 bookmark.name
             );
-            // Get the commit for this bookmark
             let changes = jj.get_changes(&bookmark.commit_id, &bookmark.commit_id)?;
 
             if let Some(change) = changes.first() {
-                // For each parent commit, traverse ancestry to find nearest bookmark
                 for parent_id in &change.parent_ids {
                     debug!(
                         "Finding nearest bookmarked ancestor for bookmark '{}' starting from parent {}",
                         bookmark.name, parent_id
                     );
-                    if let Some(parent_bookmark_name) =
-                        Self::find_nearest_bookmarked_ancestor(jj, parent_id, &local_bookmarks)?
-                    {
+                    if let Some(parent_bookmark_name) = Self::find_nearest_bookmarked_ancestor(
+                        jj,
+                        parent_id,
+                        local_bookmarks.iter().copied(),
+                    )? {
                         debug!(
                             "Found parent bookmark '{}' for '{}'",
                             parent_bookmark_name, bookmark.name
@@ -107,7 +104,6 @@ impl BookmarkGraph {
             }
         }
 
-        // Build stacks by traversing the graph
         debug!("Building stacks");
         let stacks = Self::build_stacks(&bookmarks, &adjacency_list, default_branch);
         debug!("Built {} stacks", stacks.len());
@@ -125,17 +121,21 @@ impl BookmarkGraph {
     /// that will be submitted as MRs. This allows the graph to be built for
     /// all bookmarks (including those with merge commits) while only validating
     /// the ones that need to follow MR submission rules.
-    pub fn validate_bookmarks(&self, jj: &Jujutsu, bookmarks: &[String]) -> Result<()> {
-        for bookmark_name in bookmarks {
+    pub fn validate_bookmarks<'a>(
+        &self,
+        jj: &Jujutsu,
+        bookmarks: impl IntoIterator<Item = &'a Bookmark>,
+    ) -> Result<()> {
+        for bookmark in bookmarks.into_iter() {
             let bookmark =
                 self.bookmarks
-                    .get(bookmark_name)
+                    .get(&bookmark.name)
                     .ok_or_else(|| Error::BookmarkNotFound {
-                        name: bookmark_name.clone(),
+                        name: bookmark.name.clone(),
                     })?;
 
             // Check for merge commits in the new commits (not in trunk)
-            Self::validate_no_merges_in_ancestors(jj, bookmark_name, &bookmark.commit_id)?;
+            Self::validate_no_merges_in_ancestors(jj, &bookmark.name, &bookmark.commit_id)?;
         }
 
         Ok(())
@@ -143,10 +143,10 @@ impl BookmarkGraph {
 
     /// Build stacks from the bookmark graph
     fn build_stacks(
-        bookmarks: &HashMap<String, Bookmark>,
+        bookmarks: &HashMap<String, &'b Bookmark>,
         adjacency_list: &HashMap<String, String>,
         default_branch: &str,
-    ) -> Vec<BranchStack> {
+    ) -> Vec<BranchStack<'b>> {
         let mut stacks = Vec::new();
 
         // Find all parent bookmarks (bookmarks that appear as values in adjacency_list)
@@ -165,7 +165,7 @@ impl BookmarkGraph {
 
                 // Trace back to the root
                 loop {
-                    stack_bookmarks.push(current.clone());
+                    stack_bookmarks.push(*bookmarks.get(&current).unwrap());
 
                     // Find the parent of current
                     match adjacency_list.get(&current) {
@@ -190,17 +190,21 @@ impl BookmarkGraph {
     }
 
     /// Find the stack containing a specific bookmark
-    pub fn find_stack_for_bookmark(&self, bookmark_name: &str) -> Option<&BranchStack> {
-        self.stacks
-            .iter()
-            .find(|stack| stack.bookmarks.contains(&bookmark_name.to_string()))
+    pub fn find_stack_for_bookmark(&self, bookmark_name: &str) -> Option<&BranchStack<'_>> {
+        self.stacks.iter().find(|stack| {
+            stack
+                .bookmarks
+                .iter()
+                .find(|b| b.name == bookmark_name)
+                .is_some()
+        })
     }
 
     /// Get all bookmarks in the downstack of a given bookmark (inclusive)
     ///
     /// Returns bookmarks from the root of the stack up to and including the
     /// target bookmark
-    pub fn get_downstack(&self, bookmark_name: &str) -> Result<Vec<String>> {
+    pub fn get_downstack(&self, bookmark_name: &str) -> Result<Vec<&'_ Bookmark>> {
         let stack =
             self.find_stack_for_bookmark(bookmark_name)
                 .ok_or_else(|| Error::BookmarkNotFound {
@@ -211,7 +215,7 @@ impl BookmarkGraph {
         let pos = stack
             .bookmarks
             .iter()
-            .position(|b| b == bookmark_name)
+            .position(|b| b.name == bookmark_name)
             .ok_or_else(|| Error::BookmarkNotFound {
                 name: bookmark_name.to_string(),
             })?;
@@ -229,30 +233,32 @@ impl BookmarkGraph {
     ///
     /// Returns bookmarks ordered such that parent bookmarks appear before their
     /// children. Handles disconnected bookmarks gracefully.
-    pub fn topological_sort(&self, bookmarks: &[String]) -> Result<Vec<String>> {
-        use std::collections::{HashMap, HashSet};
+    pub fn topological_sort<'a>(
+        &self,
+        bookmarks: impl IntoIterator<Item = &'a str>,
+    ) -> Result<Vec<String>> {
+        let bookmarks: Vec<_> = bookmarks.into_iter().collect();
 
         if bookmarks.is_empty() {
             return Ok(Vec::new());
         }
 
-        // Build a set of bookmarks we're sorting for quick lookup
-        let bookmark_set: HashSet<_> = bookmarks.iter().collect();
+        let bookmark_set: HashSet<_> = bookmarks.iter().copied().collect();
 
         // Build in-degree map (count of dependencies) for the given bookmarks
-        let mut in_degree: HashMap<&String, usize> = HashMap::new();
-        let mut children: HashMap<&String, Vec<&String>> = HashMap::new();
+        let mut in_degree: HashMap<&str, usize> = HashMap::new();
+        let mut children: HashMap<&str, Vec<&str>> = HashMap::new();
 
         // Initialize all bookmarks with in-degree 0
-        for bookmark in bookmarks {
-            in_degree.entry(bookmark).or_insert(0);
+        for bookmark in &bookmarks {
+            in_degree.entry(*bookmark).or_insert(0);
         }
 
         // Build the graph for only the bookmarks we're sorting
-        for bookmark in bookmarks {
-            if let Some(parent) = self.adjacency_list.get(bookmark) {
+        for bookmark in &bookmarks {
+            if let Some(parent) = self.adjacency_list.get(*bookmark) {
                 // Only count the parent if it's in our list of bookmarks to sort
-                if bookmark_set.contains(parent) {
+                if bookmark_set.contains(parent.as_str()) {
                     *in_degree.entry(bookmark).or_insert(0) += 1;
                     children.entry(parent).or_default().push(bookmark);
                 }
@@ -260,7 +266,7 @@ impl BookmarkGraph {
         }
 
         // Kahn's algorithm: process bookmarks with no dependencies
-        let mut queue: Vec<&String> = in_degree
+        let mut queue: Vec<_> = in_degree
             .iter()
             .filter(|(_, degree)| **degree == 0)
             .map(|(bookmark, _)| *bookmark)
@@ -272,7 +278,7 @@ impl BookmarkGraph {
         let mut result = Vec::new();
 
         while let Some(current) = queue.pop() {
-            result.push(current.clone());
+            result.push(current);
 
             // Process all children of current
             if let Some(child_list) = children.get(current) {
@@ -295,7 +301,7 @@ impl BookmarkGraph {
             });
         }
 
-        Ok(result)
+        Ok(result.into_iter().map(str::to_owned).collect())
     }
 
     /// Find the nearest bookmarked ancestor starting from a given commit
@@ -304,10 +310,10 @@ impl BookmarkGraph {
     /// not part of trunk's history. Returns the name of the nearest
     /// bookmark found, or None if the commit is based on trunk or has no
     /// bookmarked ancestors.
-    fn find_nearest_bookmarked_ancestor(
+    fn find_nearest_bookmarked_ancestor<'a>(
         jj: &Jujutsu,
         start_commit_id: &str,
-        bookmarks: &[Bookmark],
+        bookmarks: impl IntoIterator<Item = &'a Bookmark>,
     ) -> Result<Option<String>> {
         // Query for bookmarked ancestors that are not part of trunk's history
         // Format: "ancestors of start_commit, excluding ancestors of trunk, that have
@@ -321,7 +327,7 @@ impl BookmarkGraph {
         let candidates = jj.get_bookmarks_with_revset(&revset)?;
 
         // Filter to only include bookmarks from our provided list
-        let bookmark_names: HashSet<_> = bookmarks.iter().map(|b| b.name.as_str()).collect();
+        let bookmark_names: HashSet<_> = bookmarks.into_iter().map(|b| b.name.as_str()).collect();
         let candidates: Vec<_> = candidates
             .into_iter()
             .filter(|b| bookmark_names.contains(b.name.as_str()))
@@ -444,7 +450,6 @@ mod tests {
                 change_id: "change1".to_string(),
                 remote: None,
                 is_local: true,
-                has_remote: false,
             },
         );
         bookmarks.insert(
@@ -455,17 +460,23 @@ mod tests {
                 change_id: "change2".to_string(),
                 remote: None,
                 is_local: true,
-                has_remote: false,
             },
         );
 
         let mut adjacency_list = HashMap::new();
         adjacency_list.insert("feature-b".to_string(), "feature-a".to_string());
 
-        let stacks = BookmarkGraph::build_stacks(&bookmarks, &adjacency_list, "main");
+        let stacks = BookmarkGraph::build_stacks(
+            &bookmarks.iter().map(|(s, b)| (s.clone(), b)).collect(),
+            &adjacency_list,
+            "main",
+        );
 
         assert_eq!(stacks.len(), 1);
-        assert_eq!(stacks[0].bookmarks, vec!["feature-a", "feature-b"]);
+        assert_eq!(
+            stacks[0].bookmarks,
+            vec![&bookmarks["feature-a"], &bookmarks["feature-b"]]
+        );
         assert_eq!(stacks[0].base, "main");
     }
 
@@ -480,7 +491,6 @@ mod tests {
                 change_id: "change1".to_string(),
                 remote: None,
                 is_local: true,
-                has_remote: false,
             },
         );
         bookmarks.insert(
@@ -491,14 +501,17 @@ mod tests {
                 change_id: "change2".to_string(),
                 remote: None,
                 is_local: true,
-                has_remote: false,
             },
         );
 
         // No adjacency (two independent stacks)
         let adjacency_list = HashMap::new();
 
-        let stacks = BookmarkGraph::build_stacks(&bookmarks, &adjacency_list, "main");
+        let stacks = BookmarkGraph::build_stacks(
+            &bookmarks.iter().map(|(s, b)| (s.clone(), b)).collect(),
+            &adjacency_list,
+            "main",
+        );
 
         assert_eq!(stacks.len(), 2);
         assert_eq!(stacks[0].base, "main");
@@ -516,7 +529,6 @@ mod tests {
                 change_id: "change1".to_string(),
                 remote: None,
                 is_local: true,
-                has_remote: false,
             },
         );
         bookmarks.insert(
@@ -527,7 +539,6 @@ mod tests {
                 change_id: "change2".to_string(),
                 remote: None,
                 is_local: true,
-                has_remote: false,
             },
         );
 
@@ -535,10 +546,10 @@ mod tests {
         adjacency_list.insert("feature-b".to_string(), "feature-a".to_string());
 
         let graph = BookmarkGraph {
-            bookmarks,
+            bookmarks: bookmarks.iter().map(|(s, b)| (s.clone(), b)).collect(),
             adjacency_list,
             stacks: vec![BranchStack {
-                bookmarks: vec!["feature-a".to_string(), "feature-b".to_string()],
+                bookmarks: vec![&bookmarks["feature-a"], &bookmarks["feature-b"]],
                 base: "main".to_string(),
             }],
         };
@@ -559,7 +570,6 @@ mod tests {
                 change_id: "change1".to_string(),
                 remote: None,
                 is_local: true,
-                has_remote: false,
             },
         );
         bookmarks.insert(
@@ -570,7 +580,6 @@ mod tests {
                 change_id: "change2".to_string(),
                 remote: None,
                 is_local: true,
-                has_remote: false,
             },
         );
         bookmarks.insert(
@@ -581,7 +590,6 @@ mod tests {
                 change_id: "change3".to_string(),
                 remote: None,
                 is_local: true,
-                has_remote: false,
             },
         );
 
@@ -590,23 +598,33 @@ mod tests {
         adjacency_list.insert("feature-c".to_string(), "feature-b".to_string());
 
         let graph = BookmarkGraph {
-            bookmarks,
+            bookmarks: bookmarks.iter().map(|(s, b)| (s.clone(), b)).collect(),
             adjacency_list,
             stacks: vec![BranchStack {
                 bookmarks: vec![
-                    "feature-a".to_string(),
-                    "feature-b".to_string(),
-                    "feature-c".to_string(),
+                    &bookmarks["feature-a"],
+                    &bookmarks["feature-b"],
+                    &bookmarks["feature-c"],
                 ],
                 base: "main".to_string(),
             }],
         };
 
         let downstack = graph.get_downstack("feature-b").unwrap();
-        assert_eq!(downstack, vec!["feature-a", "feature-b"]);
+        assert_eq!(
+            downstack,
+            vec![&bookmarks["feature-a"], &bookmarks["feature-b"]]
+        );
 
         let downstack_c = graph.get_downstack("feature-c").unwrap();
-        assert_eq!(downstack_c, vec!["feature-a", "feature-b", "feature-c"]);
+        assert_eq!(
+            downstack_c,
+            vec![
+                &bookmarks["feature-a"],
+                &bookmarks["feature-b"],
+                &bookmarks["feature-c"]
+            ]
+        );
     }
 
     #[test]
@@ -640,7 +658,6 @@ mod tests {
                 change_id: "change1".to_string(),
                 remote: None,
                 is_local: true,
-                has_remote: false,
             },
         );
         bookmarks.insert(
@@ -651,7 +668,6 @@ mod tests {
                 change_id: "change2".to_string(),
                 remote: None,
                 is_local: true,
-                has_remote: false,
             },
         );
         bookmarks.insert(
@@ -662,7 +678,6 @@ mod tests {
                 change_id: "change3".to_string(),
                 remote: None,
                 is_local: true,
-                has_remote: false,
             },
         );
 
@@ -670,29 +685,33 @@ mod tests {
         adjacency_list.insert("feature-b".to_string(), "feature-a".to_string());
         adjacency_list.insert("alt-feature".to_string(), "feature-a".to_string());
 
-        let stacks = BookmarkGraph::build_stacks(&bookmarks, &adjacency_list, "main");
+        let stacks = BookmarkGraph::build_stacks(
+            &bookmarks.iter().map(|(s, b)| (s.clone(), b)).collect(),
+            &adjacency_list,
+            "main",
+        );
 
         // Both branches should be in separate stacks
         assert_eq!(stacks.len(), 2);
 
         // Each stack should have the common ancestor
         for stack in &stacks {
-            assert!(stack.bookmarks.contains(&"feature-a".to_string()));
+            assert!(stack.bookmarks.contains(&&bookmarks["feature-a"]));
         }
 
         // One stack should contain feature-b, the other alt-feature
         let has_feature_b = stacks
             .iter()
-            .any(|s| s.bookmarks.contains(&"feature-b".to_string()));
+            .any(|s| s.bookmarks.contains(&&bookmarks["feature-b"]));
         let has_alt_feature = stacks
             .iter()
-            .any(|s| s.bookmarks.contains(&"alt-feature".to_string()));
+            .any(|s| s.bookmarks.contains(&&bookmarks["alt-feature"]));
         assert!(has_feature_b);
         assert!(has_alt_feature);
 
         // Create graph and verify both bookmarks can be found
         let graph = BookmarkGraph {
-            bookmarks,
+            bookmarks: bookmarks.iter().map(|(s, b)| (s.clone(), b)).collect(),
             adjacency_list,
             stacks,
         };
@@ -709,12 +728,12 @@ mod tests {
             stacks: Vec::new(),
         };
 
-        let bookmarks = vec!["feature-a".to_string()];
+        let bookmarks = ["feature-a"];
         let sorted = graph
-            .topological_sort(&bookmarks)
+            .topological_sort(bookmarks.iter().copied())
             .expect("Failed to sort single bookmark");
 
-        assert_eq!(sorted, vec!["feature-a"]);
+        assert_eq!(sorted, ["feature-a"]);
     }
 
     #[test]
@@ -730,14 +749,14 @@ mod tests {
             stacks: Vec::new(),
         };
 
-        let bookmarks = vec![
+        let bookmarks = [
             "feature-c".to_string(),
             "feature-a".to_string(),
             "feature-b".to_string(),
         ];
 
         let sorted = graph
-            .topological_sort(&bookmarks)
+            .topological_sort(bookmarks.iter().map(String::as_str))
             .expect("Failed to sort chain");
 
         // Should be ordered A, B, C (dependencies first)
@@ -768,7 +787,7 @@ mod tests {
             stacks: Vec::new(),
         };
 
-        let bookmarks = vec![
+        let bookmarks = [
             "feature-d".to_string(),
             "feature-a".to_string(),
             "feature-b".to_string(),
@@ -776,7 +795,7 @@ mod tests {
         ];
 
         let sorted = graph
-            .topological_sort(&bookmarks)
+            .topological_sort(bookmarks.iter().map(String::as_str))
             .expect("Failed to sort complex DAG");
 
         // A should come first
@@ -806,7 +825,7 @@ mod tests {
             stacks: Vec::new(),
         };
 
-        let bookmarks = vec![
+        let bookmarks = [
             "feature-b".to_string(),
             "feature-y".to_string(),
             "feature-a".to_string(),
@@ -814,7 +833,7 @@ mod tests {
         ];
 
         let sorted = graph
-            .topological_sort(&bookmarks)
+            .topological_sort(bookmarks.iter().map(String::as_str))
             .expect("Failed to sort disconnected bookmarks");
 
         assert_eq!(sorted.len(), 4, "Should have all 4 bookmarks");
@@ -898,25 +917,20 @@ mod tests {
         let jj = Jujutsu::new(repo_path.clone()).unwrap();
 
         // Build graph - should succeed because validation is separate
-        let bookmarks = jj.get_bookmarks().unwrap();
+        let bookmarks = jj.get_my_bookmarks().unwrap();
         let runtime = tokio::runtime::Runtime::new().unwrap();
-        let graph = runtime.block_on(BookmarkGraph::build(&jj, "main", bookmarks));
-
-        // This assertion will fail with current code (which is what we want for TDD)
-        // After implementing the fix, it should pass
-        assert!(
-            graph.is_ok(),
-            "build() should succeed even with merge commits present"
-        );
-
-        let graph = graph.unwrap();
+        let graph = runtime
+            .block_on(BookmarkGraph::build(&jj, "main", &bookmarks))
+            .unwrap();
 
         // After the fix, validating only "feature-a" should succeed
-        let result = graph.validate_bookmarks(&jj, &["feature-a".to_string()]);
+        let feature_a = bookmarks.iter().find(|b| b.name == "feature-a").unwrap();
+        let result = graph.validate_bookmarks(&jj, [feature_a]);
         assert!(result.is_ok(), "Validating linear bookmark should succeed");
 
         // Validating "wip" should fail (it's a merge)
-        let result = graph.validate_bookmarks(&jj, &["wip".to_string()]);
+        let wip = bookmarks.iter().find(|b| b.name == "wip").unwrap();
+        let result = graph.validate_bookmarks(&jj, [wip]);
         assert!(
             result.is_err(),
             "Validating merge commit bookmark should fail"

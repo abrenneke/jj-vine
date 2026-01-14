@@ -39,7 +39,7 @@ impl CreateMRAction {
 
 #[async_trait]
 impl ExecuteAction for CreateMRAction {
-    async fn execute(&self, ctx: ExecutionActionContext<'_>) -> Result<ActionResultData> {
+    async fn execute(&self, ctx: ExecutionActionContext<'_, '_>) -> Result<ActionResultData> {
         if ctx.plan.dry_run {
             let msg = format!(
                 "Would {} {} -> {} \"{}\"",
