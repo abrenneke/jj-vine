@@ -1,6 +1,5 @@
 use std::{collections::HashMap, path::Path};
 
-use async_trait::async_trait;
 use futures::try_join;
 use reqwest::Method;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
@@ -9,6 +8,10 @@ use crate::{
     description::FormatMergeRequest,
     error::{Error, Result},
     forge::{
+        ApprovalSatisfaction,
+        ApprovalStatus,
+        CheckStatus,
+        DiscussionCount,
         Forge,
         ForgeCreateMergeRequestOptions,
         ForgeMergeRequest,
@@ -46,7 +49,7 @@ pub struct ForgejoUser {
 impl From<ForgejoUser> for ForgeUser {
     fn from(user: ForgejoUser) -> Self {
         ForgeUser {
-            id: user.id.to_string(),
+            id: Some(user.id.to_string()),
             username: user.login,
         }
     }
@@ -124,26 +127,6 @@ enum ReviewStateType {
     Pending,
     #[serde(other)]
     Unknown,
-}
-
-/// Forgejo Pull Request Review
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct PullReview {
-    /// Review ID
-    pub id: u64,
-
-    /// User who submitted the review
-    pub user: ForgejoUser,
-
-    /// Review state
-    pub state: ReviewStateType,
-
-    /// Whether the review was dismissed
-    #[serde(default)]
-    pub dismissed: bool,
-
-    /// When the review was submitted
-    pub submitted_at: Option<String>,
 }
 
 /// Commit status state (pending, success, error, failure)
@@ -301,43 +284,8 @@ impl ForgejoForge {
         })?;
         Ok(data)
     }
-
-    async fn add_assignees(&self, pr_number: u64, assignee_usernames: Vec<String>) -> Result<()> {
-        self.request::<serde_json::Value>(
-            Method::POST,
-            format!(
-                "/repos/{}/{}/issues/{}/assignees",
-                self.target_owner, self.target_repo, pr_number
-            ),
-            Some(serde_json::json!({
-                "assignees": assignee_usernames,
-            })),
-        )
-        .await?;
-        Ok(())
-    }
-
-    async fn request_reviewers(
-        &self,
-        pr_number: u64,
-        reviewer_usernames: Vec<String>,
-    ) -> Result<()> {
-        self.request::<serde_json::Value>(
-            Method::POST,
-            format!(
-                "/repos/{}/{}/pulls/{}/requested_reviewers",
-                self.target_owner, self.target_repo, pr_number
-            ),
-            Some(serde_json::json!({
-                "reviewers": reviewer_usernames,
-            })),
-        )
-        .await?;
-        Ok(())
-    }
 }
 
-#[async_trait]
 impl Forge for ForgejoForge {
     fn project_id(&self) -> &str {
         &self.target_project_id
@@ -521,33 +469,19 @@ impl Forge for ForgejoForge {
         Ok(ForgeMergeRequest::Forgejo(pr))
     }
 
-    async fn get_approval_status(&self, pr_number: &str) -> Result<crate::forge::ApprovalStatus> {
-        let reviews: Result<Vec<PullReview>, _> = self
-            .request(
-                Method::GET,
-                format!(
-                    "/repos/{}/{}/pulls/{}/reviews",
-                    self.target_owner, self.target_repo, pr_number
-                ),
-                None::<()>,
-            )
-            .await;
+    async fn get_approval_status(&self, pr_number: &str) -> Result<ApprovalStatus> {
+        let reviews = self.pull_request_reviews(pr_number).await;
 
         let reviews = match reviews {
             Ok(reviews) => reviews,
             Err(_) => {
-                // If we can't fetch reviews (e.g., feature not available), return Unknown
-                return Ok(crate::forge::ApprovalStatus {
-                    approved_count: 0,
-                    required_count: 0,
-                    blocking_count: 0,
-                    satisfaction: crate::forge::ApprovalSatisfaction::Unknown,
-                });
+                // Can't access reviews, fall back to unknown
+                return Ok(Default::default());
             }
         };
 
         // Group reviews by user, keeping only the most recent review from each user
-        let mut user_reviews: HashMap<u64, &PullReview> = HashMap::new();
+        let mut user_reviews: HashMap<u64, &PullRequestReview> = HashMap::new();
 
         for review in &reviews {
             if review.dismissed {
@@ -578,15 +512,15 @@ impl Forge for ForgejoForge {
             .count() as u32;
 
         // Forgejo doesn't expose required approval count via API
-        Ok(crate::forge::ApprovalStatus {
+        Ok(ApprovalStatus {
             approved_count,
             required_count: 0,
             blocking_count,
-            satisfaction: crate::forge::ApprovalSatisfaction::Unknown,
+            satisfaction: ApprovalSatisfaction::Unknown,
         })
     }
 
-    async fn get_check_status(&self, pr_number: &str) -> Result<crate::forge::CheckStatus> {
+    async fn get_check_status(&self, pr_number: &str) -> Result<CheckStatus> {
         let pr = self.get_merge_request(pr_number).await?;
         let head_branch = pr.source_branch();
 
@@ -615,19 +549,19 @@ impl Forge for ForgejoForge {
                 let status: CombinedStatus = response.json().await?;
 
                 if status.total_count == 0 {
-                    return Ok(crate::forge::CheckStatus::None);
+                    return Ok(CheckStatus::None);
                 }
 
                 match status.state {
-                    CommitStatusState::Success => Ok(crate::forge::CheckStatus::Success),
-                    CommitStatusState::Pending => Ok(crate::forge::CheckStatus::Pending),
+                    CommitStatusState::Success => Ok(CheckStatus::Success),
+                    CommitStatusState::Pending => Ok(CheckStatus::Pending),
                     CommitStatusState::Error | CommitStatusState::Failure => {
-                        Ok(crate::forge::CheckStatus::Failed)
+                        Ok(CheckStatus::Failed)
                     }
-                    CommitStatusState::Unknown => Ok(crate::forge::CheckStatus::None),
+                    CommitStatusState::Unknown => Ok(CheckStatus::None),
                 }
             }
-            reqwest::StatusCode::NOT_FOUND => Ok(crate::forge::CheckStatus::None),
+            reqwest::StatusCode::NOT_FOUND => Ok(CheckStatus::None),
             status => Err(Error::ForgejoApi {
                 message: format!("Failed to get commit status: {}", status),
             }),
@@ -646,6 +580,140 @@ impl Forge for ForgejoForge {
             check_status,
         })
     }
+
+    async fn num_open_discussions(&self, pr_number: &str) -> Result<DiscussionCount> {
+        let reviews = self.pull_request_reviews(pr_number).await?;
+
+        // Let's not overload the API by default
+        let mut comments = Vec::new();
+        for review in reviews {
+            let review_comments = self
+                .pull_request_comments(pr_number, &review.id.to_string())
+                .await?;
+            comments.push((review, review_comments));
+        }
+
+        Ok(comments.iter().fold(
+            DiscussionCount {
+                all: 0,
+                unresolved: 0,
+                resolved: 0,
+            },
+            |mut acc, (_review, comments)| {
+                acc.all += comments.len() as u32;
+
+                for comment in comments {
+                    if comment.resolver.is_some() {
+                        acc.unresolved += 1;
+                    } else {
+                        acc.resolved += 1;
+                    }
+                }
+
+                acc
+            },
+        ))
+    }
+}
+
+impl ForgejoForge {
+    async fn add_assignees(&self, pr_number: u64, assignee_usernames: Vec<String>) -> Result<()> {
+        self.request::<serde_json::Value>(
+            Method::POST,
+            format!(
+                "/repos/{}/{}/issues/{}/assignees",
+                self.target_owner, self.target_repo, pr_number
+            ),
+            Some(serde_json::json!({
+                "assignees": assignee_usernames,
+            })),
+        )
+        .await?;
+        Ok(())
+    }
+
+    async fn request_reviewers(
+        &self,
+        pr_number: u64,
+        reviewer_usernames: Vec<String>,
+    ) -> Result<()> {
+        self.request::<serde_json::Value>(
+            Method::POST,
+            format!(
+                "/repos/{}/{}/pulls/{}/requested_reviewers",
+                self.target_owner, self.target_repo, pr_number
+            ),
+            Some(serde_json::json!({
+                "reviewers": reviewer_usernames,
+            })),
+        )
+        .await?;
+        Ok(())
+    }
+
+    async fn pull_request_reviews(&self, pr_number: &str) -> Result<Vec<PullRequestReview>> {
+        // TODO pagination, max 100 reviews right now
+        self.request(
+            Method::GET,
+            format!(
+                "/repos/{}/{}/pulls/{}/reviews?page=1&limit=100",
+                self.target_owner, self.target_repo, pr_number
+            ),
+            None::<()>,
+        )
+        .await
+    }
+
+    async fn pull_request_comments(
+        &self,
+        pr_number: &str,
+        review_id: &str,
+    ) -> Result<Vec<Comment>> {
+        self.request(
+            Method::GET,
+            format!(
+                "/repos/{}/{}/pulls/{}/reviews/{}/comments",
+                self.target_owner, self.target_repo, pr_number, review_id
+            ),
+            None::<()>,
+        )
+        .await
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PullRequestReview {
+    body: String,
+    comments_count: u64,
+    commit_id: String,
+    dismissed: bool,
+    html_url: String,
+    id: u64,
+    official: bool,
+    pull_request_url: String,
+    stale: bool,
+    state: ReviewStateType,
+    submitted_at: Option<String>,
+    user: ForgejoUser,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct Comment {
+    body: String,
+    commit_id: String,
+    created_at: String,
+    diff_hunk: String,
+    html_url: String,
+    id: u64,
+    original_commit_id: String,
+    original_position: u64,
+    path: String,
+    position: u64,
+    pull_request_review_id: u64,
+    pull_request_url: String,
+    resolver: Option<ForgejoUser>,
+    updated_at: String,
+    user: ForgejoUser,
 }
 
 impl FormatMergeRequest for ForgejoForge {

@@ -1,9 +1,9 @@
-use async_trait::async_trait;
 use owo_colors::OwoColorize;
 use tracing::error;
 
 use crate::{
     error::{Error, Result},
+    forge::Forge,
     submit::execute::{
         ActionResultData,
         ExecuteAction,
@@ -29,7 +29,6 @@ impl UpdateMRBaseAction {
     }
 }
 
-#[async_trait]
 impl ExecuteAction for UpdateMRBaseAction {
     async fn execute(&self, ctx: ExecutionActionContext<'_, '_>) -> Result<ActionResultData> {
         if ctx.plan.dry_run {

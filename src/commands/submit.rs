@@ -15,7 +15,7 @@ use unicode_segmentation::UnicodeSegmentation;
 use crate::{
     bookmark::BookmarkGraph,
     cli::CliConfig,
-    commands::{GetBookmarksOptions, get_bookmarks},
+    commands::{GetBookmarksOptions, StrVisualWidth, get_bookmarks},
     config::Config,
     error::{CLISnafu, Error, Result},
     forge::create_forge,
@@ -140,7 +140,7 @@ pub async fn submit(config: SubmitCommandConfig, cli_config: CliConfig<'_>) -> R
     let submission_plan = plan::plan(
         &analysis,
         &jj,
-        forge.as_ref(),
+        &forge,
         &repo_config,
         &bookmark_graph,
         config.dry_run,
@@ -149,8 +149,7 @@ pub async fn submit(config: SubmitCommandConfig, cli_config: CliConfig<'_>) -> R
     .await?;
 
     debug!("Executing submission plan");
-    let result =
-        execute::execute(&submission_plan, &jj, forge.as_ref(), &repo_config, output).await?;
+    let result = execute::execute(&submission_plan, &jj, &forge, &repo_config, output).await?;
 
     output.finish();
 
@@ -252,9 +251,7 @@ where
 {
     /// Wrap text to the given width by adding newlines at word boundaries
     fn wrap(&self, max_width: usize) -> Cow<'_, str> {
-        let str_width = |text: &str| strip_ansi_escapes::strip_str(text).graphemes(true).count();
-
-        if str_width(self.as_ref()) <= max_width {
+        if self.visual_width() <= max_width {
             return Cow::Borrowed(self.as_ref());
         }
 
@@ -262,8 +259,7 @@ where
         let mut current = String::new();
 
         for word in self.as_ref().split_word_bounds() {
-            let word_width = str_width(word);
-            if str_width(&current) + word_width > max_width {
+            if current.visual_width() + word.visual_width() > max_width {
                 lines.push(current);
                 current = word.trim_start().to_string();
             } else {

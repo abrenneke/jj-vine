@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use owo_colors::OwoColorize;
 use tracing::{debug, error};
 
@@ -18,7 +17,6 @@ impl PushAction {
     }
 }
 
-#[async_trait]
 impl ExecuteAction for PushAction {
     async fn execute(&self, ctx: ExecutionActionContext<'_, '_>) -> Result<ActionResultData> {
         if ctx.plan.dry_run {

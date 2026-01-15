@@ -1,3 +1,5 @@
+#![allow(async_fn_in_trait)]
+
 pub mod bookmark;
 pub mod cli;
 pub mod commands;

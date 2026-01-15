@@ -1,6 +1,5 @@
 use std::path::Path;
 
-use async_trait::async_trait;
 use futures::try_join;
 use reqwest::{Method, StatusCode};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
@@ -12,6 +11,7 @@ use crate::{
         ApprovalSatisfaction,
         ApprovalStatus,
         CheckStatus,
+        DiscussionCount,
         Forge,
         ForgeCreateMergeRequestOptions,
         ForgeMergeRequest,
@@ -38,7 +38,7 @@ pub struct GitLabUser {
 impl From<GitLabUser> for ForgeUser {
     fn from(user: GitLabUser) -> Self {
         ForgeUser {
-            id: user.id.to_string(),
+            id: Some(user.id.to_string()),
             username: user.username,
         }
     }
@@ -146,7 +146,6 @@ impl GitLabForge {
     }
 }
 
-#[async_trait]
 impl Forge for GitLabForge {
     fn project_id(&self) -> &str {
         &self.target_project_id
@@ -410,6 +409,49 @@ impl Forge for GitLabForge {
             check_status,
         })
     }
+
+    async fn num_open_discussions(&self, merge_request_iid: &str) -> Result<DiscussionCount> {
+        let discussions = self.get_discussions(merge_request_iid).await?;
+        Ok(discussions
+            .iter()
+            .filter_map(|discussion| match &discussion.notes[..] {
+                // Notes with no type are like "added commits" and "changed description", not a
+                // discussion
+                []
+                | [
+                    DiscussionNote {
+                        note_type: None, ..
+                    },
+                ] => None,
+                // We only need the root note
+                [note, ..] => Some(note),
+            })
+            .fold(Default::default(), |mut acc, first_note| {
+                acc.all += 1;
+
+                if first_note.resolved {
+                    acc.resolved += 1;
+                } else if first_note.resolvable {
+                    acc.unresolved += 1;
+                }
+                acc
+            }))
+    }
+}
+
+impl GitLabForge {
+    async fn get_discussions(&self, merge_request_iid: &str) -> Result<Vec<Discussion>> {
+        self.request(
+            Method::GET,
+            format!(
+                "/api/v4/projects/{}/merge_requests/{}/discussions",
+                self.encoded_target_project_id(),
+                merge_request_iid
+            ),
+            None::<()>,
+        )
+        .await
+    }
 }
 
 impl FormatMergeRequest for GitLabForge {
@@ -515,6 +557,121 @@ struct Pipeline {
 
     /// Web URL to view the pipeline
     pub web_url: String,
+}
+
+/// A collection, often called a thread, of `DiscussionNote`s in an issue, merge
+/// request, commit, or snippet.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct Discussion {
+    id: String,
+    individual_note: bool,
+    notes: Vec<DiscussionNote>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+enum DiscussionNoteType {
+    DiscussionNote,
+    DiffNote,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct NotePosition {
+    base_sha: String,
+    start_sha: String,
+    head_sha: String,
+    old_path: Option<String>,
+    new_path: Option<String>,
+    position_type: String,
+    old_line: Option<u32>,
+    new_line: Option<u32>,
+    line_range: Option<NotePositionLineRange>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct NotePositionLineRange {
+    start: Option<NotePositionLine>,
+    length: Option<NotePositionLine>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct NotePositionLine {
+    line_code: String,
+
+    #[serde(rename = "type")]
+    position_type: String,
+
+    old_line: Option<u32>,
+    new_line: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct NoteSuggestion {
+    id: String,
+    from_line: u32,
+    to_line: u32,
+    appliable: bool,
+    applied: bool,
+    from_content: String,
+    to_content: String,
+}
+
+/// An individual item in a discussion on an issue, merge request, commit, or
+/// snippet. Items of type DiscussionNote are not returned as part of the Note
+/// API. Not available in the Events API. https://docs.gitlab.com/api/discussions/#list-project-merge-request-discussion-items
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct DiscussionNote {
+    /// The ID of the note.
+    id: u64,
+
+    /// The type of note.
+    /// (DiscussionNote should probably be an
+    /// enum of { DiscussionNote, DiffNote } instead technically)
+    #[serde(rename = "type")]
+    note_type: Option<DiscussionNoteType>,
+
+    /// The content of the note.
+    body: String,
+
+    /// The author of the note.
+    author: GitLabUser,
+
+    /// When the note was created (ISO 8601 format).
+    created_at: String,
+
+    /// When the note was last updated (ISO 8601 format).
+    updated_at: String,
+
+    /// If `true`, a system note.
+    system: bool,
+
+    /// The ID of the noteable object.
+    noteable_id: u64,
+
+    /// The type of the noteable object.
+    noteable_type: String,
+
+    /// The ID of the project.
+    project_id: u64,
+
+    /// If `true`, the note is resolved (merge requests only).
+    #[serde(default)]
+    resolved: bool,
+
+    /// If `true`, the note can be resolved.
+    resolvable: bool,
+
+    /// The user who resolved the note.
+    resolved_by: Option<GitLabUser>,
+
+    /// When the note was resolved (ISO 8601 format).
+    resolved_at: Option<String>,
+
+    /// Position information for diff notes.
+    position: Option<NotePosition>,
+
+    /// Array of suggestion objects for the note.
+    #[serde(default)]
+    suggestions: Vec<NoteSuggestion>,
 }
 
 #[cfg(test)]

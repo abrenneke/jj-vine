@@ -6,7 +6,7 @@ use crate::{
     bookmark::BookmarkGraph,
     config::Config,
     error::Result,
-    forge::Forge,
+    forge::{Forge, ForgeImpl},
     jj::Jujutsu,
     output::Output,
     submit::analyze::SubmissionAnalysis,
@@ -110,7 +110,7 @@ pub struct SubmissionPlan<'a> {
 pub async fn plan<'a>(
     analysis: &SubmissionAnalysis,
     jj: &Jujutsu,
-    forge: &dyn Forge,
+    forge: &ForgeImpl,
     config: &Config,
     bookmark_graph: &BookmarkGraph<'a>,
     dry_run: bool,
@@ -118,7 +118,7 @@ pub async fn plan<'a>(
 ) -> Result<SubmissionPlan<'a>> {
     let mut batches = Vec::new();
     let mut current_id = 1;
-    let get_id = &mut || {
+    let mut get_id = || {
         let id = current_id;
         current_id += 1;
         id

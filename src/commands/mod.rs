@@ -1,4 +1,5 @@
 use snafu::ensure;
+use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{
     error::{CLISnafu, Result},
@@ -51,4 +52,17 @@ pub fn get_bookmarks(options: &GetBookmarksOptions, jj: &Jujutsu) -> Result<Vec<
     );
 
     jj.get_bookmarks_with_revset(desired_revsets.first().unwrap())
+}
+
+trait StrVisualWidth {
+    fn visual_width(&self) -> usize;
+}
+
+impl<T> StrVisualWidth for T
+where
+    T: AsRef<str>,
+{
+    fn visual_width(&self) -> usize {
+        strip_ansi_escapes::strip_str(self).graphemes(true).count()
+    }
 }

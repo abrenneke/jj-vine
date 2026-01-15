@@ -90,3 +90,6 @@ release VERSION:
 # Starts a forgejo server using docker compose. Codeberg has low rate limits, so for integration tests we need to run our own instance.
 start-forgejo:
     docker compose -f forgejo.docker-compose.yml up -d
+
+stop-forgejo:
+    docker compose -f forgejo.docker-compose.yml down

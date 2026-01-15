@@ -4,8 +4,8 @@ pub mod gitlab;
 
 use std::borrow::Cow;
 
-use async_trait::async_trait;
 use bon::Builder;
+use enum_dispatch::enum_dispatch;
 use serde::{Deserialize, Serialize};
 
 use crate::{config::ForgeType, description::FormatMergeRequest, error::Result};
@@ -13,7 +13,7 @@ use crate::{config::ForgeType, description::FormatMergeRequest, error::Result};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ForgeUser {
     /// The ID of the user (usually a numeric ID)
-    pub id: String,
+    pub id: Option<String>,
 
     /// The username of the user
     pub username: String,
@@ -232,6 +232,17 @@ pub struct ApprovalStatus {
     pub satisfaction: ApprovalSatisfaction,
 }
 
+impl Default for ApprovalStatus {
+    fn default() -> Self {
+        Self {
+            approved_count: 0,
+            required_count: 0,
+            blocking_count: 0,
+            satisfaction: ApprovalSatisfaction::Unknown,
+        }
+    }
+}
+
 /// Complete status information for a merge request
 #[derive(Debug, Clone)]
 pub struct MergeRequestStatus {
@@ -269,9 +280,13 @@ pub struct ForgeCreateMergeRequestOptions {
     /// The IDs of the initial assignees of the merge request
     assignee_ids: Option<Vec<String>>,
 
+    // /// The usernames of the initial assignees of the merge request
+    // assignee_usernames: Option<Vec<String>>,
     /// The IDs of the initial reviewers of the merge request
     reviewer_ids: Option<Vec<String>>,
 
+    // /// The usernames of the initial reviewers of the merge request
+    // reviewer_usernames: Option<Vec<String>>,
     /// Whether to remove the source branch after the merge request is merged
     remove_source_branch: Option<bool>,
 
@@ -279,118 +294,140 @@ pub struct ForgeCreateMergeRequestOptions {
     squash: Option<bool>,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct DiscussionCount {
+    /// The total number of discussions.
+    pub all: u32,
+
+    /// The number of unresolved (resolvable) discussions.
+    pub unresolved: u32,
+
+    /// The number of resolved discussions.
+    pub resolved: u32,
+}
+
 /// A trait for a code forge (e.g. GitLab, GitHub, Forgejo, etc.)
-#[async_trait]
+#[enum_dispatch]
 pub trait Forge: Send + Sync + FormatMergeRequest {
     /// The project ID of the project in the forge. E.g. "group/project" or
     /// "12345" for a numeric project ID. Combined with the base URL, this forms
     /// the full URL to the project in the forge.
     fn project_id(&self) -> &str;
 
-    /// The project ID where branches are pushed (source/fork project)
+    /// The project ID where branches are pushed (source/fork project).
     fn source_project_id(&self) -> &str;
 
-    /// The project ID where MRs/PRs are created (target/upstream project)
+    /// The project ID where MRs/PRs are created (target/upstream project).
     fn target_project_id(&self) -> &str;
 
-    /// The base URL of the forge. E.g. <https://gitlab.example.com>
+    /// The base URL of the forge. E.g. <https://gitlab.example.com>.
     fn base_url(&self) -> &str;
 
-    /// The full URL to the project in the forge. E.g. <https://gitlab.example.com/group/project>
+    /// The full URL to the project in the forge. E.g. <https://gitlab.example.com/group/project>.
     fn project_url(&self) -> String {
         format!("{}/{}", self.base_url(), self.project_id())
     }
 
-    /// Get the current authenticated user in the forge
+    /// Get the current authenticated user in the forge.
     async fn current_user(&self) -> Result<ForgeUser>;
 
-    /// Gets a user in the forge by their username
+    /// Gets a user in the forge by their username.
     async fn user_by_username(&self, username: &str) -> Result<Option<ForgeUser>>;
 
-    /// Find merge request by source branch name. Returns the first MR found
+    /// Find merge request by source branch name. Returns the first MR found.
     /// with the given source branch, or None if not found
     async fn find_merge_request_by_source_branch(
         &self,
         branch: &str,
     ) -> Result<Option<ForgeMergeRequest>>;
 
-    /// Create a new merge request in the forge for the project
+    /// Create a new merge request in the forge for the project.
     async fn create_merge_request(
         &self,
         options: ForgeCreateMergeRequestOptions,
     ) -> Result<ForgeMergeRequest>;
 
-    /// Update the target branch (base) of an existing merge request
+    /// Update the target branch (base) of an existing merge request.
     async fn update_merge_request_base(
         &self,
         merge_request_iid: &str,
         new_base: &str,
     ) -> Result<ForgeMergeRequest>;
 
-    /// Update the description of an existing merge request
+    /// Update the description of an existing merge request.
     async fn update_merge_request_description(
         &self,
         merge_request_iid: &str,
         new_description: &str,
     ) -> Result<ForgeMergeRequest>;
 
-    /// Get a specific merge request by IID
+    /// Get a specific merge request by IID.
     async fn get_merge_request(&self, merge_request_iid: &str) -> Result<ForgeMergeRequest>;
 
-    /// Get approval status for a merge request
+    /// Get approval status for a merge request.
     async fn get_approval_status(&self, merge_request_iid: &str) -> Result<ApprovalStatus>;
 
-    /// Get CI/pipeline check status for a merge request
+    /// Get CI/pipeline check status for a merge request.
     async fn get_check_status(&self, merge_request_iid: &str) -> Result<CheckStatus>;
 
-    /// Get complete status information for a merge request
+    /// Get complete status information for a merge request.
     async fn get_merge_request_status(&self, merge_request_iid: &str)
     -> Result<MergeRequestStatus>;
+
+    /// Get the number of open discussions for a merge request.
+    async fn num_open_discussions(&self, merge_request_iid: &str) -> Result<DiscussionCount>;
 }
 
-/// Create a forge instance based on configuration
-pub fn create_forge(config: &crate::config::Config) -> Result<Box<dyn Forge>> {
+#[enum_dispatch(Forge, FormatMergeRequest)]
+pub enum ForgeImpl {
+    GitLab(gitlab::GitLabForge),
+    GitHub(github::GitHubForge),
+    Forgejo(forgejo::ForgejoForge),
+}
+
+/// Create a forge instance based on configuration.
+pub fn create_forge(config: &crate::config::Config) -> Result<ForgeImpl> {
     config.validate()?;
 
     match config.forge {
         ForgeType::GitLab => {
             let source = config.gitlab.source_project();
             let target = config.gitlab.target_project();
-            let forge = gitlab::GitLabForge::new(
+            gitlab::GitLabForge::new(
                 config.gitlab.host.clone(),
                 source.to_string(),
                 target.to_string(),
                 config.gitlab.token.clone(),
                 config.ca_bundle.clone(),
                 config.tls_accept_non_compliant_certs,
-            )?;
-            Ok(Box::new(forge))
+            )
+            .map(|forge| forge.into())
         }
         ForgeType::GitHub => {
             let source = config.github.source_project();
             let target = config.github.target_project();
-            let forge = github::GitHubForge::new(
+            github::GitHubForge::new(
                 config.github.host.clone(),
                 source.to_string(),
                 target.to_string(),
                 config.github.token.clone(),
                 config.ca_bundle.clone(),
                 config.tls_accept_non_compliant_certs,
-            )?;
-            Ok(Box::new(forge))
+            )
+            .map(|forge| forge.into())
         }
         ForgeType::Forgejo => {
             let source = config.forgejo.source_project();
             let target = config.forgejo.target_project();
-            let forge = forgejo::ForgejoForge::new(
+            forgejo::ForgejoForge::new(
                 config.forgejo.host.clone(),
                 source.to_string(),
                 target.to_string(),
                 config.forgejo.token.clone(),
                 config.ca_bundle.clone(),
                 config.tls_accept_non_compliant_certs,
-            )?;
-            Ok(Box::new(forge))
+            )
+            .map(|forge| forge.into())
         }
     }
 }

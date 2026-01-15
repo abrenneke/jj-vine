@@ -1,6 +1,7 @@
+mod graphql;
+
 use std::{collections::HashMap, path::Path};
 
-use async_trait::async_trait;
 use futures::{join, try_join};
 use itertools::Itertools;
 use reqwest::Method;
@@ -13,6 +14,7 @@ use crate::{
         ApprovalSatisfaction,
         ApprovalStatus,
         CheckStatus,
+        DiscussionCount,
         Forge,
         ForgeCreateMergeRequestOptions,
         ForgeMergeRequest,
@@ -43,7 +45,7 @@ pub struct GitHubUser {
 impl From<GitHubUser> for ForgeUser {
     fn from(user: GitHubUser) -> Self {
         ForgeUser {
-            id: user.id.to_string(),
+            id: Some(user.id.to_string()),
             username: user.login,
         }
     }
@@ -233,6 +235,18 @@ struct CheckRun {
     pub conclusion: Option<CheckRunConclusion>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct GraphQLResponse<T> {
+    data: T,
+    errors: Option<Vec<GraphQLError>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct GraphQLError {
+    message: String,
+    path: Vec<String>,
+}
+
 impl GitHubForge {
     /// Create a new GitHub client
     ///
@@ -331,9 +345,70 @@ impl GitHubForge {
         })?;
         Ok(data)
     }
+
+    async fn graphql<T: DeserializeOwned>(
+        &self,
+        query: &str,
+        variables: serde_json::Value,
+    ) -> Result<T> {
+        // TODO use a real graphql client
+        let graphql_url = if self.base_url.starts_with("https://api.github.com") {
+            "https://api.github.com/graphql".to_string()
+        } else if self.base_url.contains("/api/v3") {
+            self.base_url.replace("/api/v3", "/api/graphql")
+        } else {
+            format!("{}/graphql", self.base_url)
+        };
+
+        let payload = serde_json::json!({
+            "query": query,
+            "variables": variables,
+        });
+
+        let response = self
+            .client
+            .post(&graphql_url)
+            .header("Authorization", format!("Bearer {}", &self.token))
+            .header("Accept", "application/vnd.github+json")
+            .header("User-Agent", "jj-vine")
+            .json(&payload)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let text = response.text().await?;
+            return Err(Error::GitHubApi {
+                message: format!("GraphQL request failed: {} - {}", status, text),
+            });
+        }
+
+        let body = response.text().await?;
+        let data: GraphQLResponse<T> =
+            serde_json::from_str(&body).map_err(|e| Error::GitHubApi {
+                message: format!(
+                    "Failed to parse GraphQL response: {}, response: {}",
+                    e, body
+                ),
+            })?;
+
+        if let Some(errors) = data.errors {
+            return Err(Error::GitHubApi {
+                message: format!(
+                    "GraphQL request failed: {}",
+                    errors
+                        .iter()
+                        .map(|error| error.message.clone())
+                        .collect::<Vec<String>>()
+                        .join(", ")
+                ),
+            });
+        }
+
+        Ok(data.data)
+    }
 }
 
-#[async_trait]
 impl Forge for GitHubForge {
     fn project_id(&self) -> &str {
         &self.target_project_id
@@ -613,6 +688,29 @@ impl Forge for GitHubForge {
             check_status,
         })
     }
+
+    async fn num_open_discussions(&self, pr_number: &str) -> Result<DiscussionCount> {
+        let discussions = self.get_discussions(pr_number).await?;
+        Ok(discussions.iter().fold(
+            DiscussionCount {
+                all: 0,
+                unresolved: 0,
+                resolved: 0,
+            },
+            |mut acc, comment| {
+                acc.all += 1;
+
+                if comment.is_minimized {
+                    acc.resolved += 1;
+                    // Close enough?
+                } else if comment.viewer_can_minimize {
+                    acc.unresolved += 1;
+                }
+
+                acc
+            },
+        ))
+    }
 }
 
 impl FormatMergeRequest for GitHubForge {
@@ -680,6 +778,102 @@ impl GitHubForge {
         }
 
         Ok(0)
+    }
+
+    async fn get_discussions(
+        &self,
+        pr_number: &str,
+    ) -> Result<Vec<graphql::GetDiscussionsQueryComment>> {
+        let (owner, name) = self.target_project_id.split("/").collect_tuple().unwrap();
+
+        // TODO pagination, real gql client
+        let response: graphql::GetDiscussionsQueryResponse = self
+            .graphql(
+                r#"
+query GetDiscussions($owner: String!, $name: String!, $pr_number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $pr_number) {
+      reviews(first: 100) {
+        nodes {
+          id
+          comments(first: 100) {
+            nodes {
+              author {
+                login
+              }
+              body
+              createdAt
+              editor {
+                login
+              }
+              id
+              lastEditedAt
+              isMinimized
+              minimizedReason
+              publishedAt
+              updatedAt
+              url
+              viewerCanMinimize
+            }
+          }
+        }
+      }
+
+      comments(first: 100) {
+        nodes {
+          author {
+            login
+          }
+          body
+          createdAt
+          editor {
+            login
+          }
+          id
+          lastEditedAt
+          isMinimized
+          minimizedReason
+          publishedAt
+          updatedAt
+          url
+          viewerCanMinimize
+        }
+      }
+    }
+  }
+}
+        "#,
+                serde_json::json!({
+                    "owner": owner,
+                    "name": name,
+                    "pr_number": pr_number,
+                }),
+            )
+            .await?;
+
+        let pull_request = response
+            .repository
+            .ok_or(Error::GitHubApi {
+                message: format!("Repository {} not found", self.target_project_id),
+            })?
+            .pull_request
+            .ok_or(Error::GitHubApi {
+                message: format!("Pull request {} not found", pr_number),
+            })?;
+
+        let root_comments = &pull_request.comments.nodes;
+
+        let reviews = &pull_request.reviews.unwrap_or_default().nodes;
+        let review_comments = reviews
+            .iter()
+            .flat_map(|review| review.comments.nodes.iter())
+            .collect::<Vec<_>>();
+
+        Ok(root_comments
+            .iter()
+            .chain(review_comments.into_iter())
+            .cloned()
+            .collect())
     }
 }
 

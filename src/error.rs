@@ -57,6 +57,9 @@ pub enum Error {
 
     #[snafu(display("{message}"))]
     Other { message: String },
+
+    #[snafu(display("Invalid component: {component}"))]
+    InvalidComponent { component: String },
 }
 
 impl Error {

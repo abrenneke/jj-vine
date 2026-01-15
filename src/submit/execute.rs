@@ -3,7 +3,7 @@ mod push;
 mod update_mr_base;
 mod update_mr_description;
 
-use async_trait::async_trait;
+use enum_dispatch::enum_dispatch;
 use futures::{StreamExt, stream::FuturesUnordered};
 use itertools::Itertools;
 use tracing::debug;
@@ -11,7 +11,7 @@ use tracing::debug;
 use crate::{
     config::Config,
     error::{Error, Result},
-    forge::{Forge, ForgeMergeRequest},
+    forge::{ForgeImpl, ForgeMergeRequest},
     jj::Jujutsu,
     output::Output,
     submit::{
@@ -58,15 +58,23 @@ pub struct ActionResult {
     pub data: Result<ActionResultData>,
 }
 
-#[async_trait]
+#[enum_dispatch]
 pub trait ExecuteAction {
     async fn execute(&self, ctx: ExecutionActionContext<'_, '_>) -> Result<ActionResultData>;
+}
+
+#[enum_dispatch(ExecuteAction)]
+pub enum ExecuteActionImpl<'a> {
+    Push(PushAction),
+    CreateMR(CreateMRAction),
+    UpdateMRBase(UpdateMRBaseAction),
+    UpdateMRDescription(UpdateMRDescriptionAction<'a>),
 }
 
 pub struct ExecutionActionContext<'a, 'b> {
     pub plan: &'a SubmissionPlan<'b>,
     pub jj: &'a Jujutsu,
-    pub forge: &'a dyn Forge,
+    pub forge: &'a ForgeImpl,
     pub config: &'a Config,
     pub output: &'a dyn Output,
 }
@@ -104,7 +112,7 @@ pub enum MRUpdateType {
 pub async fn execute(
     plan: &SubmissionPlan<'_>,
     jj: &Jujutsu,
-    forge: &dyn Forge,
+    forge: &ForgeImpl,
     config: &Config,
     output: &dyn Output,
 ) -> Result<SubmissionResult> {
@@ -154,38 +162,39 @@ pub async fn execute(
                 continue;
             }
 
-            let execute_action: Box<dyn ExecuteAction> = match &action.action {
+            let execute_action: ExecuteActionImpl<'_> = match &action.action {
                 Action::Push { bookmark, remote } => {
-                    Box::new(PushAction::new(bookmark.clone(), remote.clone()))
+                    PushAction::new(bookmark.clone(), remote.clone()).into()
                 }
                 Action::CreateMR {
                     bookmark,
                     target_branch,
                     title,
                     description,
-                } => Box::new(CreateMRAction::new(
+                } => CreateMRAction::new(
                     bookmark.clone(),
                     target_branch.clone(),
                     title.clone(),
                     description.clone(),
-                )),
+                )
+                .into(),
                 Action::UpdateMRBase {
                     bookmark,
                     mr_iid,
                     new_target_branch,
-                } => Box::new(UpdateMRBaseAction::new(
+                } => UpdateMRBaseAction::new(
                     bookmark.clone(),
                     mr_iid.clone(),
                     new_target_branch.clone(),
-                )),
+                )
+                .into(),
                 Action::UpdateMRDescription {
                     bookmark,
                     bookmarks_being_submitted: _,
                     bookmark_graph,
-                } => Box::new(UpdateMRDescriptionAction::new(
-                    bookmark.clone(),
-                    bookmark_graph.clone(),
-                )),
+                } => {
+                    UpdateMRDescriptionAction::new(bookmark.clone(), bookmark_graph.clone()).into()
+                }
             };
 
             let action_id = action.id;

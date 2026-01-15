@@ -1,7 +1,10 @@
 use std::collections::HashMap;
 
+use enum_dispatch::enum_dispatch;
+
 use crate::{bookmark::BranchStack, config::StackFormat, error::Result, forge::ForgeMergeRequest};
 
+#[enum_dispatch]
 pub trait FormatMergeRequest {
     /// Formats the ID of a merge request as a string for display in the
     /// description.

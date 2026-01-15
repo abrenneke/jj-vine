@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet};
 
-use async_trait::async_trait;
 use futures::{StreamExt, stream::FuturesUnordered};
 use itertools::Itertools;
 use owo_colors::OwoColorize;
@@ -16,7 +15,7 @@ use crate::{
         generate_multi_stack_description,
     },
     error::{Error, Result},
-    forge::ForgeMergeRequest,
+    forge::{Forge, ForgeMergeRequest},
     submit::execute::{
         ActionResultData,
         ExecuteAction,
@@ -40,7 +39,6 @@ impl<'a> UpdateMRDescriptionAction<'a> {
     }
 }
 
-#[async_trait]
 impl<'a> ExecuteAction for UpdateMRDescriptionAction<'a> {
     async fn execute(&self, ctx: ExecutionActionContext<'_, '_>) -> Result<ActionResultData> {
         if ctx.plan.dry_run {

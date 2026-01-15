@@ -1,10 +1,9 @@
-use async_trait::async_trait;
 use owo_colors::OwoColorize;
 use tracing::error;
 
 use crate::{
     error::{Error, Result},
-    forge::ForgeCreateMergeRequestOptions,
+    forge::{Forge, ForgeCreateMergeRequestOptions, ForgeUser},
     submit::execute::{
         ActionResultData,
         ExecuteAction,
@@ -37,7 +36,6 @@ impl CreateMRAction {
     }
 }
 
-#[async_trait]
 impl ExecuteAction for CreateMRAction {
     async fn execute(&self, ctx: ExecutionActionContext<'_, '_>) -> Result<ActionResultData> {
         if ctx.plan.dry_run {
@@ -75,8 +73,10 @@ impl ExecuteAction for CreateMRAction {
             let mut reviewer_ids = Vec::new();
             for username in &ctx.config.default_reviewers {
                 match ctx.forge.user_by_username(username).await {
-                    Ok(Some(user)) => reviewer_ids.push(user.id),
-                    Ok(None) => {
+                    Ok(Some(ForgeUser {
+                        id: Some(user_id), ..
+                    })) => reviewer_ids.push(user_id),
+                    Ok(None) | Ok(Some(ForgeUser { id: None, .. })) => {
                         let warning = format!("Warning: Reviewer '{}' not found", username);
                         ctx.output.log_message(&warning.yellow().to_string());
                     }
@@ -99,8 +99,7 @@ impl ExecuteAction for CreateMRAction {
                         .squash(ctx.config.squash_commits)
                         .maybe_description(desc.map(|s| s.to_string()))
                         .maybe_assignee_ids(
-                            assignee_ids
-                                .map(|ids| ids.into_iter().map(|id| id.to_string()).collect()),
+                            assignee_ids.map(|ids| ids.into_iter().flatten().collect()),
                         )
                         .reviewer_ids(reviewer_ids)
                         .build(),
