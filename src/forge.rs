@@ -109,6 +109,14 @@ impl ForgeMergeRequest {
         }
     }
 
+    pub fn edit_url(&self) -> Cow<'_, str> {
+        match self {
+            ForgeMergeRequest::GitLab(mr) => Cow::Owned(format!("{}/edit", mr.web_url)),
+            ForgeMergeRequest::GitHub(pr) => Cow::Borrowed(&pr.html_url),
+            ForgeMergeRequest::Forgejo(pr) => Cow::Borrowed(&pr.html_url),
+        }
+    }
+
     pub fn author_username(&self) -> &str {
         match self {
             ForgeMergeRequest::GitLab(mr) => &mr.author.username,

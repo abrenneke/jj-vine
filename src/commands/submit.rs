@@ -184,7 +184,7 @@ pub async fn submit(config: SubmitCommandConfig, cli_config: CliConfig<'_>) -> R
                     table.push(vec![
                         bookmark.magenta().cell(),
                         mr.title().wrap(60).cell(),
-                        mr.url().dimmed().cell(),
+                        mr.edit_url().dimmed().cell(),
                         "[created]".green().cell(),
                     ]);
                 }
@@ -195,7 +195,7 @@ pub async fn submit(config: SubmitCommandConfig, cli_config: CliConfig<'_>) -> R
                         bookmark.magenta().cell(),
                         mr.title().wrap(60).cell(),
                         mr.url().dimmed().cell(),
-                        "[updated]".green().cell(),
+                        "[updated]".green().dimmed().cell(),
                     ]);
                 }
                 MRUpdateType::Unchanged => {
