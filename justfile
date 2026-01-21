@@ -2,35 +2,35 @@
 default: build lint test-unit
 
 # Checks the project for errors
-check:
-    cargo check
+check *args:
+    cargo check {{args}}
 
 # Lints the project
 lint: fmt clippy check-readmes
 
 # Runs formatting on all files
-fmt:
-    cargo fmt
+fmt *args:
+    cargo fmt {{args}}
 
 # Checks formatting on all files
-fmt-check:
-    cargo fmt --check
+fmt-check *args:
+    cargo fmt --check {{args}}
 
 # Lints the project
-clippy:
-    cargo clippy --tests
+clippy *args:
+    cargo clippy --tests {{args}}
 
 # Builds the project
-build:
-    cargo build
+build *args:
+    cargo build {{args}}
 
 # Runs all tests, including integration tests (see CONTRIBUTING.djot for more details)
-test:
-    cargo test
+test *args:
+    cargo test {{args}}
 
 # Runs unit tests (excluding integration tests)
-test-unit:
-    cargo test --features no-e2e-tests
+test-unit *args:
+    cargo test --features no-e2e-tests {{args}}
 
 # Ensures that the .djot files are synced to the .md files.
 check-readmes:

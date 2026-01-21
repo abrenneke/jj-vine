@@ -13,13 +13,13 @@ mod e2e {
 
         // Create and push bookmark A
         let branch_a = unique_branch("tracked-a");
-        repo.jj(["new", "main"]);
+        repo.jj.exec(["new", "main"]).unwrap();
         repo.create_change("a.txt", "a", "Commit A")
             .create_and_push_bookmark(&branch_a);
 
         // Create bookmark B but don't push it
         let branch_b = unique_branch("tracked-b");
-        repo.jj(["new"]);
+        repo.jj.exec(["new"]).unwrap();
         repo.create_change("b.txt", "b", "Commit B")
             .create_bookmark(&branch_b);
 
@@ -56,7 +56,7 @@ mod e2e {
 
         // Create and push a feature bookmark
         let branch = unique_branch("tracked-feature");
-        repo.jj(["new", "main"]);
+        repo.jj.exec(["new", "main"]).unwrap();
         repo.create_change("feature.txt", "feature", "Feature commit")
             .create_and_push_bookmark(&branch);
 

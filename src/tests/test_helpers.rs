@@ -31,6 +31,8 @@ pub struct TestRepo<T> {
 
     /// Forge API client
     forge: T,
+
+    pub jj: Jujutsu,
 }
 
 fn make_repo() -> (TempDir, PathBuf) {
@@ -38,7 +40,7 @@ fn make_repo() -> (TempDir, PathBuf) {
     let path = dir.path().to_path_buf();
 
     let output = Command::new("jj")
-        .args(["git", "init", "--colocate"])
+        .args(["git", "init"])
         .current_dir(&path)
         .output()
         .unwrap();
@@ -57,6 +59,7 @@ impl TestRepo<()> {
         let (dir, path) = make_repo();
         Self {
             dir,
+            jj: Jujutsu::new(&path).expect("Failed to create Jujutsu"),
             path,
             forge: Default::default(),
         }
@@ -65,7 +68,7 @@ impl TestRepo<()> {
     /// Create a bookmark at current revision, chainable.
     /// If a remote is configured, also tracks the bookmark.
     pub fn create_bookmark(&self, name: &str) -> &Self {
-        self.jj(["bookmark", "create", name]);
+        self.jj.exec(["bookmark", "create", name]).unwrap();
         self
     }
 
@@ -85,7 +88,7 @@ impl TestRepo<()> {
     ) -> &Self {
         self.create_change(file, content, msg);
         self.create_bookmark(bookmark);
-        self.jj(["new"]);
+        self.jj.exec(["new"]).unwrap();
         self
     }
 }
@@ -108,6 +111,7 @@ impl TestRepo<GitLabForge> {
 
         let repo = Self {
             dir,
+            jj: Jujutsu::new(&path).expect("Failed to create Jujutsu"),
             path,
             forge: GitLabForge::new(
                 &host,
@@ -120,29 +124,41 @@ impl TestRepo<GitLabForge> {
             .expect("Failed to create GitLab client"),
         };
 
-        repo.jj(["config", "set", "--repo", "jj-vine.forge", "gitlab"]);
-        repo.jj(["config", "set", "--repo", "jj-vine.gitlab.host", &host]);
-        repo.jj([
-            "config",
-            "set",
-            "--repo",
-            "jj-vine.gitlab.project",
-            &project,
-        ]);
-        repo.jj(["config", "set", "--repo", "jj-vine.gitlab.token", &token]);
-
-        if let Some(ref bundle) = ca_bundle {
-            repo.jj(["config", "set", "--repo", "jj-vine.caBundle", bundle]);
-        }
-
-        if accept_non_compliant {
-            repo.jj([
+        repo.jj
+            .exec(["config", "set", "--repo", "jj-vine.forge", "gitlab"])
+            .unwrap();
+        repo.jj
+            .exec(["config", "set", "--repo", "jj-vine.gitlab.host", &host])
+            .unwrap();
+        repo.jj
+            .exec([
                 "config",
                 "set",
                 "--repo",
-                "jj-vine.tlsAcceptNonCompliantCerts",
-                "true",
-            ]);
+                "jj-vine.gitlab.project",
+                &project,
+            ])
+            .unwrap();
+        repo.jj
+            .exec(["config", "set", "--repo", "jj-vine.gitlab.token", &token])
+            .unwrap();
+
+        if let Some(ref bundle) = ca_bundle {
+            repo.jj
+                .exec(["config", "set", "--repo", "jj-vine.caBundle", bundle])
+                .unwrap();
+        }
+
+        if accept_non_compliant {
+            repo.jj
+                .exec([
+                    "config",
+                    "set",
+                    "--repo",
+                    "jj-vine.tlsAcceptNonCompliantCerts",
+                    "true",
+                ])
+                .unwrap();
         }
 
         // Add git remote
@@ -152,11 +168,13 @@ impl TestRepo<GitLabForge> {
             .trim_start_matches("http://");
         let remote_url = format!("git@{}:{}.git", hostname, project);
 
-        repo.jj(["git", "remote", "add", "origin", &remote_url]);
+        repo.jj
+            .exec(["git", "remote", "add", "origin", &remote_url])
+            .unwrap();
 
         // Fetch and track main so tests don't have to
-        repo.jj(["git", "fetch"]);
-        repo.jj(["bookmark", "track", "main@origin"]);
+        repo.jj.exec(["git", "fetch"]).unwrap();
+        repo.jj.exec(["bookmark", "track", "main@origin"]).unwrap();
 
         repo
     }
@@ -181,6 +199,7 @@ impl TestRepo<GitHubForge> {
 
         let repo = Self {
             dir,
+            jj: Jujutsu::new(&path).expect("Failed to create Jujutsu"),
             path,
             forge: GitHubForge::new(
                 &host,
@@ -193,29 +212,41 @@ impl TestRepo<GitHubForge> {
             .expect("Failed to create GitHub client"),
         };
 
-        repo.jj(["config", "set", "--repo", "jj-vine.forge", "github"]);
-        repo.jj(["config", "set", "--repo", "jj-vine.github.host", &host]);
-        repo.jj([
-            "config",
-            "set",
-            "--repo",
-            "jj-vine.github.project",
-            &project,
-        ]);
-        repo.jj(["config", "set", "--repo", "jj-vine.github.token", &token]);
-
-        if let Some(ref bundle) = ca_bundle {
-            repo.jj(["config", "set", "--repo", "jj-vine.caBundle", bundle]);
-        }
-
-        if accept_non_compliant {
-            repo.jj([
+        repo.jj
+            .exec(["config", "set", "--repo", "jj-vine.forge", "github"])
+            .unwrap();
+        repo.jj
+            .exec(["config", "set", "--repo", "jj-vine.github.host", &host])
+            .unwrap();
+        repo.jj
+            .exec([
                 "config",
                 "set",
                 "--repo",
-                "jj-vine.tlsAcceptNonCompliantCerts",
-                "true",
-            ]);
+                "jj-vine.github.project",
+                &project,
+            ])
+            .unwrap();
+        repo.jj
+            .exec(["config", "set", "--repo", "jj-vine.github.token", &token])
+            .unwrap();
+
+        if let Some(ref bundle) = ca_bundle {
+            repo.jj
+                .exec(["config", "set", "--repo", "jj-vine.caBundle", bundle])
+                .unwrap();
+        }
+
+        if accept_non_compliant {
+            repo.jj
+                .exec([
+                    "config",
+                    "set",
+                    "--repo",
+                    "jj-vine.tlsAcceptNonCompliantCerts",
+                    "true",
+                ])
+                .unwrap();
         }
 
         // Add git remote
@@ -229,11 +260,13 @@ impl TestRepo<GitHubForge> {
             .to_string();
         let remote_url = format!("git@{}:{}.git", hostname, project);
 
-        repo.jj(["git", "remote", "add", "origin", &remote_url]);
+        repo.jj
+            .exec(["git", "remote", "add", "origin", &remote_url])
+            .unwrap();
 
         // Fetch and track main so tests don't have to
-        repo.jj(["git", "fetch"]);
-        repo.jj(["bookmark", "track", "main@origin"]);
+        repo.jj.exec(["git", "fetch"]).unwrap();
+        repo.jj.exec(["bookmark", "track", "main@origin"]).unwrap();
 
         repo
     }
@@ -257,6 +290,7 @@ impl TestRepo<ForgejoForge> {
 
         let repo = Self {
             dir,
+            jj: Jujutsu::new(&path).expect("Failed to create Jujutsu"),
             path,
             forge: ForgejoForge::new(
                 &host,
@@ -269,29 +303,41 @@ impl TestRepo<ForgejoForge> {
             .expect("Failed to create Forgejo client"),
         };
 
-        repo.jj(["config", "set", "--repo", "jj-vine.forge", "forgejo"]);
-        repo.jj(["config", "set", "--repo", "jj-vine.forgejo.host", &host]);
-        repo.jj([
-            "config",
-            "set",
-            "--repo",
-            "jj-vine.forgejo.project",
-            &project,
-        ]);
-        repo.jj(["config", "set", "--repo", "jj-vine.forgejo.token", &token]);
-
-        if let Some(ref bundle) = ca_bundle {
-            repo.jj(["config", "set", "--repo", "jj-vine.caBundle", bundle]);
-        }
-
-        if accept_non_compliant {
-            repo.jj([
+        repo.jj
+            .exec(["config", "set", "--repo", "jj-vine.forge", "forgejo"])
+            .unwrap();
+        repo.jj
+            .exec(["config", "set", "--repo", "jj-vine.forgejo.host", &host])
+            .unwrap();
+        repo.jj
+            .exec([
                 "config",
                 "set",
                 "--repo",
-                "jj-vine.tlsAcceptNonCompliantCerts",
-                "true",
-            ]);
+                "jj-vine.forgejo.project",
+                &project,
+            ])
+            .unwrap();
+        repo.jj
+            .exec(["config", "set", "--repo", "jj-vine.forgejo.token", &token])
+            .unwrap();
+
+        if let Some(ref bundle) = ca_bundle {
+            repo.jj
+                .exec(["config", "set", "--repo", "jj-vine.caBundle", bundle])
+                .unwrap();
+        }
+
+        if accept_non_compliant {
+            repo.jj
+                .exec([
+                    "config",
+                    "set",
+                    "--repo",
+                    "jj-vine.tlsAcceptNonCompliantCerts",
+                    "true",
+                ])
+                .unwrap();
         }
 
         // Add git remote
@@ -306,11 +352,13 @@ impl TestRepo<ForgejoForge> {
 
         let remote_url = format!("ssh://git@{}:{}/{}.git", hostname_no_port, port, project);
 
-        repo.jj(["git", "remote", "add", "origin", &remote_url]);
+        repo.jj
+            .exec(["git", "remote", "add", "origin", &remote_url])
+            .unwrap();
 
         // Fetch and track main so tests don't have to
-        repo.jj(["git", "fetch"]);
-        repo.jj(["bookmark", "track", "main@origin"]);
+        repo.jj.exec(["git", "fetch"]).unwrap();
+        repo.jj.exec(["bookmark", "track", "main@origin"]).unwrap();
 
         repo
     }
@@ -327,8 +375,10 @@ where
     /// Create a bookmark at current revision, chainable.
     /// If a remote is configured, also tracks the bookmark.
     pub fn create_bookmark(&self, name: &str) -> &Self {
-        self.jj(["bookmark", "create", name]);
-        self.jj(["bookmark", "track", &format!("{}@origin", name)]);
+        self.jj.exec(["bookmark", "create", name]).unwrap();
+        self.jj
+            .exec(["bookmark", "track", &format!("{}@origin", name)])
+            .unwrap();
         self
     }
 
@@ -348,42 +398,23 @@ where
     ) -> &Self {
         self.create_change(file, content, msg);
         self.create_bookmark(bookmark);
-        self.jj(["new"]);
+        self.jj.exec(["new"]).unwrap();
         self
     }
 }
 
 impl<T> TestRepo<T> {
-    pub fn jj<'a>(&self, args: impl AsRef<[&'a str]>) -> String {
-        let output = Command::new("jj")
-            .args(args.as_ref())
-            .current_dir(&self.path)
-            .output()
-            .unwrap();
-        assert!(
-            output.status.success(),
-            "jj command failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        String::from_utf8(output.stdout).unwrap()
-    }
-
     /// Create a file and describe the current change, chainable
     pub fn create_change(&self, file: &str, content: &str, msg: &str) -> &Self {
         std::fs::write(self.path.join(file), content).unwrap();
-        self.jj(["describe", "-m", msg]);
+        self.jj.exec(["describe", "-m", msg]).unwrap();
         self
     }
 
     /// Push a bookmark to origin, chainable
     pub fn push_bookmark(&self, name: &str) -> &Self {
-        self.jj(["git", "push", "--bookmark", name]);
+        self.jj.exec(["git", "push", "--bookmark", name]).unwrap();
         self
-    }
-
-    /// Get a Jujutsu instance for this repo
-    pub fn jujutsu(&self) -> Jujutsu {
-        Jujutsu::new(self.path.clone()).expect("Failed to create Jujutsu instance")
     }
 
     /// Submit bookmarks with options

@@ -190,7 +190,6 @@ pub async fn execute(
                 .into(),
                 Action::UpdateMRDescription {
                     bookmark,
-                    bookmarks_being_submitted: _,
                     bookmark_graph,
                 } => {
                     UpdateMRDescriptionAction::new(bookmark.clone(), bookmark_graph.clone()).into()

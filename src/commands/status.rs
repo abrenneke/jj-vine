@@ -14,8 +14,9 @@ use pluralizer::pluralize;
 use tracing::info;
 
 use crate::{
+    bookmark::Bookmark,
     cli::CliConfig,
-    commands::{GetBookmarksOptions, StrVisualWidth, get_bookmarks},
+    commands::{GetBookmarksOptions, StrVisualWidth, get_changes_from_cli_args},
     config::Config,
     description::FormatMergeRequest,
     error::{Error, Result},
@@ -75,14 +76,13 @@ struct BookmarkStatusError {
 }
 
 pub async fn status(config: StatusCommandConfig, cli_config: CliConfig<'_>) -> Result<()> {
-    let jj = Jujutsu::new(cli_config.repository.clone())?;
+    let jj = Jujutsu::new(&cli_config.repository)?;
     let repo_config = Config::load(&cli_config.repository)?;
     let forge = create_forge(&repo_config)?;
     let output = cli_config.output;
 
-    output.log_current("Finding tracked bookmarks");
-
-    let bookmarks = get_bookmarks(&config.to_get_bookmarks_options(), &jj)?;
+    let changes = get_changes_from_cli_args(&config.to_get_bookmarks_options(), &jj)?;
+    let bookmarks: Vec<_> = Bookmark::from_changes(&changes).into_iter().collect();
 
     if bookmarks.is_empty() {
         output.finish();
@@ -96,13 +96,13 @@ pub async fn status(config: StatusCommandConfig, cli_config: CliConfig<'_>) -> R
 
     for bookmark in &bookmarks {
         futures.push(async {
-            let _substep = output.start_substep(bookmark.name.clone());
+            let _substep = output.start_substep(bookmark.name().to_string());
 
             let mr_option = forge
-                .find_merge_request_by_source_branch(&bookmark.name)
+                .find_merge_request_by_source_branch(bookmark.name())
                 .await
                 .map_err(|e| BookmarkStatusError {
-                    bookmark: bookmark.name.clone(),
+                    bookmark: bookmark.name().to_string(),
                     error: e,
                 })?;
 
@@ -112,17 +112,17 @@ pub async fn status(config: StatusCommandConfig, cli_config: CliConfig<'_>) -> R
                         .get_merge_request_status(mr.iid().as_ref())
                         .await
                         .map_err(|e| BookmarkStatusError {
-                            bookmark: bookmark.name.clone(),
+                            bookmark: bookmark.name().to_string(),
                             error: e,
                         })?;
                     BookmarkStatus::HasMergeRequest {
-                        bookmark: bookmark.name.clone(),
+                        bookmark: bookmark.name().to_string(),
                         merge_request: Box::new(mr),
                         status: mr_status,
                     }
                 }
                 None => BookmarkStatus::NoMergeRequest {
-                    bookmark: bookmark.name.clone(),
+                    bookmark: bookmark.name().to_string(),
                 },
             };
 

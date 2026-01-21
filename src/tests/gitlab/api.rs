@@ -10,7 +10,7 @@ async fn test_submit_creates_mr() {
     let repo = TestRepo::with_gitlab_remote();
 
     let branch = unique_branch("create-mr");
-    repo.jj(["new", "main"]);
+    repo.jj.exec(["new", "main"]).unwrap();
     repo.create_change("test.txt", "content", "Test commit")
         .create_and_push_bookmark(&branch);
 
@@ -44,15 +44,15 @@ async fn test_submit_creates_stacked_mrs() {
     let branch_c = unique_branch("stack-c");
 
     // Create stack: main -> A -> B -> C
-    repo.jj(["new", "main"]);
+    repo.jj.exec(["new", "main"]).unwrap();
     repo.create_change("a.txt", "a", "Commit A")
         .create_and_push_bookmark(&branch_a);
 
-    repo.jj(["new"]);
+    repo.jj.exec(["new"]).unwrap();
     repo.create_change("b.txt", "b", "Commit B")
         .create_and_push_bookmark(&branch_b);
 
-    repo.jj(["new"]);
+    repo.jj.exec(["new"]).unwrap();
     repo.create_change("c.txt", "c", "Commit C")
         .create_and_push_bookmark(&branch_c);
 
@@ -97,7 +97,7 @@ async fn test_submit_is_idempotent() {
     let repo = TestRepo::with_gitlab_remote();
 
     let branch = unique_branch("idempotent");
-    repo.jj(["new", "main"]);
+    repo.jj.exec(["new", "main"]).unwrap();
     repo.create_change("test.txt", "content", "Test commit")
         .create_and_push_bookmark(&branch);
 
@@ -143,15 +143,15 @@ async fn test_submit_retargets_after_middle_bookmark_deleted() {
     let branch_c = unique_branch("retarget-c");
 
     // Create stack: main -> A -> B -> C
-    repo.jj(["new", "main"]);
+    repo.jj.exec(["new", "main"]).unwrap();
     repo.create_change("a.txt", "a", "Commit A")
         .create_and_push_bookmark(&branch_a);
 
-    repo.jj(["new"]);
+    repo.jj.exec(["new"]).unwrap();
     repo.create_change("b.txt", "b", "Commit B")
         .create_and_push_bookmark(&branch_b);
 
-    repo.jj(["new"]);
+    repo.jj.exec(["new"]).unwrap();
     repo.create_change("c.txt", "c", "Commit C")
         .create_and_push_bookmark(&branch_c);
 
@@ -172,7 +172,7 @@ async fn test_submit_retargets_after_middle_bookmark_deleted() {
     assert_eq!(mr_c.target_branch(), branch_b);
 
     // Delete bookmark B
-    repo.jj(["bookmark", "delete", &branch_b]);
+    repo.jj.exec(["bookmark", "delete", &branch_b]).unwrap();
 
     // Resubmit C - should retarget to A
     repo.submit(SubmitCommandConfig {

@@ -7,7 +7,7 @@ mod e2e {
         let repo = TestRepo::with_gitlab_remote();
 
         let branch = unique_branch("dry-run-test");
-        repo.jj(["new", "main"]);
+        repo.jj.exec(["new", "main"]).unwrap();
         repo.create_change("test.txt", "content", "Test commit")
             .create_and_push_bookmark(&branch);
 
@@ -36,15 +36,15 @@ mod e2e {
         let branch_b = unique_branch("topo-b");
         let branch_c = unique_branch("topo-c");
 
-        repo.jj(["new", "main"]);
+        repo.jj.exec(["new", "main"]).unwrap();
         repo.create_change("a.txt", "a", "Commit A")
             .create_and_push_bookmark(&branch_a);
 
-        repo.jj(["new"]);
+        repo.jj.exec(["new"]).unwrap();
         repo.create_change("b.txt", "b", "Commit B")
             .create_and_push_bookmark(&branch_b);
 
-        repo.jj(["new"]);
+        repo.jj.exec(["new"]).unwrap();
         repo.create_change("c.txt", "c", "Commit C")
             .create_and_push_bookmark(&branch_c);
 

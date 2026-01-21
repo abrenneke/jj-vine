@@ -1,9 +1,9 @@
-use std::path::Path;
+use std::path::PathBuf;
 
 use dialoguer::{Input, Password, Select};
 use owo_colors::OwoColorize;
 
-use crate::{cli::CliConfig, config::ForgeType, error::Result, jj::jj_exec};
+use crate::{cli::CliConfig, config::ForgeType, error::Result, jj::Jujutsu};
 
 #[derive(Debug, Clone)]
 struct DetectedForge {
@@ -127,10 +127,11 @@ pub async fn init(cli_config: CliConfig<'_>) -> Result<()> {
 
 /// Initialize GitLab-specific configuration
 async fn init_gitlab(
-    repo_path: impl AsRef<Path>,
+    repo_path: impl Into<PathBuf>,
     detected: Option<&DetectedForge>,
     fork_detection: Option<&ForkDetection>,
 ) -> Result<()> {
+    let repo_path = repo_path.into();
     let existing_host = get_config(&repo_path, "jj-vine.gitlab.host");
     let existing_project = get_config(&repo_path, "jj-vine.gitlab.project");
     let existing_target_project = get_config(&repo_path, "jj-vine.gitlab.targetProject");
@@ -257,10 +258,11 @@ async fn init_gitlab(
 
 /// Initialize GitHub-specific configuration
 async fn init_github(
-    repo_path: impl AsRef<Path>,
+    repo_path: impl Into<PathBuf>,
     detected: Option<&DetectedForge>,
     fork_detection: Option<&ForkDetection>,
 ) -> Result<()> {
+    let repo_path = repo_path.into();
     let existing_host = get_config(&repo_path, "jj-vine.github.host");
     let existing_project = get_config(&repo_path, "jj-vine.github.project");
     let existing_target_project = get_config(&repo_path, "jj-vine.github.targetProject");
@@ -367,10 +369,11 @@ async fn init_github(
 
 /// Initialize Forgejo/Codeburg/Gitea-specific configuration
 async fn init_forgejo(
-    repo_path: impl AsRef<Path>,
+    repo_path: impl Into<PathBuf>,
     detected: Option<&DetectedForge>,
     fork_detection: Option<&ForkDetection>,
 ) -> Result<()> {
+    let repo_path = repo_path.into();
     let existing_host = get_config(&repo_path, "jj-vine.forgejo.host");
     let existing_project = get_config(&repo_path, "jj-vine.forgejo.project");
     let existing_target_project = get_config(&repo_path, "jj-vine.forgejo.targetProject");
@@ -480,8 +483,8 @@ async fn init_forgejo(
 }
 
 /// Get a configuration value using jj config get
-fn get_config(repo_path: impl AsRef<Path>, key: &str) -> Option<String> {
-    match jj_exec(repo_path.as_ref(), ["config", "get", key]) {
+fn get_config(repo_path: impl Into<PathBuf>, key: &str) -> Option<String> {
+    match Jujutsu::new(repo_path).ok()?.exec(["config", "get", key]) {
         Ok(output) => {
             let value = output.stdout.trim();
             if value.is_empty() {
@@ -495,15 +498,15 @@ fn get_config(repo_path: impl AsRef<Path>, key: &str) -> Option<String> {
 }
 
 /// Set a configuration value using jj config set
-fn set_config(repo_path: impl AsRef<Path>, key: &str, value: impl AsRef<str>) -> Result<()> {
-    jj_exec(repo_path, ["config", "set", "--repo", key, value.as_ref()])?;
+fn set_config(repo_path: impl Into<PathBuf>, key: &str, value: impl AsRef<str>) -> Result<()> {
+    Jujutsu::new(repo_path)?.exec(["config", "set", "--repo", key, value.as_ref()])?;
     Ok(())
 }
 
 /// Detect forge type, host, and project from git remote
-fn detect_forge_from_remote(repo_path: impl AsRef<Path>) -> Result<Option<DetectedForge>> {
+fn detect_forge_from_remote(repo_path: impl Into<PathBuf>) -> Result<Option<DetectedForge>> {
     // Get the origin remote URL
-    let remote_output = match jj_exec(repo_path, ["git", "remote", "list"]) {
+    let remote_output = match Jujutsu::new(repo_path)?.exec(["git", "remote", "list"]) {
         Ok(output) => output,
         Err(_) => return Ok(None),
     };
@@ -525,8 +528,8 @@ fn detect_forge_from_remote(repo_path: impl AsRef<Path>) -> Result<Option<Detect
 }
 
 /// Detect fork setup from git remotes
-fn detect_fork_setup(repo_path: impl AsRef<Path>) -> Result<Option<ForkDetection>> {
-    let remote_output = match jj_exec(repo_path, ["git", "remote", "list"]) {
+fn detect_fork_setup(repo_path: impl Into<PathBuf>) -> Result<Option<ForkDetection>> {
+    let remote_output = match Jujutsu::new(repo_path)?.exec(["git", "remote", "list"]) {
         Ok(output) => output,
         Err(_) => return Ok(None),
     };

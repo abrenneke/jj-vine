@@ -9,19 +9,18 @@ use cli_table::{
 use itertools::Itertools;
 use owo_colors::OwoColorize;
 use snafu::ensure;
-use tracing::{debug, info};
+use tracing::info;
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{
-    bookmark::BookmarkGraph,
+    bookmark::{Bookmark, BookmarkGraph},
     cli::CliConfig,
-    commands::{GetBookmarksOptions, StrVisualWidth, get_bookmarks},
+    commands::{GetBookmarksOptions, StrVisualWidth, get_changes_from_cli_args},
     config::Config,
     error::{CLISnafu, Error, Result},
     forge::create_forge,
     jj::Jujutsu,
     submit::{
-        analyze,
         execute::{self, MRUpdate, MRUpdateType},
         plan,
     },
@@ -69,76 +68,42 @@ impl SubmitCommandConfig {
 
 /// Submit bookmarks and their dependencies as GitLab MRs
 pub async fn submit(config: SubmitCommandConfig, cli_config: CliConfig<'_>) -> Result<()> {
-    debug!("Creating Jujutsu and GitLab clients");
-    let jj = Jujutsu::new(cli_config.repository.clone())?;
+    let jj = Jujutsu::new(&cli_config.repository)?;
 
-    let bookmarks = get_bookmarks(&config.to_get_bookmarks_options(), &jj)?;
+    let changes = get_changes_from_cli_args(&config.to_get_bookmarks_options(), &jj)?;
+    let bookmarks: Vec<_> = Bookmark::from_changes(&changes).into_iter().collect();
+
+    ensure!(
+        !bookmarks.is_empty(),
+        CLISnafu {
+            message: "No bookmarks in revset".to_string(),
+        }
+    );
+
     let output = cli_config.output;
+    let repo_config = Config::load(&cli_config.repository)?;
+    let forge = create_forge(&repo_config)?;
 
     output.log_message(&format!(
         "Submitting bookmarks: {}",
         bookmarks
             .iter()
-            .map(|b| b.name.magenta().to_string())
+            .map(|b| b.name().magenta().to_string())
             .join(", ")
     ));
 
-    ensure!(
-        !bookmarks.is_empty(),
-        CLISnafu {
-            message: "No bookmarks to submit".to_string(),
-        }
-    );
-
-    debug!("Loading configuration");
-    let repo_config = Config::load(&cli_config.repository)?;
-
-    let forge = create_forge(&repo_config)?;
-
-    debug!(
-        "Using default branch from config: {}",
-        repo_config.default_branch
-    );
-    let default_branch = &repo_config.default_branch;
-
-    let revset = format!(
-        "({}) & mine() & bookmarks()",
+    let changes = jj.log(format!(
+        "(({}) & mine() & bookmarks()) ~ trunk()",
         bookmarks
             .iter()
-            .map(|b| format!("::{}", b.name))
+            .map(|b| format!("::{}", b.name()))
             .join(" | ")
-    );
-    debug!("Querying bookmarks with revset: {}", revset);
-    let relevant_bookmarks = jj.get_bookmarks_with_revset(&revset)?;
-    debug!(
-        "Got {} relevant bookmarks for submission",
-        relevant_bookmarks.len()
-    );
+    ))?;
+    let bookmarks: Vec<_> = Bookmark::from_changes(&changes).into_iter().collect();
+    let bookmark_graph =
+        BookmarkGraph::from_bookmarks(&jj, bookmarks.iter().cloned(), config.tracked)?;
 
-    debug!(
-        "Building bookmark graph for default branch: {}",
-        default_branch
-    );
-    let bookmark_graph = BookmarkGraph::build(&jj, default_branch, &relevant_bookmarks).await?;
-    debug!("Validating bookmarks");
-    bookmark_graph.validate_bookmarks(&jj, &bookmarks)?;
-    debug!("Performing topological sort");
-    let sorted_bookmarks =
-        bookmark_graph.topological_sort(bookmarks.iter().map(|b| b.name.as_str()))?;
-
-    debug!(
-        "Submission order (topological): {}",
-        sorted_bookmarks.join(" → ")
-    );
-
-    debug!("Analyzing {} bookmarks", sorted_bookmarks.len());
-    output.log_current("Analyzing bookmarks");
-    let analysis = analyze::analyze(&jj, &repo_config, &sorted_bookmarks).await?;
-
-    debug!("Creating submission plan");
-    output.log_current("Planning submission");
     let submission_plan = plan::plan(
-        &analysis,
         &jj,
         &forge,
         &repo_config,
@@ -148,7 +113,6 @@ pub async fn submit(config: SubmitCommandConfig, cli_config: CliConfig<'_>) -> R
     )
     .await?;
 
-    debug!("Executing submission plan");
     let result = execute::execute(&submission_plan, &jj, &forge, &repo_config, output).await?;
 
     output.finish();

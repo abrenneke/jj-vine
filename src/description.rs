@@ -1,649 +1,686 @@
 use std::collections::HashMap;
 
 use enum_dispatch::enum_dispatch;
+use itertools::Itertools;
 
-use crate::{bookmark::BranchStack, config::StackFormat, error::Result, forge::ForgeMergeRequest};
+use crate::{
+    bookmark::{Bookmark, BookmarkRef, ChangeComponent},
+    config::StackFormat,
+    forge::{ForgeImpl, ForgeMergeRequest},
+};
 
 #[enum_dispatch]
 pub trait FormatMergeRequest {
     /// Formats the ID of a merge request as a string for display in the
     /// description.
     fn format_merge_request_id(&self, mr_iid: &str) -> String;
+
+    /// Gets e.g. "MR" or "PR" for the merge request.
+    fn mr_name(&self) -> &'static str;
 }
 
-/// Stack description management and formatting for MR descriptions
-/// Abstraction for different stack visualization formats
-pub trait DescriptionFormatter {
-    /// Format the stack visualization
-    fn format_stack(
-        &self,
-        stack: &StackContext,
-        current_bookmark: &str,
-        format_merge_request: &dyn FormatMergeRequest,
-    ) -> String;
-
-    /// Start marker for the stack section
-    fn start_marker(&self) -> &'static str;
-
-    /// End marker for the stack section
-    fn end_marker(&self) -> &'static str;
+pub enum DescriptionFormatter {
+    LinearList(LinearListFormatter),
 }
 
-/// Linear list formatter (like jj-stack)
+impl DescriptionFormatter {
+    pub fn format_stack(&self, context: &FormatContext) -> String {
+        match self {
+            DescriptionFormatter::LinearList(formatter) => formatter.format_stack(context),
+        }
+    }
+}
+
 pub struct LinearListFormatter;
 
-impl DescriptionFormatter for LinearListFormatter {
-    fn format_stack(
-        &self,
-        stack: &StackContext,
-        current_bookmark: &str,
-        format_merge_request: &dyn FormatMergeRequest,
-    ) -> String {
+impl LinearListFormatter {
+    pub fn format_stack(&self, context: &FormatContext) -> String {
         let mut lines = Vec::new();
 
-        // Header
-        lines.push(format!(
-            "This MR is part of a stack of {} MRs:",
-            stack.bookmarks.len()
-        ));
-        lines.push("".to_string());
+        let mr_name = context.format_merge_request.mr_name();
 
-        // Bookmarks (no base branch in the list)
-        for (idx, bookmark) in stack.bookmarks.iter().enumerate() {
-            let num = idx + 1;
-            let display_name = bookmark.title.as_deref().unwrap_or(bookmark.name.as_str());
-
-            if bookmark.name == current_bookmark {
-                // Current bookmark - bold with marker
-                lines.push(format!("{}. **{} ← this MR**", num, display_name));
-            } else if let Some(iid) = &bookmark.mr_iid {
-                // Other bookmark with MR - use forge-specific prefix (! for GitLab, # for
-                // GitHub)
+        match &context.component {
+            component if component.len() == 1 => {
+                return String::new();
+            }
+            component if component.is_linear() => {
                 lines.push(format!(
-                    "{}. {} - {}",
-                    num,
-                    display_name,
-                    format_merge_request.format_merge_request_id(iid)
+                    "This {mr_name} is part of a stack containing {} {mr_name}s:\n",
+                    component.len()
                 ));
-            } else {
-                // Bookmark without MR yet
-                lines.push(format!("{}. {}", num, display_name));
+
+                lines.push(format!("1. `{}`", context.base_branch));
+
+                let ordered_bookmarks = context
+                    .component
+                    .topological_sort()
+                    .expect("Cycle detected in bookmark graph!");
+
+                for (idx, bookmark_name) in ordered_bookmarks.iter().enumerate() {
+                    let bookmark = context
+                        .component
+                        .find(bookmark_name)
+                        .expect("Bookmark not found in component!");
+
+                    lines.push(Self::format_bookmark(
+                        &bookmark.bookmark,
+                        idx + 1,
+                        context,
+                        None,
+                    ));
+                }
+            }
+            component if component.is_tree() => {
+                lines.push(format!(
+                    "This {mr_name} is part of a tree containing {} {mr_name}s:\n",
+                    component.len()
+                ));
+
+                lines.push(format!("1. `{}`", context.base_branch));
+
+                let ordered_bookmarks = component
+                    .topological_sort()
+                    .expect("Cycle detected in bookmark graph!");
+
+                for (idx, bookmark_name) in ordered_bookmarks.iter().enumerate() {
+                    let bookmark = component
+                        .find(bookmark_name)
+                        .expect("Bookmark not found in component!");
+                    lines.push(Self::format_bookmark(
+                        &bookmark.bookmark,
+                        idx + 1,
+                        context,
+                        Some(&bookmark.parents),
+                    ));
+                }
+            }
+            component => {
+                lines.push(format!(
+                    "This {mr_name} is part of a complex set of {mr_name}s containing {} {mr_name}s:\n",
+                    component.len()
+                ));
+
+                lines.push(format!("1. `{}`", context.base_branch));
+
+                let ordered_bookmarks = component
+                    .topological_sort()
+                    .expect("Cycle detected in bookmark graph!");
+
+                for (idx, bookmark_name) in ordered_bookmarks.iter().enumerate() {
+                    let bookmark = component
+                        .find(bookmark_name)
+                        .expect("Bookmark not found in component!");
+                    lines.push(Self::format_bookmark(
+                        &bookmark.bookmark,
+                        idx + 1,
+                        context,
+                        Some(&bookmark.parents),
+                    ));
+                }
             }
         }
 
         lines.join("\n")
     }
 
-    fn start_marker(&self) -> &'static str {
-        "<!-- start jj-vine stack -->"
-    }
+    fn format_bookmark(
+        bookmark: &Bookmark<'_>,
+        idx: usize,
+        context: &FormatContext,
+        parents: Option<&[BookmarkRef<'_>]>,
+    ) -> String {
+        let into = if let Some(parents) = parents {
+            format!(
+                " → {}",
+                match parents[..] {
+                    [] => format!("`{}`", context.base_branch),
+                    [..] => {
+                        parents
+                            .iter()
+                            .map(|parent| match parent {
+                                BookmarkRef::Bookmark(bookmark) => {
+                                    let mr = context
+                                        .merge_request_lookup
+                                        .get(bookmark.name())
+                                        .expect("Parent bookmark should always have an MR");
+                                    context
+                                        .format_merge_request
+                                        .format_merge_request_id(&mr.iid())
+                                }
+                                BookmarkRef::Trunk => format!("`{}`", context.base_branch),
+                            })
+                            .join(", ")
+                    }
+                }
+            )
+        } else {
+            String::new()
+        };
 
-    fn end_marker(&self) -> &'static str {
-        "<!-- end jj-vine stack -->"
+        if bookmark == context.this_bookmark {
+            let title = context
+                .merge_request_lookup
+                .get(bookmark.name())
+                .expect("Self-bookmark should always have an MR")
+                .title();
+            format!(r#"{}. **"{title}"{into} ← this MR**"#, idx + 1)
+        } else if let Some(mr) = context.merge_request_lookup.get(bookmark.name()) {
+            format!(
+                r#"{}. "{}" {}{}"#,
+                idx + 1,
+                mr.title(),
+                context
+                    .format_merge_request
+                    .format_merge_request_id(&mr.iid()),
+                into
+            )
+        } else {
+            // Bookmark without MR (yet)
+            format!("{}. {}", idx + 1, bookmark.name())
+        }
     }
 }
 
+const START_MARKER: &str = "<!-- start jj-vine stack -->";
+const END_MARKER: &str = "<!-- end jj-vine stack -->";
+
 /// Context for building stack visualizations
-pub struct StackContext {
-    /// Bookmarks in the stack (ordered from base to tip)
-    pub bookmarks: Vec<StackBookmarkInfo>,
+pub struct FormatContext<'a, 'forge, 'lookup> {
+    /// The component to format.
+    pub component: ChangeComponent<'a>,
+
+    /// The name of the bookmark of the current MR.
+    pub this_bookmark: String,
+
+    /// Lookup of merge requests by bookmark name
+    pub merge_request_lookup: &'lookup HashMap<String, ForgeMergeRequest>,
 
     /// Base branch name (e.g., "main", "master")
     pub base_branch: String,
+
+    /// Forge implementation to use for formatting merge request IDs
+    pub format_merge_request: &'forge ForgeImpl,
 }
 
-/// Information about a bookmark in the stack
-pub struct StackBookmarkInfo {
-    /// Bookmark name
-    pub name: String,
+/// Generate a new description with stack visualization and user content
+pub fn insert_stack_into_description(
+    stack_description: &str,
+    existing_description: &str,
+) -> String {
+    let mut result = String::new();
 
-    /// MR title if available
-    pub title: Option<String>,
+    let (before, after) = match (
+        existing_description.find(START_MARKER),
+        existing_description.find(END_MARKER),
+    ) {
+        (Some(start), Some(end)) if start < end => (
+            existing_description[..start].trim(),
+            existing_description[end + END_MARKER.len()..].trim(),
+        ),
+        _ => (existing_description.trim(), ""),
+    };
 
-    /// MR IID if it exists
-    pub mr_iid: Option<String>,
+    if !before.is_empty() {
+        result.push_str(&format!("{before}\n\n"));
+    }
 
-    /// MR URL if it exists
-    pub mr_url: Option<String>,
+    result.push_str(&format!(
+        "{START_MARKER}\n{}\n{END_MARKER}",
+        stack_description
+    ));
+
+    if !after.is_empty() {
+        result.push_str(&format!("\n\n{after}"));
+    }
+
+    result
 }
 
-/// Result of parsing a description
-pub struct ParsedDescription {
-    /// User-provided content before the stack section
-    pub content_before: Option<String>,
-    /// User-provided content after the stack section
-    pub content_after: Option<String>,
-}
-
-/// Manager for parsing and generating MR descriptions
-pub struct DescriptionManager {
-    formatter: Box<dyn DescriptionFormatter + Send + Sync>,
-}
-
-impl DescriptionManager {
-    /// Create a new description manager with the given formatter
-    pub fn new(formatter: Box<dyn DescriptionFormatter + Send + Sync>) -> Self {
-        Self { formatter }
-    }
-
-    /// Parse an existing description and extract user content before and after
-    /// markers
-    pub fn parse_description(&self, description: &str) -> ParsedDescription {
-        if description.is_empty() {
-            return ParsedDescription {
-                content_before: None,
-                content_after: None,
-            };
-        }
-
-        let start_marker = self.formatter.start_marker();
-        let end_marker = self.formatter.end_marker();
-
-        // If no stack section markers, entire description is content before
-        if !description.contains(start_marker) {
-            return ParsedDescription {
-                content_before: Some(description.to_string()),
-                content_after: None,
-            };
-        }
-
-        // Find start and end markers
-        let start_pos = description.find(start_marker);
-        let end_pos = description.find(end_marker);
-
-        match (start_pos, end_pos) {
-            (Some(start), Some(end)) if start < end => {
-                // Both markers found in correct order
-                let before = &description[..start];
-                let after = &description[end + end_marker.len()..];
-
-                let content_before = if before.trim().is_empty() {
-                    None
-                } else {
-                    Some(before.trim().to_string())
-                };
-
-                let content_after = if after.trim().is_empty() {
-                    None
-                } else {
-                    Some(after.trim().to_string())
-                };
-
-                ParsedDescription {
-                    content_before,
-                    content_after,
-                }
-            }
-            _ => {
-                // Malformed markers - treat entire description as content before
-                ParsedDescription {
-                    content_before: Some(description.to_string()),
-                    content_after: None,
-                }
-            }
-        }
-    }
-
-    /// Get the start marker for this formatter
-    pub fn start_marker(&self) -> &'static str {
-        self.formatter.start_marker()
-    }
-
-    /// Get the end marker for this formatter
-    pub fn end_marker(&self) -> &'static str {
-        self.formatter.end_marker()
-    }
-
-    /// Generate a new description with stack visualization and user content
-    pub fn generate_description(
-        &self,
-        content_before: Option<&str>,
-        content_after: Option<&str>,
-        stack_context: &StackContext,
-        current_bookmark: &str,
-        format_merge_request: &dyn FormatMergeRequest,
-    ) -> String {
-        let stack_section =
-            self.formatter
-                .format_stack(stack_context, current_bookmark, format_merge_request);
-        self.build_description(content_before, content_after, &stack_section)
-    }
-
-    /// Build a description with pre-formatted stack content and user content
-    pub fn build_description(
-        &self,
-        content_before: Option<&str>,
-        content_after: Option<&str>,
-        stack_content: &str,
-    ) -> String {
-        let start_marker = self.formatter.start_marker();
-        let end_marker = self.formatter.end_marker();
-
-        let mut result = String::new();
-
-        // Add content before markers
-        if let Some(before) = content_before {
-            result.push_str(before);
-            result.push_str("\n\n");
-        }
-
-        // Add stack section with markers
-        result.push_str(start_marker);
-        result.push('\n');
-        result.push_str(stack_content);
-        result.push('\n');
-        result.push_str(end_marker);
-
-        // Add content after markers
-        if let Some(after) = content_after {
-            result.push_str("\n\n");
-            result.push_str(after);
-        }
-
-        result
-    }
-}
-
-/// Generate description for a bookmark that may be in multiple stacks
-pub fn generate_multi_stack_description(
+/// Generates a description for a bookmark in a stack.
+pub fn generate_stack_description(
     bookmark: &str,
-    stacks: &[&BranchStack],
+    stack: &ChangeComponent,
     existing_mrs: &HashMap<String, ForgeMergeRequest>,
     format: &StackFormat,
     base_branch: &str,
-    format_merge_request: &dyn FormatMergeRequest,
-) -> Result<String> {
-    if stacks.is_empty() {
-        return Ok(String::new());
-    }
-
-    // Create formatter based on config
-    let formatter: Box<dyn DescriptionFormatter> = match format {
-        StackFormat::Linear => Box::new(LinearListFormatter),
+    format_merge_request: &ForgeImpl,
+) -> String {
+    let formatter = match format {
+        StackFormat::Linear => DescriptionFormatter::LinearList(LinearListFormatter),
     };
 
-    if stacks.len() == 1 {
-        // Single stack - use existing format
-        let stack = stacks[0];
-        let stack_info: Vec<StackBookmarkInfo> = stack
-            .bookmarks
-            .iter()
-            .map(|bm| {
-                let mr = existing_mrs.get(bm.name.as_str()).unwrap();
-                StackBookmarkInfo {
-                    name: bm.name.clone(),
-                    title: Some(mr.title().to_string()),
-                    mr_iid: Some(mr.iid().to_string()),
-                    mr_url: Some(mr.url().to_string()),
-                }
-            })
-            .collect();
-
-        let context = StackContext {
-            bookmarks: stack_info,
-            base_branch: base_branch.to_string(),
-        };
-
-        return Ok(formatter.format_stack(&context, bookmark, format_merge_request));
-    }
-
-    // Multiple stacks - format each separately
-    let mut lines = Vec::new();
-    lines.push(format!("This MR is part of {} stacks:", stacks.len()));
-    lines.push("".to_string());
-
-    for (idx, stack) in stacks.iter().enumerate() {
-        lines.push(format!(
-            "Stack {} ({} MRs):",
-            idx + 1,
-            stack.bookmarks.len()
-        ));
-
-        // Build StackContext for this stack
-        let stack_info: Vec<StackBookmarkInfo> = stack
-            .bookmarks
-            .iter()
-            .map(|bm| {
-                let mr = existing_mrs.get(&bm.name).unwrap();
-                StackBookmarkInfo {
-                    name: bm.name.clone(),
-                    title: Some(mr.title().to_string()),
-                    mr_iid: Some(mr.iid().to_string()),
-                    mr_url: Some(mr.url().to_string()),
-                }
-            })
-            .collect();
-
-        let context = StackContext {
-            bookmarks: stack_info,
-            base_branch: base_branch.to_string(),
-        };
-
-        let stack_desc = formatter.format_stack(&context, bookmark, format_merge_request);
-
-        for line in stack_desc.lines().skip(2) {
-            lines.push(line.to_string());
-        }
-
-        if idx < stacks.len() - 1 {
-            lines.push("".to_string());
-        }
-    }
-
-    Ok(lines.join("\n"))
+    formatter.format_stack(&FormatContext {
+        component: (*stack).clone(),
+        this_bookmark: bookmark.to_string(),
+        merge_request_lookup: existing_mrs,
+        base_branch: base_branch.to_string(),
+        format_merge_request,
+    })
 }
 
 #[cfg(test)]
 mod tests {
+    use pretty_assertions::assert_str_eq;
+
     use super::*;
-
-    struct DefaultFormatMergeRequest;
-
-    impl FormatMergeRequest for DefaultFormatMergeRequest {
-        fn format_merge_request_id(&self, mr_iid: &str) -> String {
-            format!("!{}", mr_iid)
-        }
-    }
+    use crate::{
+        bookmark::BookmarkGraph,
+        forge::test::{MergeRequest, TestForge},
+        jj::Change,
+    };
 
     #[test]
     fn test_parse_empty_description() {
-        let manager = DescriptionManager::new(Box::new(LinearListFormatter));
-        let parsed = manager.parse_description("");
-        assert!(parsed.content_before.is_none());
-        assert!(parsed.content_after.is_none());
+        assert_str_eq!(
+            insert_stack_into_description("", ""),
+            format!("{START_MARKER}\n\n{END_MARKER}")
+        );
     }
 
     #[test]
     fn test_parse_user_content_only() {
-        let manager = DescriptionManager::new(Box::new(LinearListFormatter));
-        let parsed = manager.parse_description("User's description here");
-        assert_eq!(
-            parsed.content_before,
-            Some("User's description here".to_string())
+        assert_str_eq!(
+            insert_stack_into_description("", "User's description here"),
+            format!("User's description here\n\n{START_MARKER}\n\n{END_MARKER}")
         );
-        assert!(parsed.content_after.is_none());
     }
 
     #[test]
     fn test_parse_preserves_user_content_after_markers() {
-        let desc =
-            "<!-- start jj-vine stack -->\nStack info\n<!-- end jj-vine stack -->\n\nUser content";
-        let manager = DescriptionManager::new(Box::new(LinearListFormatter));
-        let parsed = manager.parse_description(desc);
-        assert!(parsed.content_before.is_none());
-        assert_eq!(parsed.content_after, Some("User content".to_string()));
+        assert_str_eq!(
+            insert_stack_into_description("Stack info", "User content"),
+            format!("User content\n\n{START_MARKER}\nStack info\n{END_MARKER}")
+        );
     }
 
     #[test]
-    fn test_generate_stack_only() {
-        let manager = DescriptionManager::new(Box::new(LinearListFormatter));
+    fn test_generate_linear_component() {
+        let changes = Change::mock_stack_map([
+            Change::mock_from_bookmark("feature-a"),
+            Change::mock_from_bookmark("feature-b"),
+            Change::mock_from_bookmark("feature-c"),
+        ]);
 
-        let stack = StackContext {
-            bookmarks: vec![
-                StackBookmarkInfo {
-                    name: "bookmark-a".to_string(),
-                    title: None,
-                    mr_iid: Some("100".to_string()),
-                    mr_url: Some("https://gitlab.com/project/-/merge_requests/100".to_string()),
-                },
-                StackBookmarkInfo {
-                    name: "bookmark-b".to_string(),
-                    title: None,
-                    mr_iid: Some("101".to_string()),
-                    mr_url: Some("https://gitlab.com/project/-/merge_requests/101".to_string()),
-                },
-            ],
-            base_branch: "main".to_string(),
-        };
-
-        let desc = manager.generate_description(
-            None,
-            None,
-            &stack,
-            "bookmark-b",
-            &DefaultFormatMergeRequest {},
+        let graph = BookmarkGraph::from_lookups(
+            changes.create_bookmark_map(),
+            changes.create_adjacency_list(),
         );
 
-        assert!(desc.contains("<!-- start jj-vine stack -->"));
-        assert!(desc.contains("<!-- end jj-vine stack -->"));
-        assert!(desc.contains("bookmark-b ← this MR"));
-    }
+        let component = &graph.components()[0];
+        let formatter = DescriptionFormatter::LinearList(LinearListFormatter);
 
-    #[test]
-    fn test_generate_preserves_user_content() {
-        let manager = DescriptionManager::new(Box::new(LinearListFormatter));
+        let forge = TestForge::builder()
+            .merge_requests(HashMap::from([
+                (
+                    "feature-a".to_string(),
+                    MergeRequest::builder()
+                        .id("1".to_string())
+                        .title("Feature A".to_string())
+                        .source_branch("feature-a".to_string())
+                        .target_branch("main".to_string())
+                        .build(),
+                ),
+                (
+                    "feature-b".to_string(),
+                    MergeRequest::builder()
+                        .id("2".to_string())
+                        .title("Feature B".to_string())
+                        .source_branch("feature-b".to_string())
+                        .target_branch("main".to_string())
+                        .build(),
+                ),
+                (
+                    "feature-c".to_string(),
+                    MergeRequest::builder()
+                        .id("3".to_string())
+                        .title("Feature C".to_string())
+                        .source_branch("feature-c".to_string())
+                        .target_branch("main".to_string())
+                        .build(),
+                ),
+            ]))
+            .build();
 
-        let stack = StackContext {
-            bookmarks: vec![StackBookmarkInfo {
-                name: "bookmark-a".to_string(),
-                title: None,
-                mr_iid: None,
-                mr_url: None,
-            }],
+        let context = FormatContext {
+            component: component.clone(),
+            this_bookmark: "feature-b".to_string(),
+            merge_request_lookup: &forge.merge_request_lookup(),
             base_branch: "main".to_string(),
+            format_merge_request: &ForgeImpl::Test(forge),
         };
+        let description = formatter.format_stack(&context);
 
-        let desc = manager.generate_description(
-            None,
-            Some("User stuff"),
-            &stack,
-            "bookmark-a",
-            &DefaultFormatMergeRequest {},
+        assert_str_eq!(
+            description,
+            r#"This MR is part of a stack containing 3 MRs:
+
+1. `main`
+2. "Feature A" #1
+3. **"Feature B" ← this MR**
+4. "Feature C" #3"#
         );
-        assert!(desc.ends_with("User stuff"));
     }
 
     #[test]
-    fn test_linear_formatter_current_bookmark_bold() {
-        let formatter = LinearListFormatter;
+    fn test_generate_tree_component() {
+        let mut changes = Change::mock_stack_map([
+            Change::mock_from_bookmark("feature-a"),
+            Change::mock_from_bookmark("feature-b"),
+            Change::mock_from_bookmark("feature-c"),
+        ]);
 
-        let stack = StackContext {
-            bookmarks: vec![
-                StackBookmarkInfo {
-                    name: "bookmark-a".to_string(),
-                    title: None,
-                    mr_iid: Some("100".to_string()),
-                    mr_url: Some("https://gitlab.com/mrs/100".to_string()),
-                },
-                StackBookmarkInfo {
-                    name: "bookmark-b".to_string(),
-                    title: None,
-                    mr_iid: None,
-                    mr_url: None,
-                },
-            ],
+        changes.insert(
+            Change::mock_from_bookmark("feature-d").with_mock_parent_bookmarks(["feature-a"]),
+        );
+
+        changes.insert(
+            Change::mock_from_bookmark("feature-e").with_mock_parent_bookmarks(["feature-b"]),
+        );
+
+        changes.insert(
+            Change::mock_from_bookmark("feature-f").with_mock_parent_bookmarks(["feature-c"]),
+        );
+
+        changes.extend(Change::mock_stack_map([
+            Change::mock_from_bookmark("feature-g").with_mock_parent_bookmarks(["feature-c"]),
+            Change::mock_from_bookmark("feature-h"),
+        ]));
+
+        let graph = BookmarkGraph::from_lookups(
+            changes.create_bookmark_map(),
+            changes.create_adjacency_list(),
+        );
+
+        let component = &graph.components()[0];
+        let formatter = DescriptionFormatter::LinearList(LinearListFormatter);
+
+        let forge = TestForge::builder()
+            .merge_requests(HashMap::from([
+                (
+                    "feature-a".to_string(),
+                    MergeRequest::builder()
+                        .id("1".to_string())
+                        .title("Feature A".to_string())
+                        .source_branch("feature-a".to_string())
+                        .target_branch("main".to_string())
+                        .build(),
+                ),
+                (
+                    "feature-b".to_string(),
+                    MergeRequest::builder()
+                        .id("2".to_string())
+                        .title("Feature B".to_string())
+                        .source_branch("feature-b".to_string())
+                        .target_branch("main".to_string())
+                        .build(),
+                ),
+                (
+                    "feature-c".to_string(),
+                    MergeRequest::builder()
+                        .id("3".to_string())
+                        .title("Feature C".to_string())
+                        .source_branch("feature-c".to_string())
+                        .target_branch("main".to_string())
+                        .build(),
+                ),
+                (
+                    "feature-d".to_string(),
+                    MergeRequest::builder()
+                        .id("4".to_string())
+                        .title("Feature D".to_string())
+                        .source_branch("feature-d".to_string())
+                        .target_branch("main".to_string())
+                        .build(),
+                ),
+                (
+                    "feature-e".to_string(),
+                    MergeRequest::builder()
+                        .id("5".to_string())
+                        .title("Feature E".to_string())
+                        .source_branch("feature-e".to_string())
+                        .target_branch("main".to_string())
+                        .build(),
+                ),
+                (
+                    "feature-f".to_string(),
+                    MergeRequest::builder()
+                        .id("6".to_string())
+                        .title("Feature F".to_string())
+                        .source_branch("feature-f".to_string())
+                        .target_branch("main".to_string())
+                        .build(),
+                ),
+                (
+                    "feature-g".to_string(),
+                    MergeRequest::builder()
+                        .id("7".to_string())
+                        .title("Feature G".to_string())
+                        .source_branch("feature-g".to_string())
+                        .target_branch("main".to_string())
+                        .build(),
+                ),
+                (
+                    "feature-h".to_string(),
+                    MergeRequest::builder()
+                        .id("8".to_string())
+                        .title("Feature H".to_string())
+                        .source_branch("feature-h".to_string())
+                        .target_branch("main".to_string())
+                        .build(),
+                ),
+            ]))
+            .build();
+
+        let context = FormatContext {
+            component: component.clone(),
+            this_bookmark: "feature-e".to_string(),
+            merge_request_lookup: &forge.merge_request_lookup(),
             base_branch: "main".to_string(),
+            format_merge_request: &ForgeImpl::Test(forge),
         };
+        let description = formatter.format_stack(&context);
 
-        let output = formatter.format_stack(&stack, "bookmark-b", &DefaultFormatMergeRequest {});
-        assert!(output.contains("**bookmark-b ← this MR**"));
-        assert!(output.contains("bookmark-a - !100"));
+        assert_str_eq!(
+            description,
+            r#"This MR is part of a tree containing 8 MRs:
+
+1. `main`
+2. "Feature A" #1 → `main`
+3. "Feature D" #4 → #1
+4. "Feature B" #2 → #1
+5. **"Feature E" → #2 ← this MR**
+6. "Feature C" #3 → #2
+7. "Feature G" #7 → #3
+8. "Feature H" #8 → #7
+9. "Feature F" #6 → #3"#
+        );
     }
 
     #[test]
-    fn test_linear_formatter_proper_gitlab_format() {
-        let formatter = LinearListFormatter;
+    fn test_generate_complex_component() {
+        let mut changes = Change::mock_stack_map([
+            Change::mock_from_bookmark("feature-a"),
+            Change::mock_from_bookmark("feature-b"),
+            Change::mock_from_bookmark("feature-c"),
+        ]);
 
-        let stack = StackContext {
-            bookmarks: vec![
-                StackBookmarkInfo {
-                    name: "feature-1".to_string(),
-                    title: None,
-                    mr_iid: Some("18".to_string()),
-                    mr_url: Some(
-                        "https://gitlab.internal.valence.nl/abrenneke/testing/-/merge_requests/18"
-                            .to_string(),
-                    ),
-                },
-                StackBookmarkInfo {
-                    name: "feature-2".to_string(),
-                    title: None,
-                    mr_iid: None,
-                    mr_url: None,
-                },
-                StackBookmarkInfo {
-                    name: "alt-feature".to_string(),
-                    title: None,
-                    mr_iid: Some("19".to_string()),
-                    mr_url: Some(
-                        "https://gitlab.internal.valence.nl/abrenneke/testing/-/merge_requests/19"
-                            .to_string(),
-                    ),
-                },
-            ],
+        changes.extend(Change::mock_stack_map([
+            Change::mock_from_bookmark("feature-i"),
+            Change::mock_from_bookmark("feature-j"),
+        ]));
+
+        changes.insert(
+            Change::mock_from_bookmark("feature-d")
+                .with_mock_parent_bookmarks(["feature-a", "feature-b"]),
+        );
+
+        changes.insert(
+            Change::mock_from_bookmark("feature-e")
+                .with_mock_parent_bookmarks(["feature-b", "feature-j"]),
+        );
+
+        changes.insert(
+            Change::mock_from_bookmark("feature-f")
+                .with_mock_parent_bookmarks(["feature-c", "feature-i"]),
+        );
+
+        changes.extend(Change::mock_stack_map([
+            Change::mock_from_bookmark("feature-g").with_mock_parent_bookmarks([
+                "feature-c",
+                "feature-j",
+                "feature-e",
+            ]),
+            Change::mock_from_bookmark("feature-h"),
+        ]));
+
+        let graph = BookmarkGraph::from_lookups(
+            changes.create_bookmark_map(),
+            changes.create_adjacency_list(),
+        );
+
+        let component = &graph.components()[0];
+        let formatter = DescriptionFormatter::LinearList(LinearListFormatter);
+
+        let forge = TestForge::builder()
+            .merge_requests(HashMap::from([
+                (
+                    "feature-a".to_string(),
+                    MergeRequest::builder()
+                        .id("1".to_string())
+                        .title("Feature A".to_string())
+                        .source_branch("feature-a".to_string())
+                        .target_branch("main".to_string())
+                        .build(),
+                ),
+                (
+                    "feature-b".to_string(),
+                    MergeRequest::builder()
+                        .id("2".to_string())
+                        .title("Feature B".to_string())
+                        .source_branch("feature-b".to_string())
+                        .target_branch("main".to_string())
+                        .build(),
+                ),
+                (
+                    "feature-c".to_string(),
+                    MergeRequest::builder()
+                        .id("3".to_string())
+                        .title("Feature C".to_string())
+                        .source_branch("feature-c".to_string())
+                        .target_branch("main".to_string())
+                        .build(),
+                ),
+                (
+                    "feature-d".to_string(),
+                    MergeRequest::builder()
+                        .id("4".to_string())
+                        .title("Feature D".to_string())
+                        .source_branch("feature-d".to_string())
+                        .target_branch("main".to_string())
+                        .build(),
+                ),
+                (
+                    "feature-e".to_string(),
+                    MergeRequest::builder()
+                        .id("5".to_string())
+                        .title("Feature E".to_string())
+                        .source_branch("feature-e".to_string())
+                        .target_branch("main".to_string())
+                        .build(),
+                ),
+                (
+                    "feature-f".to_string(),
+                    MergeRequest::builder()
+                        .id("6".to_string())
+                        .title("Feature F".to_string())
+                        .source_branch("feature-f".to_string())
+                        .target_branch("main".to_string())
+                        .build(),
+                ),
+                (
+                    "feature-g".to_string(),
+                    MergeRequest::builder()
+                        .id("7".to_string())
+                        .title("Feature G".to_string())
+                        .source_branch("feature-g".to_string())
+                        .target_branch("main".to_string())
+                        .build(),
+                ),
+                (
+                    "feature-h".to_string(),
+                    MergeRequest::builder()
+                        .id("8".to_string())
+                        .title("Feature H".to_string())
+                        .source_branch("feature-h".to_string())
+                        .target_branch("main".to_string())
+                        .build(),
+                ),
+                (
+                    "feature-i".to_string(),
+                    MergeRequest::builder()
+                        .id("9".to_string())
+                        .title("Feature I".to_string())
+                        .source_branch("feature-i".to_string())
+                        .target_branch("main".to_string())
+                        .build(),
+                ),
+                (
+                    "feature-j".to_string(),
+                    MergeRequest::builder()
+                        .id("10".to_string())
+                        .title("Feature J".to_string())
+                        .source_branch("feature-j".to_string())
+                        .target_branch("main".to_string())
+                        .build(),
+                ),
+            ]))
+            .build();
+
+        let context = FormatContext {
+            component: component.clone(),
+            this_bookmark: "feature-e".to_string(),
+            merge_request_lookup: &forge.merge_request_lookup(),
             base_branch: "main".to_string(),
+            format_merge_request: &ForgeImpl::Test(forge),
         };
+        let description = formatter.format_stack(&context);
 
-        let output = formatter.format_stack(&stack, "feature-2", &DefaultFormatMergeRequest {});
+        assert_str_eq!(
+            description,
+            r#"This MR is part of a complex set of MRs containing 10 MRs:
 
-        // Should NOT include the base branch in the list
-        assert!(!output.contains("1. `main`"));
-
-        // Should use "MRs" not "bookmarks" in description
-        assert!(output.contains("This MR is part of a stack of 3 MRs"));
-
-        // Should use !{iid} format, not full markdown links
-        assert!(output.contains("1. feature-1 - !18"));
-        assert!(!output.contains("[feature-1](https://gitlab"));
-
-        // Current MR should be bold with marker
-        assert!(output.contains("2. **feature-2 ← this MR**"));
-
-        // Other MR with link should also use !{iid} format
-        assert!(output.contains("3. alt-feature - !19"));
-        assert!(!output.contains("[alt-feature](https://gitlab"));
-    }
-
-    #[test]
-    fn test_parse_no_end_marker_malformed() {
-        let desc = "<!-- start jj-vine stack -->\nStack info without end";
-        let manager = DescriptionManager::new(Box::new(LinearListFormatter));
-        let parsed = manager.parse_description(desc);
-        assert_eq!(parsed.content_before, Some(desc.to_string()));
-        assert!(parsed.content_after.is_none());
+1. `main`
+2. "Feature I" #9 → `main`
+3. "Feature J" #10 → #9
+4. "Feature A" #1 → `main`
+5. "Feature B" #2 → #1
+6. **"Feature E" → #2, #10 ← this MR**
+7. "Feature D" #4 → #1, #2
+8. "Feature C" #3 → #2
+9. "Feature G" #7 → #3, #5, #10
+10. "Feature H" #8 → #7
+11. "Feature F" #6 → #3, #9"#
+        );
     }
 
     #[test]
     fn test_round_trip_preserves_user_content() {
-        let manager = DescriptionManager::new(Box::new(LinearListFormatter));
-        let original =
-            "<!-- start jj-vine stack -->\nOld stack\n<!-- end jj-vine stack -->\n\nMy notes";
-        let parsed = manager.parse_description(original);
-
-        let stack = StackContext {
-            bookmarks: vec![StackBookmarkInfo {
-                name: "feature".to_string(),
-                title: None,
-                mr_iid: Some("100".to_string()),
-                mr_url: Some("url".to_string()),
-            }],
-            base_branch: "main".to_string(),
-        };
-
-        let new_desc = manager.generate_description(
-            parsed.content_before.as_deref(),
-            parsed.content_after.as_deref(),
-            &stack,
-            "feature",
-            &DefaultFormatMergeRequest {},
+        assert_str_eq!(
+            insert_stack_into_description(
+                "New stack",
+                &format!(
+                    "My notes before\n\n{START_MARKER}\nOld stack\n{END_MARKER}\n\nMy notes after"
+                )
+            ),
+            format!("My notes before\n\n{START_MARKER}\nNew stack\n{END_MARKER}\n\nMy notes after")
         );
-        assert!(new_desc.contains("My notes"));
     }
 
     #[test]
     fn test_generate_no_trailing_whitespace_when_no_user_content() {
-        let manager = DescriptionManager::new(Box::new(LinearListFormatter));
-        let stack = StackContext {
-            bookmarks: vec![StackBookmarkInfo {
-                name: "f".to_string(),
-                title: None,
-                mr_iid: Some("1".to_string()),
-                mr_url: Some("u".to_string()),
-            }],
-            base_branch: "main".to_string(),
-        };
-
-        let desc =
-            manager.generate_description(None, None, &stack, "f", &DefaultFormatMergeRequest {});
-        assert!(desc.ends_with("<!-- end jj-vine stack -->"));
-    }
-
-    #[test]
-    fn test_parse_content_before_and_after_markers() {
-        let manager = DescriptionManager::new(Box::new(LinearListFormatter));
-        let desc = "Content before\n\n<!-- start jj-vine stack -->\nStack info\n<!-- end jj-vine stack -->\n\nContent after";
-        let parsed = manager.parse_description(desc);
-
-        assert_eq!(parsed.content_before, Some("Content before".to_string()));
-        assert_eq!(parsed.content_after, Some("Content after".to_string()));
-    }
-
-    #[test]
-    fn test_generate_with_content_before_and_after() {
-        let manager = DescriptionManager::new(Box::new(LinearListFormatter));
-        let stack = StackContext {
-            bookmarks: vec![StackBookmarkInfo {
-                name: "feature".to_string(),
-                title: None,
-                mr_iid: Some("100".to_string()),
-                mr_url: Some("url".to_string()),
-            }],
-            base_branch: "main".to_string(),
-        };
-
-        let desc = manager.generate_description(
-            Some("Before content"),
-            Some("After content"),
-            &stack,
-            "feature",
-            &DefaultFormatMergeRequest {},
+        assert_str_eq!(
+            insert_stack_into_description("New stack", ""),
+            format!("{START_MARKER}\nNew stack\n{END_MARKER}")
         );
-
-        assert!(desc.starts_with("Before content"));
-        assert!(desc.contains("<!-- start jj-vine stack -->"));
-        assert!(desc.contains("<!-- end jj-vine stack -->"));
-        assert!(desc.ends_with("After content"));
-    }
-
-    #[test]
-    fn test_linear_formatter_shows_title_instead_of_bookmark_name() {
-        let formatter = LinearListFormatter;
-
-        let stack = StackContext {
-            bookmarks: vec![
-                StackBookmarkInfo {
-                    name: "push-rzmzwomlxplr".to_string(),
-                    title: Some("Add user authentication".to_string()),
-                    mr_iid: Some("18".to_string()),
-                    mr_url: Some("https://gitlab.com/project/-/merge_requests/18".to_string()),
-                },
-                StackBookmarkInfo {
-                    name: "push-xyzabc123".to_string(),
-                    title: Some("Implement login form".to_string()),
-                    mr_iid: Some("19".to_string()),
-                    mr_url: Some("https://gitlab.com/project/-/merge_requests/19".to_string()),
-                },
-                StackBookmarkInfo {
-                    name: "feature-final".to_string(),
-                    title: None,
-                    mr_iid: None,
-                    mr_url: None,
-                },
-            ],
-            base_branch: "main".to_string(),
-        };
-
-        let output = formatter.format_stack(&stack, "push-xyzabc123", &DefaultFormatMergeRequest);
-
-        // Should show MR title, not bookmark name
-        assert!(output.contains("Add user authentication - !18"));
-        assert!(!output.contains("push-rzmzwomlxplr"));
-
-        // Current MR should show title
-        assert!(output.contains("**Implement login form ← this MR**"));
-        assert!(!output.contains("push-xyzabc123"));
-
-        // Bookmark without title should fall back to bookmark name
-        assert!(output.contains("feature-final"));
     }
 }

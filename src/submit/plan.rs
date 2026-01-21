@@ -3,13 +3,12 @@ use std::collections::HashMap;
 use owo_colors::OwoColorize;
 
 use crate::{
-    bookmark::BookmarkGraph,
+    bookmark::{BookmarkGraph, BookmarkRef},
     config::Config,
     error::Result,
     forge::{Forge, ForgeImpl},
     jj::Jujutsu,
     output::Output,
-    submit::analyze::SubmissionAnalysis,
 };
 
 /// Action to perform during execution
@@ -37,7 +36,6 @@ pub enum Action<'a> {
     UpdateMRDescription {
         bookmark: String,
         bookmark_graph: BookmarkGraph<'a>,
-        bookmarks_being_submitted: Vec<String>,
     },
 }
 
@@ -108,14 +106,15 @@ pub struct SubmissionPlan<'a> {
 
 /// Create a submission plan based on analysis
 pub async fn plan<'a>(
-    analysis: &SubmissionAnalysis,
     jj: &Jujutsu,
     forge: &ForgeImpl,
     config: &Config,
-    bookmark_graph: &BookmarkGraph<'a>,
+    graph: &BookmarkGraph<'a>,
     dry_run: bool,
     output: &dyn Output,
 ) -> Result<SubmissionPlan<'a>> {
+    output.log_current("Planning submission");
+
     let mut batches = Vec::new();
     let mut current_id = 1;
     let mut get_id = || {
@@ -125,27 +124,30 @@ pub async fn plan<'a>(
     };
 
     let mut existing_mrs = HashMap::new();
-    for bookmark in &analysis.bookmarks_to_submit {
-        output.set_substep(&format!("MRs for {}", bookmark));
-        if let Some(mr) = forge.find_merge_request_by_source_branch(bookmark).await? {
-            existing_mrs.insert(bookmark.clone(), mr);
+    for bookmark in graph.bookmarks() {
+        output.set_substep(&format!("MRs for {}", bookmark.name().magenta()));
+        if let Some(mr) = forge
+            .find_merge_request_by_source_branch(bookmark.name())
+            .await?
+        {
+            existing_mrs.insert(bookmark.name().to_string(), mr);
         }
     }
 
     output.set_substep("");
 
-    let mut push_action_ids: HashMap<String, usize> = HashMap::new();
+    let mut push_action_ids = HashMap::new();
 
     let mut push_batch = Vec::new();
-    for bookmark in &analysis.bookmarks_to_submit {
+    for bookmark in graph.bookmarks() {
         let action_id = get_id();
 
-        push_action_ids.insert(bookmark.clone(), action_id);
+        push_action_ids.insert(bookmark.name().to_string(), action_id);
 
         push_batch.push(PlannedAction {
             id: action_id,
             action: Action::Push {
-                bookmark: bookmark.clone(),
+                bookmark: bookmark.name().to_string(),
                 remote: config.remote_name.clone(),
             },
             dependencies: vec![],
@@ -157,19 +159,22 @@ pub async fn plan<'a>(
 
     let mut mr_action_ids: Vec<usize> = Vec::new();
 
-    for bookmark in &analysis.bookmarks_to_submit {
-        let target_branch = bookmark_graph
-            .get_parent(bookmark)
-            .cloned()
-            .unwrap_or_else(|| analysis.base_branch.clone());
+    for bookmark in graph.bookmarks() {
+        let bookmark = graph.find_bookmark_in_components(bookmark.name()).unwrap();
+
+        // TODO let user pick target branch
+        let target_branch = match bookmark.parents.first() {
+            Some(BookmarkRef::Bookmark(b)) => b.name().to_string(),
+            Some(BookmarkRef::Trunk) | None => config.default_branch.clone(),
+        };
 
         let push_dependency = push_action_ids
-            .get(bookmark)
+            .get(bookmark.name())
             .copied()
             .map(|id| vec![id])
             .unwrap_or_default();
 
-        match existing_mrs.get(bookmark) {
+        match existing_mrs.get(bookmark.name()) {
             Some(existing_mr) => {
                 if existing_mr.target_branch() != target_branch {
                     let action_id = get_id();
@@ -178,7 +183,7 @@ pub async fn plan<'a>(
                     batches.push(vec![PlannedAction {
                         id: action_id,
                         action: Action::UpdateMRBase {
-                            bookmark: bookmark.clone(),
+                            bookmark: bookmark.name().to_string(),
                             mr_iid: existing_mr.iid().to_string(),
                             new_target_branch: target_branch.clone(),
                         },
@@ -187,14 +192,14 @@ pub async fn plan<'a>(
                 }
             }
             None => {
-                let title = get_mr_title(jj, bookmark, &target_branch)?;
+                let title = get_mr_title(jj, bookmark.name(), &target_branch)?;
                 let action_id = get_id();
                 mr_action_ids.push(action_id);
 
                 batches.push(vec![PlannedAction {
                     id: action_id,
                     action: Action::CreateMR {
-                        bookmark: bookmark.clone(),
+                        bookmark: bookmark.name().to_string(),
                         target_branch,
                         title,
                         description: String::new(),
@@ -206,34 +211,34 @@ pub async fn plan<'a>(
     }
 
     if config.enable_stack_visualization {
-        let bookmarks_needing_descriptions: Vec<String> = analysis
-            .bookmarks_to_submit
-            .iter()
+        let bookmarks_needing_descriptions: Vec<_> = graph
+            .bookmarks()
             .filter(|bookmark| {
-                if let Some(stack) = bookmark_graph.find_stack_for_bookmark(bookmark) {
-                    stack.bookmarks.len() >= 2
+                if let Some(stack) = graph.component_containing(bookmark.name())
+                    && stack.len() >= 2
+                {
+                    true
                 } else {
                     false
                 }
             })
-            .cloned()
             .collect();
 
-        if !bookmarks_needing_descriptions.is_empty() {
-            let mut description_batch = Vec::new();
-            for bookmark in &bookmarks_needing_descriptions {
-                let action_id = get_id();
+        let mut description_batch = Vec::new();
+        for bookmark in &bookmarks_needing_descriptions {
+            let action_id = get_id();
 
-                description_batch.push(PlannedAction {
-                    id: action_id,
-                    action: Action::UpdateMRDescription {
-                        bookmark: bookmark.clone(),
-                        bookmark_graph: bookmark_graph.clone(),
-                        bookmarks_being_submitted: analysis.bookmarks_to_submit.clone(),
-                    },
-                    dependencies: mr_action_ids.clone(),
-                });
-            }
+            description_batch.push(PlannedAction {
+                id: action_id,
+                action: Action::UpdateMRDescription {
+                    bookmark: bookmark.name().to_string(),
+                    bookmark_graph: graph.clone(),
+                },
+                dependencies: mr_action_ids.clone(),
+            });
+        }
+
+        if !description_batch.is_empty() {
             batches.push(description_batch);
         }
     }
@@ -244,40 +249,14 @@ pub async fn plan<'a>(
     })
 }
 
-/// Determine the title for an MR based on the number of commits
-///
-/// If the bookmark contains exactly one commit, use the commit's first line as
-/// the title. Otherwise, use the bookmark name.
 fn get_mr_title(jj: &Jujutsu, bookmark: &str, base: &str) -> Result<String> {
-    // Build revset to get commits between base and bookmark (excluding base itself)
-    let revset = format!("::{}  ~ ::{}", bookmark, base);
-
-    // Get commit descriptions using the same revset
-    let output = jj.run_captured(&[
-        "log",
-        "-r",
-        &revset,
-        "--no-graph",
-        "--template",
-        r#"description.first_line() ++ "\n""#,
-    ])?;
-
-    let descriptions: Vec<&str> = output
-        .stdout
-        .lines()
-        .filter(|l| !l.trim().is_empty())
-        .collect();
-
-    if descriptions.len() == 1 {
-        // Exactly one commit - use its description as title
-        let title = descriptions[0].trim();
-        if !title.is_empty() {
-            return Ok(title.to_string());
+    let changes = jj.log(format!("::{}  ~ ::{}", bookmark, base))?;
+    match &changes[..] {
+        [change] if !change.description_first_line.is_empty() => {
+            Ok(change.description_first_line.to_string())
         }
+        _ => Ok(bookmark.to_string()),
     }
-
-    // Fall back to bookmark name for multiple commits or edge cases
-    Ok(bookmark.to_string())
 }
 
 #[cfg(test)]

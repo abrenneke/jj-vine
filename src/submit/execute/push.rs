@@ -30,7 +30,7 @@ impl ExecuteAction for PushAction {
                 pushed: true,
             })
         } else {
-            match ctx.jj.push_bookmark(&self.bookmark, &self.remote) {
+            match ctx.jj.push_bookmark(&self.bookmark, Some(&self.remote)) {
                 Ok(pushed) => {
                     if pushed {
                         ctx.output

@@ -458,6 +458,10 @@ impl FormatMergeRequest for GitLabForge {
     fn format_merge_request_id(&self, mr_iid: &str) -> String {
         format!("!{}", mr_iid)
     }
+
+    fn mr_name(&self) -> &'static str {
+        "MR"
+    }
 }
 
 /// GitLab Merge Request

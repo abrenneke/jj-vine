@@ -4,7 +4,7 @@ use serde::Deserialize;
 
 use crate::{
     error::{Error, Result},
-    jj::jj_exec,
+    jj::Jujutsu,
 };
 
 /// Forge type (GitLab, GitHub, or Forgejo)
@@ -13,8 +13,10 @@ use crate::{
 pub enum ForgeType {
     /// GitLab (GitLab.com or self-hosted)
     GitLab,
+
     /// GitHub (GitHub.com or GitHub Enterprise)
     GitHub,
+
     /// Forgejo/Gitea (self-hosted or Codeberg)
     Forgejo,
 }
@@ -277,8 +279,9 @@ impl ForgejoConfig {
 
 impl Config {
     /// Load configuration from jj config
-    pub fn load(repo_path: &PathBuf) -> Result<Self> {
-        let output = jj_exec(repo_path, ["config", "list"])?;
+    pub fn load(repo_path: impl Into<PathBuf>) -> Result<Self> {
+        let jj = Jujutsu::new(repo_path)?;
+        let output = jj.exec(["config", "list"])?;
 
         let toml_value: toml::Value =
             toml::from_str(&output.stdout).map_err(|e| Error::Config {
@@ -364,8 +367,9 @@ mod tests {
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
         let repo_path = temp_dir.path().to_path_buf();
 
-        // Initialize jj repo
-        jj_exec(&repo_path, ["git", "init", "--colocate"]).expect("Failed to init jj repo");
+        let jj = Jujutsu::new(&repo_path).expect("Failed to create Jujutsu instance");
+        jj.exec(["git", "init", "--colocate"])
+            .expect("Failed to init jj repo");
 
         (temp_dir, repo_path)
     }
@@ -395,48 +399,37 @@ mod tests {
     fn test_config_load_complete() {
         let (_temp, repo_path) = create_test_repo();
 
+        let jj = Jujutsu::new(&repo_path).expect("Failed to create Jujutsu instance");
         // Set required config
-        jj_exec(
-            &repo_path,
-            [
-                "config",
-                "set",
-                "--repo",
-                "jj-vine.gitlab.host",
-                "https://gitlab.example.com",
-            ],
-        )
+        jj.exec([
+            "config",
+            "set",
+            "--repo",
+            "jj-vine.gitlab.host",
+            "https://gitlab.example.com",
+        ])
         .expect("Failed to set config");
 
-        jj_exec(
-            &repo_path,
-            [
-                "config",
-                "set",
-                "--repo",
-                "jj-vine.gitlab.project",
-                "my-group/my-project",
-            ],
-        )
+        jj.exec([
+            "config",
+            "set",
+            "--repo",
+            "jj-vine.gitlab.project",
+            "my-group/my-project",
+        ])
         .expect("Failed to set config");
 
-        jj_exec(
-            &repo_path,
-            [
-                "config",
-                "set",
-                "--repo",
-                "jj-vine.gitlab.token",
-                "glpat-test123",
-            ],
-        )
+        jj.exec([
+            "config",
+            "set",
+            "--repo",
+            "jj-vine.gitlab.token",
+            "glpat-test123",
+        ])
         .expect("Failed to set config");
 
-        jj_exec(
-            &repo_path,
-            ["config", "set", "--repo", "jj-vine.forge", "gitlab"],
-        )
-        .expect("Failed to set config");
+        jj.exec(["config", "set", "--repo", "jj-vine.forge", "gitlab"])
+            .expect("Failed to set config");
 
         // Load config
         let config = Config::load(&repo_path).expect("Failed to load config");
@@ -452,66 +445,46 @@ mod tests {
     fn test_config_with_optional_fields() {
         let (_temp, repo_path) = create_test_repo();
 
+        let jj = Jujutsu::new(&repo_path).expect("Failed to create Jujutsu instance");
         // Set all config including optional fields
-        jj_exec(
-            &repo_path,
-            [
-                "config",
-                "set",
-                "--repo",
-                "jj-vine.gitlab.host",
-                "https://gitlab.example.com",
-            ],
-        )
+        jj.exec([
+            "config",
+            "set",
+            "--repo",
+            "jj-vine.gitlab.host",
+            "https://gitlab.example.com",
+        ])
         .expect("Failed to set config");
 
-        jj_exec(
-            &repo_path,
-            [
-                "config",
-                "set",
-                "--repo",
-                "jj-vine.gitlab.project",
-                "my-group/my-project",
-            ],
-        )
+        jj.exec([
+            "config",
+            "set",
+            "--repo",
+            "jj-vine.gitlab.project",
+            "my-group/my-project",
+        ])
         .expect("Failed to set config");
 
-        jj_exec(
-            &repo_path,
-            [
-                "config",
-                "set",
-                "--repo",
-                "jj-vine.gitlab.token",
-                "glpat-test123",
-            ],
-        )
+        jj.exec([
+            "config",
+            "set",
+            "--repo",
+            "jj-vine.gitlab.token",
+            "glpat-test123",
+        ])
         .expect("Failed to set config");
 
-        jj_exec(
-            &repo_path,
-            ["config", "set", "--repo", "jj-vine.branchPrefix", "mrs/"],
-        )
-        .expect("Failed to set config");
+        jj.exec(["config", "set", "--repo", "jj-vine.branchPrefix", "mrs/"])
+            .expect("Failed to set config");
 
-        jj_exec(
-            &repo_path,
-            ["config", "set", "--repo", "jj-vine.remoteName", "upstream"],
-        )
-        .expect("Failed to set config");
+        jj.exec(["config", "set", "--repo", "jj-vine.remoteName", "upstream"])
+            .expect("Failed to set config");
 
-        jj_exec(
-            &repo_path,
-            ["config", "set", "--repo", "jj-vine.defaultBranch", "master"],
-        )
-        .expect("Failed to set config");
+        jj.exec(["config", "set", "--repo", "jj-vine.defaultBranch", "master"])
+            .expect("Failed to set config");
 
-        jj_exec(
-            &repo_path,
-            ["config", "set", "--repo", "jj-vine.forge", "gitlab"],
-        )
-        .expect("Failed to set config");
+        jj.exec(["config", "set", "--repo", "jj-vine.forge", "gitlab"])
+            .expect("Failed to set config");
 
         // Load config
         let config = Config::load(&repo_path).expect("Failed to load config");
@@ -527,42 +500,31 @@ mod tests {
     fn test_config_default_stack_visualization() {
         let (_temp, repo_path) = create_test_repo();
 
+        let jj = Jujutsu::new(&repo_path).expect("Failed to create Jujutsu instance");
         // Set required config, but not stack visualization config
-        jj_exec(
-            &repo_path,
-            [
-                "config",
-                "set",
-                "--repo",
-                "jj-vine.gitlab.host",
-                "https://gitlab.com",
-            ],
-        )
+        jj.exec([
+            "config",
+            "set",
+            "--repo",
+            "jj-vine.gitlab.host",
+            "https://gitlab.com",
+        ])
         .expect("Failed to set config");
 
-        jj_exec(
-            &repo_path,
-            [
-                "config",
-                "set",
-                "--repo",
-                "jj-vine.gitlab.project",
-                "test/proj",
-            ],
-        )
+        jj.exec([
+            "config",
+            "set",
+            "--repo",
+            "jj-vine.gitlab.project",
+            "test/proj",
+        ])
         .expect("Failed to set config");
 
-        jj_exec(
-            &repo_path,
-            ["config", "set", "--repo", "jj-vine.gitlab.token", "token"],
-        )
-        .expect("Failed to set config");
+        jj.exec(["config", "set", "--repo", "jj-vine.gitlab.token", "token"])
+            .expect("Failed to set config");
 
-        jj_exec(
-            &repo_path,
-            ["config", "set", "--repo", "jj-vine.forge", "gitlab"],
-        )
-        .expect("Failed to set config");
+        jj.exec(["config", "set", "--repo", "jj-vine.forge", "gitlab"])
+            .expect("Failed to set config");
 
         let config = Config::load(&repo_path).expect("Failed to load config");
 
@@ -574,55 +536,41 @@ mod tests {
     fn test_config_explicit_stack_visualization() {
         let (_temp, repo_path) = create_test_repo();
 
+        let jj = Jujutsu::new(&repo_path).expect("Failed to create Jujutsu instance");
         // Set required config
-        jj_exec(
-            &repo_path,
-            [
-                "config",
-                "set",
-                "--repo",
-                "jj-vine.gitlab.host",
-                "https://gitlab.com",
-            ],
-        )
+        jj.exec([
+            "config",
+            "set",
+            "--repo",
+            "jj-vine.gitlab.host",
+            "https://gitlab.com",
+        ])
         .expect("Failed to set config");
 
-        jj_exec(
-            &repo_path,
-            [
-                "config",
-                "set",
-                "--repo",
-                "jj-vine.gitlab.project",
-                "test/proj",
-            ],
-        )
+        jj.exec([
+            "config",
+            "set",
+            "--repo",
+            "jj-vine.gitlab.project",
+            "test/proj",
+        ])
         .expect("Failed to set config");
 
-        jj_exec(
-            &repo_path,
-            ["config", "set", "--repo", "jj-vine.gitlab.token", "token"],
-        )
-        .expect("Failed to set config");
+        jj.exec(["config", "set", "--repo", "jj-vine.gitlab.token", "token"])
+            .expect("Failed to set config");
 
         // Set explicit stack visualization config (disable it)
-        jj_exec(
-            &repo_path,
-            [
-                "config",
-                "set",
-                "--repo",
-                "jj-vine.enableStackVisualization",
-                "false",
-            ],
-        )
+        jj.exec([
+            "config",
+            "set",
+            "--repo",
+            "jj-vine.enableStackVisualization",
+            "false",
+        ])
         .expect("Failed to set config");
 
-        jj_exec(
-            &repo_path,
-            ["config", "set", "--repo", "jj-vine.forge", "gitlab"],
-        )
-        .expect("Failed to set config");
+        jj.exec(["config", "set", "--repo", "jj-vine.forge", "gitlab"])
+            .expect("Failed to set config");
 
         let config = Config::load(&repo_path).expect("Failed to load config");
 
@@ -634,42 +582,31 @@ mod tests {
     fn test_config_default_mr_settings() {
         let (_temp, repo_path) = create_test_repo();
 
+        let jj = Jujutsu::new(&repo_path).expect("Failed to create Jujutsu instance");
         // Set required config only, don't set MR settings
-        jj_exec(
-            &repo_path,
-            [
-                "config",
-                "set",
-                "--repo",
-                "jj-vine.gitlab.host",
-                "https://gitlab.com",
-            ],
-        )
+        jj.exec([
+            "config",
+            "set",
+            "--repo",
+            "jj-vine.gitlab.host",
+            "https://gitlab.com",
+        ])
         .expect("Failed to set config");
 
-        jj_exec(
-            &repo_path,
-            [
-                "config",
-                "set",
-                "--repo",
-                "jj-vine.gitlab.project",
-                "test/proj",
-            ],
-        )
+        jj.exec([
+            "config",
+            "set",
+            "--repo",
+            "jj-vine.gitlab.project",
+            "test/proj",
+        ])
         .expect("Failed to set config");
 
-        jj_exec(
-            &repo_path,
-            ["config", "set", "--repo", "jj-vine.gitlab.token", "token"],
-        )
-        .expect("Failed to set config");
+        jj.exec(["config", "set", "--repo", "jj-vine.gitlab.token", "token"])
+            .expect("Failed to set config");
 
-        jj_exec(
-            &repo_path,
-            ["config", "set", "--repo", "jj-vine.forge", "gitlab"],
-        )
-        .expect("Failed to set config");
+        jj.exec(["config", "set", "--repo", "jj-vine.forge", "gitlab"])
+            .expect("Failed to set config");
 
         let config = Config::load(&repo_path).expect("Failed to load config");
 
@@ -681,61 +618,44 @@ mod tests {
     fn test_config_explicit_mr_settings() {
         let (_temp, repo_path) = create_test_repo();
 
+        let jj = Jujutsu::new(&repo_path).expect("Failed to create Jujutsu instance");
         // Set required config
-        jj_exec(
-            &repo_path,
-            [
-                "config",
-                "set",
-                "--repo",
-                "jj-vine.gitlab.host",
-                "https://gitlab.com",
-            ],
-        )
+        jj.exec([
+            "config",
+            "set",
+            "--repo",
+            "jj-vine.gitlab.host",
+            "https://gitlab.com",
+        ])
         .expect("Failed to set config");
 
-        jj_exec(
-            &repo_path,
-            [
-                "config",
-                "set",
-                "--repo",
-                "jj-vine.gitlab.project",
-                "test/proj",
-            ],
-        )
+        jj.exec([
+            "config",
+            "set",
+            "--repo",
+            "jj-vine.gitlab.project",
+            "test/proj",
+        ])
         .expect("Failed to set config");
 
-        jj_exec(
-            &repo_path,
-            ["config", "set", "--repo", "jj-vine.gitlab.token", "token"],
-        )
-        .expect("Failed to set config");
+        jj.exec(["config", "set", "--repo", "jj-vine.gitlab.token", "token"])
+            .expect("Failed to set config");
 
         // Set explicit MR settings (opposite of defaults)
-        jj_exec(
-            &repo_path,
-            [
-                "config",
-                "set",
-                "--repo",
-                "jj-vine.deleteSourceBranch",
-                "false",
-            ],
-        )
+        jj.exec([
+            "config",
+            "set",
+            "--repo",
+            "jj-vine.deleteSourceBranch",
+            "false",
+        ])
         .expect("Failed to set config");
 
-        jj_exec(
-            &repo_path,
-            ["config", "set", "--repo", "jj-vine.squashCommits", "true"],
-        )
-        .expect("Failed to set config");
+        jj.exec(["config", "set", "--repo", "jj-vine.squashCommits", "true"])
+            .expect("Failed to set config");
 
-        jj_exec(
-            &repo_path,
-            ["config", "set", "--repo", "jj-vine.forge", "gitlab"],
-        )
-        .expect("Failed to set config");
+        jj.exec(["config", "set", "--repo", "jj-vine.forge", "gitlab"])
+            .expect("Failed to set config");
 
         let config = Config::load(&repo_path).expect("Failed to load config");
 
@@ -747,42 +667,31 @@ mod tests {
     fn test_config_default_assign_to_self() {
         let (_temp, repo_path) = create_test_repo();
 
+        let jj = Jujutsu::new(&repo_path).expect("Failed to create Jujutsu instance");
         // Set required config only
-        jj_exec(
-            &repo_path,
-            [
-                "config",
-                "set",
-                "--repo",
-                "jj-vine.gitlab.host",
-                "https://gitlab.com",
-            ],
-        )
+        jj.exec([
+            "config",
+            "set",
+            "--repo",
+            "jj-vine.gitlab.host",
+            "https://gitlab.com",
+        ])
         .expect("Failed to set config");
 
-        jj_exec(
-            &repo_path,
-            [
-                "config",
-                "set",
-                "--repo",
-                "jj-vine.gitlab.project",
-                "test/proj",
-            ],
-        )
+        jj.exec([
+            "config",
+            "set",
+            "--repo",
+            "jj-vine.gitlab.project",
+            "test/proj",
+        ])
         .expect("Failed to set config");
 
-        jj_exec(
-            &repo_path,
-            ["config", "set", "--repo", "jj-vine.gitlab.token", "token"],
-        )
-        .expect("Failed to set config");
+        jj.exec(["config", "set", "--repo", "jj-vine.gitlab.token", "token"])
+            .expect("Failed to set config");
 
-        jj_exec(
-            &repo_path,
-            ["config", "set", "--repo", "jj-vine.forge", "gitlab"],
-        )
-        .expect("Failed to set config");
+        jj.exec(["config", "set", "--repo", "jj-vine.forge", "gitlab"])
+            .expect("Failed to set config");
 
         let config = Config::load(&repo_path).expect("Failed to load config");
 
@@ -793,49 +702,35 @@ mod tests {
     fn test_config_explicit_assign_to_self() {
         let (_temp, repo_path) = create_test_repo();
 
+        let jj = Jujutsu::new(&repo_path).expect("Failed to create Jujutsu instance");
         // Set required config
-        jj_exec(
-            &repo_path,
-            [
-                "config",
-                "set",
-                "--repo",
-                "jj-vine.gitlab.host",
-                "https://gitlab.com",
-            ],
-        )
+        jj.exec([
+            "config",
+            "set",
+            "--repo",
+            "jj-vine.gitlab.host",
+            "https://gitlab.com",
+        ])
         .expect("Failed to set config");
 
-        jj_exec(
-            &repo_path,
-            [
-                "config",
-                "set",
-                "--repo",
-                "jj-vine.gitlab.project",
-                "test/proj",
-            ],
-        )
+        jj.exec([
+            "config",
+            "set",
+            "--repo",
+            "jj-vine.gitlab.project",
+            "test/proj",
+        ])
         .expect("Failed to set config");
 
-        jj_exec(
-            &repo_path,
-            ["config", "set", "--repo", "jj-vine.gitlab.token", "token"],
-        )
-        .expect("Failed to set config");
+        jj.exec(["config", "set", "--repo", "jj-vine.gitlab.token", "token"])
+            .expect("Failed to set config");
 
         // Set assign_to_self to true
-        jj_exec(
-            &repo_path,
-            ["config", "set", "--repo", "jj-vine.assignToSelf", "true"],
-        )
-        .expect("Failed to set config");
+        jj.exec(["config", "set", "--repo", "jj-vine.assignToSelf", "true"])
+            .expect("Failed to set config");
 
-        jj_exec(
-            &repo_path,
-            ["config", "set", "--repo", "jj-vine.forge", "gitlab"],
-        )
-        .expect("Failed to set config");
+        jj.exec(["config", "set", "--repo", "jj-vine.forge", "gitlab"])
+            .expect("Failed to set config");
 
         let config = Config::load(&repo_path).expect("Failed to load config");
 
@@ -846,42 +741,31 @@ mod tests {
     fn test_config_default_reviewers_empty() {
         let (_temp, repo_path) = create_test_repo();
 
+        let jj = Jujutsu::new(&repo_path).expect("Failed to create Jujutsu instance");
         // Set required config only
-        jj_exec(
-            &repo_path,
-            [
-                "config",
-                "set",
-                "--repo",
-                "jj-vine.gitlab.host",
-                "https://gitlab.com",
-            ],
-        )
+        jj.exec([
+            "config",
+            "set",
+            "--repo",
+            "jj-vine.gitlab.host",
+            "https://gitlab.com",
+        ])
         .expect("Failed to set config");
 
-        jj_exec(
-            &repo_path,
-            [
-                "config",
-                "set",
-                "--repo",
-                "jj-vine.gitlab.project",
-                "test/proj",
-            ],
-        )
+        jj.exec([
+            "config",
+            "set",
+            "--repo",
+            "jj-vine.gitlab.project",
+            "test/proj",
+        ])
         .expect("Failed to set config");
 
-        jj_exec(
-            &repo_path,
-            ["config", "set", "--repo", "jj-vine.gitlab.token", "token"],
-        )
-        .expect("Failed to set config");
+        jj.exec(["config", "set", "--repo", "jj-vine.gitlab.token", "token"])
+            .expect("Failed to set config");
 
-        jj_exec(
-            &repo_path,
-            ["config", "set", "--repo", "jj-vine.forge", "gitlab"],
-        )
-        .expect("Failed to set config");
+        jj.exec(["config", "set", "--repo", "jj-vine.forge", "gitlab"])
+            .expect("Failed to set config");
 
         let config = Config::load(&repo_path).expect("Failed to load config");
 
@@ -892,55 +776,41 @@ mod tests {
     fn test_config_default_reviewers_single() {
         let (_temp, repo_path) = create_test_repo();
 
+        let jj = Jujutsu::new(&repo_path).expect("Failed to create Jujutsu instance");
         // Set required config
-        jj_exec(
-            &repo_path,
-            [
-                "config",
-                "set",
-                "--repo",
-                "jj-vine.gitlab.host",
-                "https://gitlab.com",
-            ],
-        )
+        jj.exec([
+            "config",
+            "set",
+            "--repo",
+            "jj-vine.gitlab.host",
+            "https://gitlab.com",
+        ])
         .expect("Failed to set config");
 
-        jj_exec(
-            &repo_path,
-            [
-                "config",
-                "set",
-                "--repo",
-                "jj-vine.gitlab.project",
-                "test/proj",
-            ],
-        )
+        jj.exec([
+            "config",
+            "set",
+            "--repo",
+            "jj-vine.gitlab.project",
+            "test/proj",
+        ])
         .expect("Failed to set config");
 
-        jj_exec(
-            &repo_path,
-            ["config", "set", "--repo", "jj-vine.gitlab.token", "token"],
-        )
-        .expect("Failed to set config");
+        jj.exec(["config", "set", "--repo", "jj-vine.gitlab.token", "token"])
+            .expect("Failed to set config");
 
         // Set single reviewer as TOML array
-        jj_exec(
-            &repo_path,
-            [
-                "config",
-                "set",
-                "--repo",
-                "jj-vine.defaultReviewers",
-                r#"["reviewer1"]"#,
-            ],
-        )
+        jj.exec([
+            "config",
+            "set",
+            "--repo",
+            "jj-vine.defaultReviewers",
+            r#"["reviewer1"]"#,
+        ])
         .expect("Failed to set config");
 
-        jj_exec(
-            &repo_path,
-            ["config", "set", "--repo", "jj-vine.forge", "gitlab"],
-        )
-        .expect("Failed to set config");
+        jj.exec(["config", "set", "--repo", "jj-vine.forge", "gitlab"])
+            .expect("Failed to set config");
 
         let config = Config::load(&repo_path).expect("Failed to load config");
 
@@ -951,55 +821,41 @@ mod tests {
     fn test_config_default_reviewers_multiple() {
         let (_temp, repo_path) = create_test_repo();
 
+        let jj = Jujutsu::new(&repo_path).expect("Failed to create Jujutsu instance");
         // Set required config
-        jj_exec(
-            &repo_path,
-            [
-                "config",
-                "set",
-                "--repo",
-                "jj-vine.gitlab.host",
-                "https://gitlab.com",
-            ],
-        )
+        jj.exec([
+            "config",
+            "set",
+            "--repo",
+            "jj-vine.gitlab.host",
+            "https://gitlab.com",
+        ])
         .expect("Failed to set config");
 
-        jj_exec(
-            &repo_path,
-            [
-                "config",
-                "set",
-                "--repo",
-                "jj-vine.gitlab.project",
-                "test/proj",
-            ],
-        )
+        jj.exec([
+            "config",
+            "set",
+            "--repo",
+            "jj-vine.gitlab.project",
+            "test/proj",
+        ])
         .expect("Failed to set config");
 
-        jj_exec(
-            &repo_path,
-            ["config", "set", "--repo", "jj-vine.gitlab.token", "token"],
-        )
-        .expect("Failed to set config");
+        jj.exec(["config", "set", "--repo", "jj-vine.gitlab.token", "token"])
+            .expect("Failed to set config");
 
         // Set multiple reviewers as TOML array
-        jj_exec(
-            &repo_path,
-            [
-                "config",
-                "set",
-                "--repo",
-                "jj-vine.defaultReviewers",
-                r#"["reviewer1", "reviewer2", "reviewer3"]"#,
-            ],
-        )
+        jj.exec([
+            "config",
+            "set",
+            "--repo",
+            "jj-vine.defaultReviewers",
+            r#"["reviewer1", "reviewer2", "reviewer3"]"#,
+        ])
         .expect("Failed to set config");
 
-        jj_exec(
-            &repo_path,
-            ["config", "set", "--repo", "jj-vine.forge", "gitlab"],
-        )
-        .expect("Failed to set config");
+        jj.exec(["config", "set", "--repo", "jj-vine.forge", "gitlab"])
+            .expect("Failed to set config");
 
         let config = Config::load(&repo_path).expect("Failed to load config");
 

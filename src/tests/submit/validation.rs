@@ -60,7 +60,7 @@ mod e2e {
         let repo = TestRepo::with_gitlab_remote();
 
         // Create a bookmark but don't push it
-        repo.jj(["new", "main"]);
+        repo.jj.exec(["new", "main"]).unwrap();
         repo.create_change("test.txt", "content", "Test commit")
             .create_bookmark("unpushed-branch");
 
@@ -130,31 +130,39 @@ mod e2e {
             .unwrap();
 
         // Add local bare repo as origin (so push goes there, not GitLab)
-        repo.jj([
-            "git",
-            "remote",
-            "add",
-            "origin",
-            remote_dir.to_str().unwrap(),
-        ]);
+        repo.jj
+            .exec([
+                "git",
+                "remote",
+                "add",
+                "origin",
+                remote_dir.to_str().unwrap(),
+            ])
+            .unwrap();
 
         // Fetch and track main
-        repo.jj(["git", "fetch"]);
-        repo.jj(["bookmark", "track", "main@origin"]);
+        repo.jj.exec(["git", "fetch"]).unwrap();
+        repo.jj.exec(["bookmark", "track", "main@origin"]).unwrap();
 
         // Configure jj-vine to point to GitLab (for MR creation attempt)
-        repo.jj(["config", "set", "--repo", "jj-vine.gitlab.host", &host]);
-        repo.jj([
-            "config",
-            "set",
-            "--repo",
-            "jj-vine.gitlab.project",
-            &project,
-        ]);
-        repo.jj(["config", "set", "--repo", "jj-vine.gitlab.token", &token]);
+        repo.jj
+            .exec(["config", "set", "--repo", "jj-vine.gitlab.host", &host])
+            .unwrap();
+        repo.jj
+            .exec([
+                "config",
+                "set",
+                "--repo",
+                "jj-vine.gitlab.project",
+                &project,
+            ])
+            .unwrap();
+        repo.jj
+            .exec(["config", "set", "--repo", "jj-vine.gitlab.token", &token])
+            .unwrap();
 
         // Create feature bookmark
-        repo.jj(["new", "main"]);
+        repo.jj.exec(["new", "main"]).unwrap();
         repo.create_change("test.txt", "content", "Feature commit")
             .create_bookmark("feature-push-fail");
 

@@ -13,11 +13,11 @@ async fn test_pr_description_includes_stack_info() {
     let branch_b = unique_branch("desc-b");
 
     // Create stack: main -> A -> B
-    repo.jj(["new", "main"]);
+    repo.jj.exec(["new", "main"]).unwrap();
     repo.create_change("a.txt", "a", "Commit A")
         .create_and_push_bookmark(&branch_a);
 
-    repo.jj(["new"]);
+    repo.jj.exec(["new"]).unwrap();
     repo.create_change("b.txt", "b", "Commit B")
         .create_and_push_bookmark(&branch_b);
 
@@ -58,11 +58,11 @@ async fn test_pr_description_links_to_dependent_prs() {
     let branch_b = unique_branch("link-b");
 
     // Create stack: main -> A -> B
-    repo.jj(["new", "main"]);
+    repo.jj.exec(["new", "main"]).unwrap();
     repo.create_change("a.txt", "a", "Commit A")
         .create_and_push_bookmark(&branch_a);
 
-    repo.jj(["new"]);
+    repo.jj.exec(["new"]).unwrap();
     repo.create_change("b.txt", "b", "Commit B")
         .create_and_push_bookmark(&branch_b);
 
@@ -107,7 +107,7 @@ async fn test_user_content_preserved_on_resubmit() {
     let branch_b = unique_branch("preserve-b");
 
     // Create and submit branch A
-    repo.jj(["new", "main"]);
+    repo.jj.exec(["new", "main"]).unwrap();
     repo.create_change("a.txt", "a", "Commit A")
         .create_and_push_bookmark(&branch_a);
 
@@ -133,7 +133,7 @@ async fn test_user_content_preserved_on_resubmit() {
         .expect("Failed to update description");
 
     // Create branch B and resubmit
-    repo.jj(["new"]);
+    repo.jj.exec(["new"]).unwrap();
     repo.create_change("b.txt", "b", "Commit B")
         .create_and_push_bookmark(&branch_b);
 
@@ -168,7 +168,7 @@ async fn test_add_markers_to_description_without_markers() {
     let branch_b = unique_branch("markers-b");
 
     // Create and submit branch A
-    repo.jj(["new", "main"]);
+    repo.jj.exec(["new", "main"]).unwrap();
     repo.create_change("a.txt", "a", "Commit A")
         .create_and_push_bookmark(&branch_a);
 
@@ -193,7 +193,7 @@ async fn test_add_markers_to_description_without_markers() {
         .expect("Failed to update description");
 
     // Create branch B and submit stack
-    repo.jj(["new"]);
+    repo.jj.exec(["new"]).unwrap();
     repo.create_change("b.txt", "b", "Commit B")
         .create_and_push_bookmark(&branch_b);
 
@@ -239,11 +239,11 @@ async fn test_skip_update_when_description_unchanged() {
     let branch_b = unique_branch("unchanged-b");
 
     // Create and submit stack
-    repo.jj(["new", "main"]);
+    repo.jj.exec(["new", "main"]).unwrap();
     repo.create_change("a.txt", "a", "Commit A")
         .create_and_push_bookmark(&branch_a);
 
-    repo.jj(["new"]);
+    repo.jj.exec(["new"]).unwrap();
     repo.create_change("b.txt", "b", "Commit B")
         .create_and_push_bookmark(&branch_b);
 
@@ -295,20 +295,20 @@ async fn test_deferred_updates_multiple_stacks() {
     let branch_d = unique_branch("diamond-d");
 
     // Create structure: A → B → C and A → B → D (diamond)
-    repo.jj(["new", "main"]);
+    repo.jj.exec(["new", "main"]).unwrap();
     repo.create_change("a.txt", "a", "Commit A")
         .create_and_push_bookmark(&branch_a);
 
-    repo.jj(["new"]);
+    repo.jj.exec(["new"]).unwrap();
     repo.create_change("b.txt", "b", "Commit B")
         .create_and_push_bookmark(&branch_b);
 
-    repo.jj(["new"]);
+    repo.jj.exec(["new"]).unwrap();
     repo.create_change("c.txt", "c", "Commit C")
         .create_and_push_bookmark(&branch_c);
 
     // Go back to B and create D
-    repo.jj(["new", &branch_b]);
+    repo.jj.exec(["new", &branch_b]).unwrap();
     repo.create_change("d.txt", "d", "Commit D")
         .create_and_push_bookmark(&branch_d);
 

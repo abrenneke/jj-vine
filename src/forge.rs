@@ -1,6 +1,7 @@
 pub mod forgejo;
 pub mod github;
 pub mod gitlab;
+pub mod test;
 
 use std::borrow::Cow;
 
@@ -24,6 +25,7 @@ pub enum ForgeMergeRequest {
     GitLab(gitlab::MergeRequest),
     GitHub(github::PullRequest),
     Forgejo(forgejo::PullRequest),
+    Test(test::MergeRequest),
 }
 
 impl ForgeMergeRequest {
@@ -32,6 +34,7 @@ impl ForgeMergeRequest {
             ForgeMergeRequest::GitLab(mr) => Cow::Owned(mr.iid.to_string()),
             ForgeMergeRequest::GitHub(pr) => Cow::Owned(pr.number.to_string()),
             ForgeMergeRequest::Forgejo(pr) => Cow::Owned(pr.number.to_string()),
+            ForgeMergeRequest::Test(mr) => Cow::Owned(mr.id.clone()),
         }
     }
 
@@ -40,6 +43,7 @@ impl ForgeMergeRequest {
             ForgeMergeRequest::GitLab(mr) => &mr.title,
             ForgeMergeRequest::GitHub(pr) => &pr.title,
             ForgeMergeRequest::Forgejo(pr) => &pr.title,
+            ForgeMergeRequest::Test(mr) => &mr.title,
         }
     }
 
@@ -48,6 +52,7 @@ impl ForgeMergeRequest {
             ForgeMergeRequest::GitLab(mr) => mr.description.as_deref().unwrap_or(""),
             ForgeMergeRequest::GitHub(pr) => pr.body.as_deref().unwrap_or(""),
             ForgeMergeRequest::Forgejo(pr) => pr.body.as_deref().unwrap_or(""),
+            ForgeMergeRequest::Test(mr) => mr.description.as_deref().unwrap_or(""),
         }
     }
 
@@ -56,6 +61,7 @@ impl ForgeMergeRequest {
             ForgeMergeRequest::GitLab(mr) => &mr.source_branch,
             ForgeMergeRequest::GitHub(pr) => &pr.head.ref_name,
             ForgeMergeRequest::Forgejo(pr) => &pr.head.ref_name,
+            ForgeMergeRequest::Test(mr) => &mr.source_branch,
         }
     }
 
@@ -64,6 +70,7 @@ impl ForgeMergeRequest {
             ForgeMergeRequest::GitLab(mr) => &mr.target_branch,
             ForgeMergeRequest::GitHub(pr) => &pr.base.ref_name,
             ForgeMergeRequest::Forgejo(pr) => &pr.base.ref_name,
+            ForgeMergeRequest::Test(mr) => &mr.target_branch,
         }
     }
 
@@ -98,6 +105,7 @@ impl ForgeMergeRequest {
                     ForgeMergeRequestState::Closed
                 }
             }
+            ForgeMergeRequest::Test(mr) => mr.state,
         }
     }
 
@@ -106,6 +114,7 @@ impl ForgeMergeRequest {
             ForgeMergeRequest::GitLab(mr) => &mr.web_url,
             ForgeMergeRequest::GitHub(pr) => &pr.html_url,
             ForgeMergeRequest::Forgejo(pr) => &pr.html_url,
+            ForgeMergeRequest::Test(mr) => &mr.url,
         }
     }
 
@@ -114,6 +123,7 @@ impl ForgeMergeRequest {
             ForgeMergeRequest::GitLab(mr) => Cow::Owned(format!("{}/edit", mr.web_url)),
             ForgeMergeRequest::GitHub(pr) => Cow::Borrowed(&pr.html_url),
             ForgeMergeRequest::Forgejo(pr) => Cow::Borrowed(&pr.html_url),
+            ForgeMergeRequest::Test(mr) => Cow::Borrowed(&mr.url),
         }
     }
 
@@ -122,6 +132,7 @@ impl ForgeMergeRequest {
             ForgeMergeRequest::GitLab(mr) => &mr.author.username,
             ForgeMergeRequest::GitHub(pr) => &pr.user.login,
             ForgeMergeRequest::Forgejo(pr) => &pr.user.login,
+            ForgeMergeRequest::Test(mr) => &mr.author_username,
         }
     }
 
@@ -139,6 +150,7 @@ impl ForgeMergeRequest {
                 .created_at
                 .parse()
                 .expect("Failed to parse created at timestamp from Forgejo API response"),
+            ForgeMergeRequest::Test(mr) => mr.created_at,
         }
     }
 
@@ -163,6 +175,7 @@ impl ForgeMergeRequest {
                 .into_iter()
                 .map(ForgeUser::from)
                 .collect(),
+            ForgeMergeRequest::Test(mr) => mr.assignees.clone(),
         }
     }
 
@@ -187,19 +200,21 @@ impl ForgeMergeRequest {
                 .into_iter()
                 .map(ForgeUser::from)
                 .collect(),
+            ForgeMergeRequest::Test(mr) => mr.reviewers.clone(),
         }
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub enum ForgeMergeRequestState {
+    #[default]
     Open,
     Closed,
     Merged,
 }
 
 /// Status of CI/Pipeline checks
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum CheckStatus {
     /// All checks passed
     Success,
@@ -208,6 +223,7 @@ pub enum CheckStatus {
     /// Some checks failed
     Failed,
     /// No checks configured or required
+    #[default]
     None,
 }
 
@@ -391,6 +407,7 @@ pub enum ForgeImpl {
     GitLab(gitlab::GitLabForge),
     GitHub(github::GitHubForge),
     Forgejo(forgejo::ForgejoForge),
+    Test(test::TestForge),
 }
 
 /// Create a forge instance based on configuration.

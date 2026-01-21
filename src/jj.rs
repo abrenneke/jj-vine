@@ -1,697 +1,677 @@
-use std::{
-    path::{Path, PathBuf},
-    process::{Command, ExitStatus},
-};
+use std::{path::PathBuf, process::Command};
 
+use serde::{Deserialize, Serialize};
 use tracing::trace;
 
+#[cfg(test)]
+use crate::bookmark::Bookmark;
 use crate::error::{Error, Result};
-
-/// Jujutsu subprocess interface
-pub struct Jujutsu {
-    repo_path: PathBuf,
-}
 
 #[derive(Debug, Clone)]
 pub struct CommandOutput {
-    pub status: ExitStatus,
+    pub status: std::process::ExitStatus,
     pub stdout: String,
     pub stderr: String,
 }
 
-impl Jujutsu {
-    /// Create a new Jujutsu instance for the given repository path
-    pub fn new(repo_path: PathBuf) -> Result<Self> {
-        which_jj()?; // Verify jj is available
-        Ok(Self { repo_path })
+/// Information about a bookmark in jj. Can be local (maybe tracked) or
+/// remote-only.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum BookmarkInfo {
+    /// A bookmark that is local to the repository, and may be also tracked
+    /// against a remote repository.
+    Local {
+        /// The name of the bookmark, e.g. "feature/my-feature"
+        name: String,
+
+        /// Whether the bookmark is different from the local repository.
+        /// In jj, an asterisk is added to the bookmark name to indicate that it
+        /// is different from the local repository.
+        remote_different_from_local: bool,
+
+        /// Whether the bookmark is tracked against a remote repository.
+        tracked: bool,
+    },
+
+    /// A bookmark that is only on a remote repository, and not tracked with a
+    /// local bookmark.
+    Remote {
+        /// The name of the bookmark, e.g. "feature/my-feature"
+        name: String,
+
+        /// The remote repository name, e.g. "origin"
+        remote: String,
+    },
+}
+
+impl BookmarkInfo {
+    /// Get the name of the bookmark. Does not include @<remote> suffix.
+    pub fn name(&self) -> &str {
+        match self {
+            BookmarkInfo::Local { name, .. } => name,
+            BookmarkInfo::Remote { name, .. } => name,
+        }
     }
 
-    /// Run a jj command and return the output
-    pub fn run_captured(&self, args: &[&str]) -> Result<CommandOutput> {
-        trace!("Running jj command: jj {}", args.join(" "));
-        jj_exec(&self.repo_path, args)
+    /// Get the full name of the bookmark, including the @<remote> suffix if it
+    /// is a remote bookmark.
+    pub fn full_name(&self) -> String {
+        match self {
+            BookmarkInfo::Local { name, .. } => name.clone(),
+            BookmarkInfo::Remote { name, remote } => format!("{}@{}", name, remote),
+        }
     }
 
-    /// Get all bookmarks authored by the current user with their commit info
-    pub fn get_my_bookmarks(&self) -> Result<Vec<Bookmark>> {
-        self.get_bookmarks_with_revset("mine() & bookmarks()")
+    /// Check if the bookmark is a local bookmark.
+    pub fn is_local(&self) -> bool {
+        matches!(self, BookmarkInfo::Local { .. })
     }
 
-    /// Get bookmarks matching a revset
-    pub fn get_bookmarks_with_revset(&self, revset: &str) -> Result<Vec<Bookmark>> {
-        let output = self.run_captured(&[
-            "log",
-            "-r",
-            revset,
-            "--no-graph",
-            "--template",
-            r#"bookmarks.map(|b| b ++ "\t" ++ commit_id ++ "\t" ++ change_id).join("\n") ++ "\n""#,
-        ])?;
+    /// Check if the bookmark is a remote bookmark.
+    pub fn is_remote(&self) -> bool {
+        matches!(self, BookmarkInfo::Remote { .. })
+    }
 
-        let mut bookmarks = Vec::new();
-        for line in output.stdout.lines() {
-            let line = line.trim();
-            if line.is_empty() {
-                continue;
-            }
+    pub fn is_tracked(&self) -> bool {
+        matches!(self, BookmarkInfo::Local { tracked: true, .. })
+    }
+}
 
-            let parts: Vec<&str> = line.split('\t').collect();
-            if parts.len() >= 3 {
-                let full_name = parts[0];
-                let full_name = full_name.strip_suffix('*').unwrap_or(full_name);
+impl std::str::FromStr for BookmarkInfo {
+    type Err = Error;
 
-                let (name, remote) = if let Some(at_pos) = full_name.rfind('@') {
-                    let name = full_name[..at_pos].to_string();
-                    let remote = full_name[at_pos + 1..].to_string();
-                    (name, Some(remote))
-                } else {
-                    (full_name.to_string(), None)
-                };
-
-                let is_local = remote.is_none();
-
-                bookmarks.push(Bookmark {
-                    name,
-                    commit_id: parts[1].to_string(),
-                    change_id: parts[2].to_string(),
-                    remote,
-                    is_local,
-                });
-            }
+    fn from_str(s: &str) -> Result<Self> {
+        if s.is_empty() {
+            return Err(Error::Parse {
+                message: "Empty bookmark name".to_string(),
+            });
         }
 
-        Ok(bookmarks)
-    }
+        let remote_different_from_local = s.ends_with("*");
+        let s = s.trim_end_matches("*");
 
-    /// Count the number of commits in a revset
-    ///
-    /// Returns the count of commits that match the given revset expression.
-    pub fn count_commits_in_revset(&self, revset: &str) -> Result<usize> {
-        let output = self.run_captured(&[
-            "log",
-            "-r",
-            revset,
-            "--no-graph",
-            "--template",
-            "commit_id ++ \"\\n\"",
-        ])?;
+        if let Some(at_pos) = s.rfind('@') {
+            let name = s[..at_pos].to_string();
+            let remote = s[at_pos + 1..].to_string();
 
-        Ok(output
-            .stdout
-            .lines()
-            .filter(|line| !line.trim().is_empty())
-            .count())
-    }
-
-    /// Get changes between two revisions
-    pub fn get_changes(&self, from: &str, to: &str) -> Result<Vec<Change>> {
-        let revset = format!("{}::{}", from, to);
-        let output = self.run_captured(&[
-            "log",
-            "-r",
-            &revset,
-            "--no-graph",
-            "--template",
-            r#"commit_id ++ "\t" ++ change_id ++ "\t" ++ description.first_line() ++ "\t" ++ parents.map(|p| p.commit_id()).join(",") ++ "\n""#,
-        ])?;
-
-        let mut changes = Vec::new();
-        for line in output.stdout.lines() {
-            if line.trim().is_empty() {
-                continue;
-            }
-
-            let parts: Vec<&str> = line.split('\t').collect();
-            if parts.len() >= 4 {
-                changes.push(Change {
-                    commit_id: parts[0].to_string(),
-                    change_id: parts[1].to_string(),
-                    description_first_line: parts[2].to_string(),
-                    parent_ids: parts[3]
-                        .split(',')
-                        .filter(|s| !s.is_empty())
-                        .map(|s| s.to_string())
-                        .collect(),
-                });
-            }
+            Ok(BookmarkInfo::Remote { name, remote })
+        } else {
+            Ok(BookmarkInfo::Local {
+                name: s.to_string(),
+                remote_different_from_local,
+                tracked: false,
+            })
         }
+    }
+}
 
-        Ok(changes)
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Change {
+    /// Git commit ID
+    pub commit_id: String,
+
+    /// Jujutsu change ID
+    pub change_id: String,
+
+    /// The first line of the change description
+    pub description_first_line: String,
+
+    /// The IDs of the parent commits
+    pub parent_commit_ids: Vec<String>,
+
+    /// The bookmarks that are part of this change
+    pub bookmarks: Vec<BookmarkInfo>,
+}
+
+#[cfg(test)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChangeMap(std::collections::BTreeMap<String, Change>);
+
+#[cfg(test)]
+impl ChangeMap {
+    pub fn new() -> Self {
+        Self(std::collections::BTreeMap::new())
     }
 
-    /// Resolve a revision to a commit ID
-    pub fn resolve_revision(&self, revset: &str) -> Result<String> {
-        trace!("Resolving revision: {}", revset);
-        let output = self.run_captured(&[
-            "log",
-            "-r",
-            revset,
-            "--limit",
-            "1",
-            "--no-graph",
-            "--template",
-            "commit_id",
-        ])?;
-
-        Ok(output.stdout.trim().to_string())
+    pub fn insert(&mut self, change: Change) {
+        self.0.insert(change.commit_id.clone(), change);
     }
+}
 
-    /// Get the change ID for a commit
-    pub fn get_change_id(&self, commit_id: &str) -> Result<String> {
-        let output = self.run_captured(&[
-            "log",
-            "-r",
-            commit_id,
-            "--limit",
-            "1",
-            "--no-graph",
-            "--template",
-            "change_id",
-        ])?;
-
-        Ok(output.stdout.trim().to_string())
+#[cfg(test)]
+impl Default for ChangeMap {
+    fn default() -> Self {
+        Self::new()
     }
+}
 
-    /// Get the default branch name (trunk)
-    pub fn get_default_branch(&self) -> Result<String> {
-        // Try common default branch names
-        for branch in &["main", "master", "trunk"] {
-            let revset = format!("{}@origin", branch);
-            if self.resolve_revision(&revset).is_ok() {
-                return Ok(branch.to_string());
-            }
-        }
+#[cfg(test)]
+impl std::ops::Deref for ChangeMap {
+    type Target = std::collections::BTreeMap<String, Change>;
 
-        Err(Error::Config {
-            message: "Could not find default branch (tried main, master, trunk)".to_string(),
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+#[cfg(test)]
+impl std::ops::DerefMut for ChangeMap {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+#[cfg(test)]
+impl IntoIterator for ChangeMap {
+    type Item = (String, Change);
+    type IntoIter = std::collections::btree_map::IntoIter<String, Change>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
+#[cfg(test)]
+impl ChangeMap {
+    pub fn get_bookmark(&self, bookmark: &'_ str) -> Option<Bookmark<'_>> {
+        let change = self
+            .values()
+            .find(|c| c.bookmarks.iter().any(|b| b.name() == bookmark))?;
+
+        Some(Bookmark {
+            info: change.bookmarks.iter().find(|b| b.name() == bookmark)?,
+            change,
         })
     }
 
-    /// Track a bookmark on a remote
-    pub fn track_bookmark(&self, bookmark: &str, remote: &str) -> Result<()> {
-        let remote_bookmark = format!("{}@{}", bookmark, remote);
-        self.run_captured(&["bookmark", "track", &remote_bookmark])?;
+    pub fn create_bookmark_map(&self) -> std::collections::BTreeMap<String, Bookmark<'_>> {
+        self.iter()
+            .flat_map(|(_, change)| {
+                change
+                    .bookmarks
+                    .iter()
+                    .map(|info| (info.name().to_string(), Bookmark { info, change }))
+            })
+            .collect()
+    }
+
+    pub fn create_adjacency_list(
+        &self,
+    ) -> std::collections::BTreeMap<String, std::collections::BTreeSet<String>> {
+        let mut adjacency_list = std::collections::BTreeMap::new();
+        for (_, change) in self.iter() {
+            let parent_bookmarks = change
+                .parent_commit_ids
+                .iter()
+                .map(|id| self.get(id).unwrap())
+                .flat_map(|change| change.bookmarks.iter().map(|info| info.name().to_string()))
+                .collect::<Vec<_>>();
+
+            for info in &change.bookmarks {
+                adjacency_list
+                    .entry(info.name().to_string())
+                    .or_insert(std::collections::BTreeSet::new())
+                    .extend(parent_bookmarks.iter().cloned());
+            }
+        }
+        adjacency_list
+    }
+}
+
+#[cfg(test)]
+impl Change {
+    pub fn mock_stack_map(changes: impl IntoIterator<Item = Self>) -> ChangeMap {
+        ChangeMap(
+            Self::mock_stack(changes)
+                .into_iter()
+                .map(|c| (c.commit_id.clone(), c))
+                .collect(),
+        )
+    }
+
+    /// Create a mock stack of changes from a list of change IDs. First ID is
+    /// the root.
+    pub fn mock_stack(changes: impl IntoIterator<Item = Self>) -> Vec<Self> {
+        let mut stack: Vec<Self> = Vec::new();
+        for change in changes {
+            if stack.is_empty() {
+                stack.push(change.clone());
+            } else {
+                stack.push(change.with_mock_parent_commit_ids([
+                    stack.last().as_ref().unwrap().commit_id.as_str(),
+                ]));
+            }
+        }
+        stack
+    }
+
+    /// Create a mock change from a change ID and parent change IDs.
+    pub fn mock_from_change_id(change_id: &str) -> Self {
+        Self {
+            commit_id: format!("commit_{}", change_id),
+            change_id: change_id.to_string(),
+            description_first_line: format!("description_{}", change_id),
+            parent_commit_ids: vec![],
+            bookmarks: vec![],
+        }
+    }
+
+    /// Create a mock change from a bookmark.
+    pub fn mock_from_bookmark(bookmark: &str) -> Self {
+        Self {
+            commit_id: format!("commit_{}", bookmark),
+            change_id: format!("change_{}", bookmark),
+            description_first_line: format!("description_{}", bookmark),
+            parent_commit_ids: vec![],
+            bookmarks: vec![bookmark.parse::<BookmarkInfo>().unwrap()],
+        }
+    }
+
+    pub fn with_mock_parent_commit_ids<'a>(
+        mut self,
+        parent_commit_ids: impl IntoIterator<Item = &'a str>,
+    ) -> Self {
+        self.parent_commit_ids.extend(
+            parent_commit_ids
+                .into_iter()
+                .map(str::to_string)
+                .filter(|id| !self.parent_commit_ids.contains(id))
+                .collect::<Vec<_>>(),
+        );
+        self
+    }
+
+    pub fn with_mock_parent_bookmarks<'a>(
+        mut self,
+        parent_bookmarks: impl IntoIterator<Item = &'a str>,
+    ) -> Self {
+        let parent_bookmarks: Vec<_> = parent_bookmarks.into_iter().collect();
+        self.parent_commit_ids.extend(
+            parent_bookmarks
+                .iter()
+                .map(|id| format!("commit_{}", id))
+                .filter(|id| !self.parent_commit_ids.contains(id))
+                .collect::<Vec<_>>(),
+        );
+        self
+    }
+
+    pub fn with_mock_bookmarks<'a>(mut self, bookmarks: impl IntoIterator<Item = &'a str>) -> Self {
+        self.bookmarks.extend(
+            bookmarks
+                .into_iter()
+                .map(|b| b.parse::<BookmarkInfo>().unwrap())
+                .filter(|b| !self.bookmarks.iter().any(|b2| b2.name() == b.name()))
+                .collect::<Vec<_>>(),
+        );
+        self
+    }
+}
+
+#[cfg(test)]
+impl FromIterator<Change> for std::collections::BTreeMap<String, Change> {
+    fn from_iter<T: IntoIterator<Item = Change>>(iter: T) -> Self {
+        iter.into_iter().map(|c| (c.commit_id.clone(), c)).collect()
+    }
+}
+
+/// Jujutsu subprocess interface
+pub struct Jujutsu {
+    /// The directory to run all jj commands from
+    cwd: PathBuf,
+}
+
+impl Jujutsu {
+    /// Create a new Jujutsu instance for the given working directory
+    pub fn new(cwd: impl Into<PathBuf>) -> Result<Self> {
+        Self::which()?;
+        Ok(Self { cwd: cwd.into() })
+    }
+
+    /// Run a jj command and return the output.
+    pub fn exec<'a>(&self, args: impl AsRef<[&'a str]>) -> Result<CommandOutput> {
+        let args = args.as_ref();
+        trace!("Running jj command: jj {}", args.join(" "));
+
+        let jj_bin = Self::which()?;
+        let output = Command::new(&jj_bin)
+            .current_dir(&self.cwd)
+            .args(args.as_ref())
+            .output()?;
+
+        let stderr = String::from_utf8_lossy(&output.stderr);
+
+        if !output.status.success() {
+            return Err(Error::JjCommand {
+                message: format!("jj {} failed: {}", args.as_ref().join(" "), stderr),
+                output: Some(output),
+            });
+        }
+
+        // TODO interleave
+        let stdout = String::from_utf8_lossy(&output.stdout);
+
+        trace!("jj command output: {}", stdout);
+        trace!("jj command stderr: {}", stderr);
+        Ok(CommandOutput {
+            status: output.status,
+            stdout: stdout.to_string(),
+            stderr: stderr.to_string(),
+        })
+    }
+
+    /// Find the jj binary
+    fn which() -> Result<PathBuf> {
+        which::which("jj").map_err(|e| Error::Config {
+            message: format!("jj binary not found in PATH: {}", e),
+        })
+    }
+
+    /// Count the number of changes in a revset.
+    pub fn count_revset(&self, revset: impl AsRef<str>) -> Result<usize> {
+        Ok(self.log(revset)?.len())
+    }
+
+    /// Check if any changes exist in a revset.
+    pub fn any_in_revset(&self, revset: impl AsRef<str>) -> Result<bool> {
+        Ok(!self.log(revset)?.is_empty())
+    }
+
+    /// Gets information about changes in a given revset.
+    pub fn log(&self, revset: impl AsRef<str>) -> Result<Vec<Change>> {
+        let fields = [
+            "json(self)",
+            r#"json(remote_bookmarks.filter(|b| b.tracked() && b.remote() != "git"))"#,
+            "json(local_bookmarks)",
+        ];
+        let template = fields.join(r#" ++ "\n" ++ "#) + r#"++ "\n""#;
+
+        let output = self.exec([
+            "log",
+            "-r",
+            revset.as_ref(),
+            "--no-graph",
+            "--template",
+            &template,
+        ])?;
+
+        let lines: Vec<_> = output
+            .stdout
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .collect();
+
+        lines
+            .as_slice()
+            .chunks(fields.len())
+            .map(|chunk| match chunk {
+                [self_commit, remote_tracked_bookmarks, local_bookmarks] => {
+                    let self_commit: JJCommit = serde_json::from_str(self_commit)?;
+                    let remote_tracked_bookmarks: Vec<JJBookmark> =
+                        serde_json::from_str(remote_tracked_bookmarks)?;
+                    let local_bookmarks: Vec<JJBookmark> = serde_json::from_str(local_bookmarks)?;
+
+                    Ok(Change {
+                        commit_id: self_commit.commit_id,
+                        change_id: self_commit.change_id,
+                        description_first_line: self_commit
+                            .description
+                            .lines()
+                            .next()
+                            .unwrap_or_default()
+                            .to_string(),
+                        parent_commit_ids: self_commit.parents,
+                        bookmarks: local_bookmarks
+                            .into_iter()
+                            .map(|b| {
+                                match remote_tracked_bookmarks.iter().find(|rt| rt.name == b.name) {
+                                    Some(rt) => BookmarkInfo::Local {
+                                        name: b.name,
+                                        remote_different_from_local: rt.target != b.target,
+                                        tracked: true,
+                                    },
+                                    None => BookmarkInfo::Local {
+                                        name: b.name,
+                                        remote_different_from_local: false,
+                                        tracked: false,
+                                    },
+                                }
+                            })
+                            .collect(),
+                    })
+                }
+                _ => Err(Error::Parse {
+                    message: format!("Failed to parse change line from jj: {:?}", chunk),
+                }),
+            })
+            .collect()
+    }
+
+    /// Track a bookmark on a remote.
+    pub fn track_bookmark(&self, bookmark: &str, remote: Option<&str>) -> Result<()> {
+        if let Some(remote) = remote {
+            self.exec(["bookmark", "track", &format!("{}@{}", bookmark, remote)])?;
+        } else {
+            self.exec(["bookmark", "track", bookmark])?;
+        }
         Ok(())
     }
 
-    /// Push a bookmark to a remote using jj git push
-    ///
-    /// This will automatically track the bookmark on the remote if it's not
-    /// already tracked
-    pub fn push_bookmark(&self, bookmark: &str, remote: &str) -> Result<bool> {
+    /// Push a bookmark to a remote using jj git push. This will automatically
+    /// track the bookmark on the remote if it's not already tracked
+    pub fn push_bookmark(&self, bookmark: &str, remote: Option<&str>) -> Result<bool> {
         // Try to track the bookmark first (ignore errors if already tracked)
         let _ = self.track_bookmark(bookmark, remote);
 
-        let output =
-            self.run_captured(&["git", "push", "--remote", remote, "--bookmark", bookmark])?;
+        let output = if let Some(remote) = remote {
+            self.exec(["git", "push", "--remote", remote, "--bookmark", bookmark])?
+        } else {
+            self.exec(["git", "push", "--bookmark", bookmark])?
+        };
 
         Ok(!output.stderr.contains("Nothing changed."))
     }
 
-    /// List git remotes using jj git remote list
+    /// List all remotes.
     pub fn list_remotes(&self) -> Result<Vec<String>> {
-        let output = self.run_captured(&["git", "remote", "list"])?;
+        let output = self.exec(["git", "remote", "list"])?;
         Ok(output
             .stdout
             .lines()
-            .map(|line| line.trim().to_string())
-            .filter(|line| !line.is_empty())
+            .filter(|line| !line.trim().is_empty())
+            .map(str::to_string)
             .collect())
     }
 
-    /// Check if a bookmark exists on a remote
-    /// This checks if `bookmark@remote` resolves to a commit
-    pub fn remote_bookmark_exists(&self, bookmark: &str, remote: &str) -> Result<bool> {
-        trace!(
-            "Checking if bookmark '{}' exists on remote '{}'",
-            bookmark, remote
-        );
-        let revset = format!("{}@{}", bookmark, remote);
-        match self.resolve_revision(&revset) {
-            Ok(_) => {
-                trace!("Bookmark '{}@{}' exists", bookmark, remote);
-                Ok(true)
-            }
-            Err(Error::JjCommand { .. }) => {
-                trace!("Bookmark '{}@{}' does not exist", bookmark, remote);
-                Ok(false)
-            }
-            Err(e) => Err(e),
-        }
+    /// Check if a bookmark exists on a remote.
+    pub fn remote_bookmark_exists(&self, bookmark: &str, remote: Option<&str>) -> Result<bool> {
+        let output = self.exec([
+            "git",
+            "remote",
+            "list",
+            "--remote",
+            remote.unwrap_or("origin"),
+            bookmark,
+        ])?;
+        Ok(!output.stdout.is_empty())
     }
 }
 
-/// Find the jj binary in PATH or JJ environment variable
-pub fn which_jj() -> Result<PathBuf> {
-    if let Ok(jj_path) = std::env::var("JJ") {
-        return Ok(PathBuf::from(jj_path));
-    }
-
-    which::which("jj").map_err(|e| Error::Config {
-        message: format!("jj binary not found in PATH: {}", e),
-    })
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+struct JJCommit {
+    commit_id: String,
+    parents: Vec<String>,
+    change_id: String,
+    description: String,
+    author: JJAuthor,
+    committer: JJAuthor,
 }
 
-/// Run a jj command and return the output
-pub fn jj_exec<'a>(
-    repo_path: impl AsRef<Path>,
-    args: impl AsRef<[&'a str]>,
-) -> Result<CommandOutput> {
-    let jj_bin = which_jj()?;
-    let output = Command::new(&jj_bin)
-        .current_dir(repo_path)
-        .args(args.as_ref())
-        .output()?;
-
-    if !output.status.success() {
-        return Err(Error::JjCommand {
-            message: format!(
-                "jj {} failed: {}",
-                args.as_ref().join(" "),
-                String::from_utf8_lossy(&output.stderr)
-            ),
-            output: Some(output),
-        });
-    }
-
-    // TODO combine
-    trace!(
-        "jj command output: {}",
-        String::from_utf8_lossy(&output.stdout)
-    );
-    trace!(
-        "jj command stderr: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    Ok(CommandOutput {
-        status: output.status,
-        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-    })
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+struct JJAuthor {
+    name: String,
+    email: String,
+    timestamp: String,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct Bookmark {
-    pub name: String,
-
-    /// Git commit ID (40 hex characters)
-    pub commit_id: String,
-
-    /// Jujutsu change ID (32 lowercase letters, custom encoding)
-    pub change_id: String,
-
-    /// Some(remote_name) if this is a remote-tracking bookmark
-    pub remote: Option<String>,
-
-    /// true if this is a local bookmark (not remote@name)
-    pub is_local: bool,
-}
-
-#[derive(Debug, Clone)]
-pub struct Change {
-    pub commit_id: String,
-    pub change_id: String,
-    pub description_first_line: String,
-    pub parent_ids: Vec<String>,
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+struct JJBookmark {
+    name: String,
+    remote: Option<String>,
+    target: Vec<String>,
+    tracking_target: Option<Vec<String>>,
 }
 
 #[cfg(test)]
 mod tests {
-    use std::process::Command as StdCommand;
-
     use tempfile::TempDir;
 
     use super::*;
+    use crate::utils::Only;
 
     /// Create a temporary jj repository for testing
-    fn create_test_repo() -> (TempDir, PathBuf) {
-        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    fn create_test_repo() -> Result<(TempDir, PathBuf)> {
+        let temp_dir = TempDir::new()?;
         let repo_path = temp_dir.path().to_path_buf();
 
-        jj_exec(&repo_path, ["git", "init"]).expect("Failed to init jj repo");
-        jj_exec(
-            &repo_path,
-            ["config", "set", "--repo", "user.name", "Test User"],
-        )
-        .expect("Failed to set user name");
-        jj_exec(
-            &repo_path,
-            ["config", "set", "--repo", "user.email", "test@example.com"],
-        )
-        .expect("Failed to set user email");
+        let jj = Jujutsu::new(&repo_path)?;
 
-        jj_exec(&repo_path, ["metaedit", "--update-author"]).expect("Failed to update author");
+        jj.exec(["git", "init"])?;
+        jj.exec(["config", "set", "--repo", "user.name", "Test User"])?;
+        jj.exec(["config", "set", "--repo", "user.email", "test@example.com"])?;
+
+        jj.exec(["metaedit", "--update-author"])?;
 
         // Create an initial commit
-        std::fs::write(repo_path.join("README.md"), "# Test repo\n")
-            .expect("Failed to write README");
+        std::fs::write(repo_path.join("README.md"), "# Test repo\n")?;
 
-        let output = StdCommand::new(which_jj().expect("jj not found"))
-            .current_dir(&repo_path)
-            .args(["describe", "-m", "Initial commit"])
-            .output()
-            .expect("Failed to create initial commit");
+        let output = jj.exec(["describe", "-m", "Initial commit"])?;
 
         assert!(
             output.status.success(),
             "Failed to create initial commit: {}",
-            String::from_utf8_lossy(&output.stderr)
+            output.stderr,
         );
 
-        (temp_dir, repo_path)
+        Ok((temp_dir, repo_path))
     }
 
     #[test]
-    fn test_which_jj() {
-        let jj_path = which_jj().expect("jj binary must be available in PATH");
-        assert!(jj_path.exists());
+    fn test_resolve_revision() -> Result<()> {
+        let (_temp, repo_path) = create_test_repo()?;
+        let jj = Jujutsu::new(repo_path)?;
+
+        let change = jj.log("@")?.only().unwrap();
+        assert!(!change.commit_id.is_empty());
+        assert!(!change.change_id.is_empty());
+        assert!(!change.description_first_line.is_empty());
+        assert!(!change.parent_commit_ids.is_empty());
+
+        Ok(())
     }
 
     #[test]
-    fn test_jujutsu_new() {
-        let (_temp, repo_path) = create_test_repo();
-        let jj = Jujutsu::new(repo_path).expect("Failed to create Jujutsu instance");
-        assert!(jj.repo_path.exists());
-    }
-
-    #[test]
-    fn test_resolve_revision() {
-        let (_temp, repo_path) = create_test_repo();
-        let jj = Jujutsu::new(repo_path).expect("Failed to create Jujutsu instance");
-
-        // @ should always exist in a jj repo
-        let commit_id = jj
-            .resolve_revision("@")
-            .expect("Failed to resolve @ revision");
-        assert!(!commit_id.is_empty());
-        // Commit IDs are hex strings
-        assert!(commit_id.chars().all(|c| c.is_ascii_hexdigit()));
-    }
-
-    #[test]
-    fn test_get_change_id() {
-        let (_temp, repo_path) = create_test_repo();
-        let jj = Jujutsu::new(repo_path).expect("Failed to create Jujutsu instance");
-
-        let commit_id = jj.resolve_revision("@").expect("Failed to resolve @");
-        let change_id = jj
-            .get_change_id(&commit_id)
-            .expect("Failed to get change ID");
-
-        assert!(!change_id.is_empty());
-        // Change IDs use jj's custom encoding (32 lowercase letters)
-        assert_eq!(change_id.len(), 32, "Change ID should be 32 characters");
-        assert!(
-            change_id.chars().all(|c| c.is_ascii_lowercase()),
-            "Change ID should be lowercase letters"
-        );
-    }
-
-    #[test]
-    fn test_get_bookmarks() {
-        let (_temp, repo_path) = create_test_repo();
-        let jj = Jujutsu::new(repo_path.clone()).expect("Failed to create Jujutsu instance");
-
-        // Create a bookmark
-        let output = StdCommand::new(which_jj().expect("jj not found"))
-            .current_dir(&repo_path)
-            .args(["bookmark", "create", "test-feature"])
-            .output()
-            .expect("Failed to create bookmark");
-
-        assert!(
-            output.status.success(),
-            "Failed to create bookmark: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-
-        // Get bookmarks
-        let bookmarks = jj.get_my_bookmarks().expect("Failed to get bookmarks");
-
-        // Should have at least our test bookmark
-        assert!(bookmarks.iter().any(|b| b.name == "test-feature"));
-    }
-
-    #[test]
-    fn test_get_default_branch_no_remote() {
-        let (_temp, repo_path) = create_test_repo();
-        let jj = Jujutsu::new(repo_path).expect("Failed to create Jujutsu instance");
-
-        // No remote configured, should return error
-        let result = jj.get_default_branch();
-        assert!(result.is_err());
-
-        assert!(
-            matches!(result, Err(Error::Config { .. })),
-            "Expected Config error, got {:?}",
-            result
-        );
-
-        if let Err(Error::Config { message }) = result {
-            assert!(message.contains("Could not find default branch"));
+    fn test_bookmark_parsing() -> Result<()> {
+        let bookmark = "test-feature@origin".parse::<BookmarkInfo>()?;
+        match bookmark {
+            BookmarkInfo::Remote { name, remote } => {
+                assert_eq!(name, "test-feature");
+                assert_eq!(remote, "origin");
+            }
+            _ => panic!("Expected remote bookmark"),
         }
-    }
 
-    #[test]
-    fn test_bookmark_parsing() {
-        // Test parsing bookmark output format
-        let bookmark = Bookmark {
-            name: "feature".to_string(),
-            commit_id: "abc123".to_string(),
-            change_id: "xyz789".to_string(),
-            remote: None,
-            is_local: true,
+        let bookmark = "test-feature".parse::<BookmarkInfo>()?;
+        match bookmark {
+            BookmarkInfo::Local {
+                name,
+                remote_different_from_local,
+                tracked,
+            } => {
+                assert_eq!(name, "test-feature");
+                assert!(!remote_different_from_local);
+                assert!(!tracked);
+            }
+            _ => panic!("Expected local bookmark"),
+        }
+
+        let bookmark = "test-feature*".parse::<BookmarkInfo>()?;
+        match bookmark {
+            BookmarkInfo::Local {
+                name,
+                remote_different_from_local,
+                tracked,
+            } => {
+                assert_eq!(name, "test-feature");
+                assert!(remote_different_from_local);
+                assert!(!tracked);
+            }
+            _ => panic!("Expected local bookmark"),
         };
 
-        assert_eq!(bookmark.name, "feature");
-        assert!(bookmark.is_local);
+        Ok(())
     }
 
     #[test]
-    fn test_change_structure() {
-        let change = Change {
-            commit_id: "abc123".to_string(),
-            change_id: "xyz789".to_string(),
-            description_first_line: "Add feature".to_string(),
-            parent_ids: vec!["parent1".to_string()],
-        };
+    fn test_get_changes() -> Result<()> {
+        let (_temp, repo_path) = create_test_repo()?;
+        let jj = Jujutsu::new(repo_path.clone())?;
 
-        assert_eq!(change.description_first_line, "Add feature");
-        assert_eq!(change.parent_ids.len(), 1);
-    }
+        std::fs::write(repo_path.join("test.txt"), "test content\n")?;
+        jj.exec(["commit", "-m", "First commit"])?;
 
-    #[test]
-    fn test_get_changes() {
-        let (_temp, repo_path) = create_test_repo();
-        let jj = Jujutsu::new(repo_path.clone()).expect("Failed to create Jujutsu instance");
+        std::fs::write(repo_path.join("test.txt"), "test content\n")?;
+        jj.exec(["describe", "-m", "Second commit"])?;
 
-        // Get the initial commit ID (verify it works)
-        let _initial_commit = jj.resolve_revision("@").expect("Failed to resolve @");
+        let changes = jj.log("root()..@")?;
 
-        // Create a second commit
-        std::fs::write(repo_path.join("test.txt"), "test content\n")
-            .expect("Failed to write test file");
+        assert_eq!(changes.len(), 2);
 
-        jj_exec(&repo_path, ["describe", "-m", "Second commit"])
-            .expect("Failed to describe commit");
-
-        // Get changes between root and current
-        let changes = jj
-            .get_changes("root()", "@")
-            .expect("Failed to get changes");
-
-        // Should have at least 2 changes (initial + second)
-        assert!(
-            changes.len() >= 2,
-            "Expected at least 2 changes, got {}",
-            changes.len()
-        );
-
-        // Check that commit IDs are 40 hex characters
         for change in &changes {
-            assert_eq!(
-                change.commit_id.len(),
-                40,
-                "Commit ID should be 40 characters"
-            );
-            assert!(
-                change.commit_id.chars().all(|c| c.is_ascii_hexdigit()),
-                "Commit ID should be hex"
-            );
+            assert!(!change.commit_id.is_empty());
+            assert!(!change.change_id.is_empty());
+            assert!(!change.description_first_line.is_empty());
+            assert!(!change.parent_commit_ids.is_empty());
         }
 
-        // Check that change IDs are 32 lowercase characters
-        for change in &changes {
-            assert_eq!(
-                change.change_id.len(),
-                32,
-                "Change ID should be 32 characters"
-            );
-            assert!(
-                change.change_id.chars().all(|c| c.is_ascii_lowercase()),
-                "Change ID should be lowercase"
-            );
-        }
+        assert_eq!(changes[0].description_first_line, "Second commit");
+        assert_eq!(changes[1].description_first_line, "First commit");
 
-        // Find the change with "Second commit" description
-        let second_commit = changes
-            .iter()
-            .find(|c| c.description_first_line == "Second commit");
-        assert!(
-            second_commit.is_some(),
-            "Should have a commit with 'Second commit' description. Found commits: {:?}",
-            changes
-                .iter()
-                .map(|c| &c.description_first_line)
-                .collect::<Vec<_>>()
-        );
-    }
-
-    /// Test: Bookmark parsing should strip asterisk suffix from diverged
-    /// bookmarks
-    ///
-    /// Problem: When a bookmark has diverged (local and remote point to
-    /// different commits), jj displays it with a trailing asterisk (e.g.,
-    /// "bookmark-a*"). The bookmark parser was including this asterisk in
-    /// the bookmark name, causing BookmarkNotFound errors when trying to
-    /// submit the bookmark by its actual name.
-    ///
-    /// This test directly tests the parsing logic with sample input that
-    /// includes asterisks.
-    #[test]
-    fn test_bookmark_parsing_strips_asterisk() {
-        let (_temp_dir, repo_path) = create_test_repo();
-        let jj = Jujutsu::new(repo_path).expect("Failed to create Jujutsu instance");
-
-        // Create a bookmark
-        jj.run_captured(&["bookmark", "create", "test-bookmark"])
-            .expect("Failed to create bookmark");
-
-        // Manually create output that mimics what jj log would return with an asterisk
-        // This simulates a diverged bookmark scenario
-        let sample_output_with_asterisk = "test-bookmark*\taaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\tbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n";
-
-        // Parse the output using the same logic as get_bookmarks()
-        let mut bookmarks = Vec::new();
-        for line in sample_output_with_asterisk.lines() {
-            let line = line.trim();
-            if line.is_empty() {
-                continue;
-            }
-
-            let parts: Vec<&str> = line.split('\t').collect();
-            if parts.len() >= 3 {
-                // This is the parsing logic from get_bookmarks() that should strip the asterisk
-                let full_name = parts[0];
-
-                // Strip trailing * if present (indicates tracking conflict/divergence)
-                let full_name = full_name.strip_suffix('*').unwrap_or(full_name);
-
-                let (name, remote) = if let Some(at_pos) = full_name.rfind('@') {
-                    let name = full_name[..at_pos].to_string();
-                    let remote = full_name[at_pos + 1..].to_string();
-                    (name, Some(remote))
-                } else {
-                    (full_name.to_string(), None)
-                };
-
-                let is_local = remote.is_none();
-                bookmarks.push(Bookmark {
-                    name,
-                    commit_id: parts[1].to_string(),
-                    change_id: parts[2].to_string(),
-                    remote,
-                    is_local,
-                });
-            }
-        }
-
-        // The bug: bookmark name includes the asterisk
-        assert_eq!(bookmarks.len(), 1, "Should parse one bookmark");
-        assert_eq!(
-            bookmarks[0].name, "test-bookmark",
-            "Bookmark name should NOT include asterisk, found: '{}'",
-            bookmarks[0].name
-        );
+        Ok(())
     }
 
     #[test]
-    fn test_get_tracked_bookmarks_empty() {
-        let (_temp, repo_path) = create_test_repo();
-        let jj = Jujutsu::new(repo_path).expect("Failed to create Jujutsu instance");
+    fn test_get_tracked_bookmarks_returns_pushed() -> Result<()> {
+        let (_temp, repo_path) = create_test_repo()?;
+        let jj = Jujutsu::new(repo_path.clone())?;
 
-        // No bookmarks created yet, should return empty list
-        let tracked = jj
-            .get_bookmarks_with_revset("(mine() & tracked_remote_bookmarks()) ~ trunk()")
-            .expect("Failed to get tracked bookmarks");
+        jj.exec(["bookmark", "create", "feature-a"])?;
 
-        assert_eq!(tracked.len(), 0, "Should have no tracked bookmarks");
-    }
-
-    #[test]
-    fn test_get_tracked_bookmarks_filters_unpushed() {
-        let (_temp, repo_path) = create_test_repo();
-        let jj = Jujutsu::new(repo_path.clone()).expect("Failed to create Jujutsu instance");
-
-        // Create a local bookmark
-        jj_exec(&repo_path, ["bookmark", "create", "local-only"])
-            .expect("Failed to create bookmark");
-
-        // The bookmark exists locally but hasn't been pushed to any remote
-        // so it should not appear in tracked bookmarks
-        let tracked = jj
-            .get_bookmarks_with_revset("(mine() & tracked_remote_bookmarks()) ~ trunk()")
-            .expect("Failed to get tracked bookmarks");
-
-        assert_eq!(
-            tracked.len(),
-            0,
-            "Should have no tracked bookmarks (local bookmark not pushed)"
-        );
-    }
-
-    #[test]
-    fn test_get_tracked_bookmarks_returns_pushed() {
-        let (_temp, repo_path) = create_test_repo();
-        let jj = Jujutsu::new(repo_path.clone()).expect("Failed to create Jujutsu instance");
-
-        // Create a bookmark
-        jj_exec(&repo_path, ["bookmark", "create", "feature-a"])
-            .expect("Failed to create bookmark");
-
-        // Set up a bare git repo to act as a remote
         let remote_dir = _temp.path().join("remote.git");
-        std::fs::create_dir(&remote_dir).expect("Failed to create remote dir");
+        std::fs::create_dir(&remote_dir)?;
 
-        StdCommand::new("git")
-            .current_dir(&remote_dir)
-            .args(["init", "--bare"])
-            .output()
-            .expect("Failed to init bare git repo");
+        let remote = Jujutsu::new(&remote_dir)?;
+        remote.exec(["git", "init"])?;
 
-        // Add the remote
-        jj_exec(
-            repo_path,
-            [
-                "git",
-                "remote",
-                "add",
-                "origin",
-                remote_dir.to_str().unwrap(),
-            ],
-        )
-        .expect("Failed to add remote");
+        jj.exec([
+            "git",
+            "remote",
+            "add",
+            "origin",
+            &remote_dir.to_string_lossy(),
+        ])?;
 
-        // Push the bookmark
-        jj.push_bookmark("feature-a", "origin")
-            .expect("Failed to push bookmark");
+        jj.push_bookmark("feature-a", Some("origin"))?;
 
-        // Now the bookmark should appear in tracked bookmarks
-        let tracked = jj
-            .get_bookmarks_with_revset("(mine() & tracked_remote_bookmarks()) ~ trunk()")
-            .expect("Failed to get tracked bookmarks");
+        let tracked = jj.log("(mine() & tracked_remote_bookmarks()) ~ trunk()")?;
 
         assert_eq!(tracked.len(), 1, "Should have 1 tracked bookmark");
-        assert_eq!(tracked[0].name, "feature-a", "Should track feature-a");
+        assert_eq!(
+            tracked[0].bookmarks[0].name(),
+            "feature-a",
+            "Should track feature-a"
+        );
+
+        Ok(())
     }
 }
