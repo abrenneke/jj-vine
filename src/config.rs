@@ -70,7 +70,9 @@ impl ForgeType {
 pub enum StackFormat {
     /// Linear numbered list (default)
     Linear,
-    // Future formats: Tree, Compact, Custom(String)
+    /// Tree format with indentation
+    Tree,
+    // Future formats: Compact, Custom(String)
 }
 
 fn default_remote_name() -> String {

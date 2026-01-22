@@ -218,7 +218,7 @@ impl ChangeComponent<'_> {
 }
 
 /// A reference to a bookmark or the trunk.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum BookmarkRef<'a> {
     /// A regular bookmark.
     Bookmark(BookmarkWithPointers<'a>),
@@ -245,9 +245,25 @@ impl BookmarkRef<'_> {
     }
 }
 
+impl BookmarkRef<'_> {
+    pub fn name(&self) -> Option<&str> {
+        match self {
+            BookmarkRef::Bookmark(b) => Some(b.name()),
+            BookmarkRef::Trunk => None,
+        }
+    }
+
+    pub fn has_parent(&self, name: &str) -> bool {
+        match self {
+            BookmarkRef::Bookmark(b) => b.has_parent_bookmark(name),
+            BookmarkRef::Trunk => false,
+        }
+    }
+}
+
 /// A bookmark that also points to all its parents. If you follow the parents,
 /// you can get to the root of the component.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct BookmarkWithPointers<'a> {
     /// The bookmark itself.
     pub bookmark: Bookmark<'a>,
@@ -312,6 +328,17 @@ impl BookmarkWithPointers<'_> {
                 }
             }
         }
+    }
+
+    pub fn has_parent_bookmark(&self, name: &str) -> bool {
+        self.parents.iter().any(|p| match p {
+            BookmarkRef::Bookmark(b) => b.name() == name,
+            BookmarkRef::Trunk => false,
+        })
+    }
+
+    pub fn has_parent_ref(&self, parent: &BookmarkRef<'_>) -> bool {
+        self.parents.iter().any(|p| p == parent)
     }
 }
 
