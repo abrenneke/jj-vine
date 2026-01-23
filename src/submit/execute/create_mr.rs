@@ -97,11 +97,16 @@ impl ExecuteAction for CreateMRAction {
                         .title(self.title.clone())
                         .remove_source_branch(ctx.config.delete_source_branch)
                         .squash(ctx.config.squash_commits)
-                        .maybe_description(desc.map(|s| s.to_string()))
-                        .maybe_assignee_ids(
-                            assignee_ids.map(|ids| ids.into_iter().flatten().collect()),
+                        .description(desc.map(|s| s.to_string()))
+                        .assignee_usernames(
+                            assignee_ids
+                                .unwrap_or_default()
+                                .into_iter()
+                                .flatten()
+                                .collect(),
                         )
-                        .reviewer_ids(reviewer_ids)
+                        .reviewer_usernames(reviewer_ids)
+                        .open_as_draft(ctx.config.open_as_draft)
                         .build(),
                 )
                 .await

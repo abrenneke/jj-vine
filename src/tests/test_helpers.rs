@@ -274,6 +274,11 @@ impl TestRepo<GitHubForge> {
 #[cfg(not(feature = "no-e2e-tests"))]
 impl TestRepo<ForgejoForge> {
     pub fn with_forgejo_remote() -> Self {
+        use crate::{
+            config::{Config, ForgeType, ForgejoConfig},
+            forge::ForgeImpl,
+        };
+
         dotenv::dotenv().ok();
 
         let host = std::env::var("FORGEJO_HOST").expect("FORGEJO_HOST required");
@@ -287,19 +292,31 @@ impl TestRepo<ForgejoForge> {
 
         let (dir, path) = make_repo();
 
+        let forge = match ForgeImpl::new(
+            &Config::builder()
+                .maybe_ca_bundle(ca_bundle.clone())
+                .tls_accept_non_compliant_certs(accept_non_compliant)
+                .forge(ForgeType::Forgejo)
+                .forgejo(ForgejoConfig {
+                    host: host.clone(),
+                    target_project: project.clone(),
+                    project: project.clone(),
+                    token: token.clone(),
+                    ..Default::default()
+                })
+                .build(),
+        )
+        .unwrap()
+        {
+            ForgeImpl::Forgejo(forge) => forge,
+            _ => unreachable!(),
+        };
+
         let repo = Self {
             dir,
             jj: Jujutsu::new(&path).expect("Failed to create Jujutsu"),
             path,
-            forge: ForgejoForge::new(
-                &host,
-                &project,
-                &project, // For tests, source and target are the same (direct mode)
-                &token,
-                ca_bundle.as_deref(),
-                accept_non_compliant,
-            )
-            .expect("Failed to create Forgejo client"),
+            forge,
         };
 
         repo.jj

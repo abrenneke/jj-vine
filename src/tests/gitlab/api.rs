@@ -179,16 +179,14 @@ async fn test_invalid_token_errors_clearly() -> Result<()> {
     )?;
 
     let result = client
-        .create_merge_request(
-            ForgeCreateMergeRequestOptions::builder()
-                .source_branch(unique_branch("invalid-token"))
-                .target_branch("main".to_string())
-                .title("This should fail".to_string())
-                .description("Testing invalid token".to_string())
-                .remove_source_branch(true)
-                .squash(false)
-                .build(),
-        )
+        .create_merge_request(ForgeCreateMergeRequestOptions {
+            source_branch: unique_branch("invalid-token"),
+            target_branch: "main".to_string(),
+            title: "This should fail".to_string(),
+            description: Some("Testing invalid token".to_string()),
+            remove_source_branch: true,
+            ..Default::default()
+        })
         .await;
 
     assert!(result.unwrap_err().to_string().contains("401"));
@@ -219,16 +217,14 @@ async fn test_nonexistent_project_errors_clearly() -> Result<()> {
     )?;
 
     let result = client
-        .create_merge_request(
-            ForgeCreateMergeRequestOptions::builder()
-                .source_branch(unique_branch("nonexistent-project"))
-                .target_branch("main".to_string())
-                .title("This should fail".to_string())
-                .description("Testing nonexistent project".to_string())
-                .remove_source_branch(true)
-                .squash(false)
-                .build(),
-        )
+        .create_merge_request(ForgeCreateMergeRequestOptions {
+            source_branch: unique_branch("nonexistent-project"),
+            target_branch: "main".to_string(),
+            title: "This should fail".to_string(),
+            description: Some("Testing nonexistent project".to_string()),
+            remove_source_branch: true,
+            ..Default::default()
+        })
         .await;
 
     assert!(result.unwrap_err().to_string().contains("404"));

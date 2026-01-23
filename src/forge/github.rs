@@ -249,13 +249,6 @@ struct GraphQLError {
 
 impl GitHubForge {
     /// Create a new GitHub client
-    ///
-    /// # Arguments
-    /// * `base_url` - GitHub API URL (e.g., <https://api.github.com> or <https://github.example.com/api/v3>)
-    /// * `project_id` - Repository in "owner/repo" format
-    /// * `token` - Personal Access Token
-    /// * `ca_bundle` - Optional path to CA bundle for TLS verification
-    /// * `accept_non_compliant_certs` - Accept non-compliant TLS certificates
     pub fn new(
         base_url: impl Into<String>,
         source_project_id: impl Into<String>,
@@ -492,40 +485,57 @@ impl Forge for GitHubForge {
 
     async fn create_merge_request(
         &self,
-        options: ForgeCreateMergeRequestOptions,
-    ) -> Result<ForgeMergeRequest> {
-        let url = format!("/repos/{}/pulls", self.target_project_id);
+        ForgeCreateMergeRequestOptions {
+            assignee_usernames,
+            description,
+            reviewer_usernames,
+            source_branch,
+            target_branch,
+            title,
+            open_as_draft,
 
+            // In GitHub, removing the source branch is handled at *merge time*. Default is a
+            // project setting only.
+            remove_source_branch: _remove_source_branch,
+
+            // In GitHub, squashing is handled at *merge time*. Default is a project setting only.
+            squash: _squash,
+        }: ForgeCreateMergeRequestOptions,
+    ) -> Result<ForgeMergeRequest> {
         // For fork workflows, head needs to be "owner:branch"
         let head = if self.source_project_id != self.target_project_id {
             let source_owner = self.source_project_id.split('/').next().unwrap();
-            format!("{}:{}", source_owner, options.source_branch)
+            format!("{}:{}", source_owner, source_branch)
         } else {
-            options.source_branch.clone()
+            source_branch.clone()
         };
 
         let mut payload = serde_json::json!({
-            "title": options.title,
+            "title": title,
             "head": head,
-            "base": options.target_branch,
+            "base": target_branch,
+            "draft": open_as_draft,
         });
 
-        if let Some(desc) = options.description {
-            payload["body"] = serde_json::json!(desc);
+        if let Some(description) = description {
+            payload["body"] = serde_json::json!(description);
         }
 
-        let pr: PullRequest = self.request(Method::POST, url, Some(payload)).await?;
+        let pr: PullRequest = self
+            .request(
+                Method::POST,
+                format!("/repos/{}/pulls", self.target_project_id),
+                Some(payload),
+            )
+            .await?;
 
-        if let Some(assignees) = options.assignee_ids
-            && !assignees.is_empty()
-        {
-            self.add_assignees(pr.number, assignees).await?;
+        if !assignee_usernames.is_empty() {
+            self.add_assignees(pr.number, assignee_usernames).await?;
         }
 
-        if let Some(reviewers) = options.reviewer_ids
-            && !reviewers.is_empty()
-        {
-            self.request_reviewers(pr.number, reviewers).await?;
+        if !reviewer_usernames.is_empty() {
+            self.request_reviewers(pr.number, reviewer_usernames)
+                .await?;
         }
 
         Ok(ForgeMergeRequest::GitHub(pr))

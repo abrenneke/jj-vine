@@ -8,7 +8,7 @@ use cli_table::{
 };
 use itertools::Itertools;
 use owo_colors::OwoColorize;
-use snafu::ensure;
+use snafu::ensure_whatever;
 use tracing::info;
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -17,7 +17,7 @@ use crate::{
     cli::CliConfig,
     commands::{GetBookmarksOptions, StrVisualWidth},
     config::Config,
-    error::{AggregateSnafu, OtherSnafu, Result},
+    error::{AggregateSnafu, Result},
     forge::ForgeImpl,
     jj::Jujutsu,
     submit::{
@@ -127,12 +127,7 @@ pub async fn submit(config: &SubmitCommandConfig, cli_config: &CliConfig<'_>) ->
     let changes = jj.log(revset)?;
     let bookmarks: Vec<_> = Bookmark::from_changes(&changes).into_iter().collect();
 
-    ensure!(
-        !bookmarks.is_empty(),
-        OtherSnafu {
-            message: "No bookmarks in revset".to_string(),
-        }
-    );
+    ensure_whatever!(!bookmarks.is_empty(), "No bookmarks in revset");
 
     let output = cli_config.output;
     let repo_config = Config::load(&cli_config.repository)?;

@@ -1,12 +1,15 @@
-use std::{path::PathBuf, process::Command};
+use std::{cell::OnceCell, path::PathBuf, process::Command};
 
 use serde::{Deserialize, Serialize};
-use snafu::ResultExt;
+use snafu::{OptionExt, ResultExt, whatever};
 use tracing::trace;
 
 #[cfg(test)]
 use crate::bookmark::Bookmark;
-use crate::error::{ConfigSnafu, Error, JjCommandSnafu, JsonSnafu, ParseSnafu, Result};
+use crate::{
+    error::{ConfigSnafu, Error, JjCommandSnafu, JsonSnafu, ParseSnafu, Result, make_whatever},
+    utils::Only,
+};
 
 #[derive(Debug, Clone)]
 pub struct CommandOutput {
@@ -321,13 +324,19 @@ impl FromIterator<Change> for std::collections::BTreeMap<String, Change> {
 pub struct Jujutsu {
     /// The directory to run all jj commands from
     cwd: PathBuf,
+
+    /// The default branch name
+    default_branch: OnceCell<Result<String, Error>>,
 }
 
 impl Jujutsu {
     /// Create a new Jujutsu instance for the given working directory
     pub fn new(cwd: impl Into<PathBuf>) -> Result<Self> {
         Self::which()?;
-        Ok(Self { cwd: cwd.into() })
+        Ok(Self {
+            cwd: cwd.into(),
+            default_branch: OnceCell::new(),
+        })
     }
 
     /// Run a jj command and return the output.
@@ -511,6 +520,54 @@ impl Jujutsu {
             bookmark,
         ])?;
         Ok(!output.stdout.is_empty())
+    }
+
+    pub fn default_branch(&self) -> Result<&str> {
+        Ok(self
+            .default_branch
+            .get_or_init(|| {
+                // First we'll try to resolve `trunk()` to a single commit.
+                let output = self.log("trunk()")?.only().context(JjCommandSnafu {
+                    message: "trunk() returned multiple commits!".to_string(),
+                    output: None,
+                })?;
+
+                match &output.bookmarks[..] {
+                    // If trunk() has no bookmarks, there's not much we can do.
+                    [] => whatever!("`jj log -r 'trunk()'` returned a commit with no bookmarks!"),
+                    // If trunk() has a single bookmark, that's easy
+                    [bookmark] => Ok(bookmark.name().to_string()),
+                    // If there are multiple bookmarks at trunk(), the next best approach is trying to parse the
+                    // `revset-aliases.trunk()` jj alias as a bookmark. A user can totally override this to whatever
+                    // they want, but most commonly it will be of the format `bookmark-name@remote` - and jj configures
+                    // this automatically when cloning a repository, if the repository has an unusual default branch name.
+                    _ => match self.exec(["config", "get", r#"revset-aliases."trunk()""#]) {
+                        Ok(alias) => {
+                            let bookmark: BookmarkInfo = alias.stdout.trim().parse()?;
+                            Ok(bookmark.name().to_string())
+                        }
+                        // If we fail to parse the `revset-aliases.trunk()` alias as a bookmark, we'll fall back to a
+                        // list of common branch names, in the same order that jj tries to resolve `trunk()` in the
+                        // absence of a `revset-aliases.trunk()` alias.
+                        Err(_) => ["main", "master", "trunk"]
+                            .into_iter()
+                            .find_map(|b| {
+                                if output.bookmarks.iter().any(|b2| b2.name() == b) {
+                                    Some(b.to_string())
+                                } else {
+                                    None
+                                }
+                            })
+                            .ok_or_else(|| {
+                                // At this point, we _could_ try to figure out which bookmark in the list is "the default
+                                // bookmark for the default origin" per jj documentation - but the above is probably good enough for now.
+                                make_whatever!("Could not identify the default branch name. Try setting the `revset-aliases.trunk()` config option or set the `jj-vine.default_base_branch` config option explicitly.")
+                            }),
+                    },
+                }
+            })
+            .as_ref().map_err::<Error, _>(|e| make_whatever!("{}", e.to_string()))?
+            .as_str())
     }
 }
 

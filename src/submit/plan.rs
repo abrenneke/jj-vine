@@ -159,6 +159,8 @@ pub async fn plan<'a>(
 
     let mut mr_action_ids: Vec<usize> = Vec::new();
 
+    let default_branch = jj.default_branch()?;
+
     for component in graph.components() {
         for bookmark in component.topological_sort()? {
             let bookmark = graph.find_bookmark_in_components(&bookmark).unwrap();
@@ -166,7 +168,7 @@ pub async fn plan<'a>(
             // TODO let user pick target branch
             let target_branch = match bookmark.parents.first() {
                 Some(BookmarkRef::Bookmark(b)) => b.name(),
-                Some(BookmarkRef::Trunk) | None => &config.default_branch,
+                Some(BookmarkRef::Trunk) | None => default_branch,
             };
 
             let push_dependency = push_action_ids

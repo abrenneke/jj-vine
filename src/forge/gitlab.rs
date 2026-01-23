@@ -218,19 +218,25 @@ impl Forge for GitLabForge {
     /// Create a new merge request
     async fn create_merge_request(
         &self,
-        options: ForgeCreateMergeRequestOptions,
+        ForgeCreateMergeRequestOptions {
+            assignee_usernames: assignee_ids,
+            description,
+            open_as_draft,
+            remove_source_branch,
+            reviewer_usernames: reviewer_ids,
+            source_branch,
+            squash,
+            target_branch,
+            title,
+        }: ForgeCreateMergeRequestOptions,
     ) -> Result<ForgeMergeRequest> {
-        let url = format!(
-            "/api/v4/projects/{}/merge_requests",
-            self.encoded_target_project_id()
-        );
-
         let mut payload = serde_json::json!({
-            "source_branch": options.source_branch,
-            "target_branch": options.target_branch,
-            "title": options.title,
-            "remove_source_branch": options.remove_source_branch.unwrap_or(true),
-            "squash": options.squash.unwrap_or(false),
+            "source_branch": source_branch,
+            "target_branch": target_branch,
+            // I think? Gitlab be weird
+            "title": if open_as_draft { format!("Draft: {}", title) } else { title },
+            "remove_source_branch": remove_source_branch,
+            "squash": squash,
         });
 
         // For fork workflows, specify the source project ID
@@ -238,23 +244,29 @@ impl Forge for GitLabForge {
             payload["source_project_id"] = serde_json::json!(self.source_project_id);
         }
 
-        if let Some(desc) = options.description {
-            payload["description"] = serde_json::json!(desc);
+        if let Some(description) = description {
+            payload["description"] = serde_json::json!(description);
         }
 
-        if let Some(assignees) = options.assignee_ids
-            && !assignees.is_empty()
-        {
-            payload["assignee_ids"] = serde_json::json!(assignees);
+        if !assignee_ids.is_empty() {
+            payload["assignee_ids"] = serde_json::json!(assignee_ids);
         }
 
-        if let Some(reviewers) = options.reviewer_ids
-            && !reviewers.is_empty()
-        {
-            payload["reviewer_ids"] = serde_json::json!(reviewers);
+        if !reviewer_ids.is_empty() {
+            payload["reviewer_ids"] = serde_json::json!(reviewer_ids);
         }
 
-        let mr: MergeRequest = self.request(Method::POST, url, Some(payload)).await?;
+        let mr: MergeRequest = self
+            .request(
+                Method::POST,
+                format!(
+                    "/api/v4/projects/{}/merge_requests",
+                    self.encoded_target_project_id()
+                ),
+                Some(payload),
+            )
+            .await?;
+
         Ok(ForgeMergeRequest::GitLab(mr))
     }
 

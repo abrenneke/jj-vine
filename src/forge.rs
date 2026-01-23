@@ -291,35 +291,35 @@ impl MergeRequestStatus {
     }
 }
 
-#[derive(Builder)]
+#[derive(Builder, Default)]
 pub struct ForgeCreateMergeRequestOptions {
     /// The source branch of the merge request
-    source_branch: String,
+    pub source_branch: String,
 
     /// The target branch of the merge request
-    target_branch: String,
+    pub target_branch: String,
 
     /// The title of the merge request
-    title: String,
+    pub title: String,
 
     /// The description of the merge request
-    description: Option<String>,
+    #[builder(required)]
+    pub description: Option<String>,
 
-    /// The IDs of the initial assignees of the merge request
-    assignee_ids: Option<Vec<String>>,
+    /// The usernames of the initial assignees of the merge request
+    pub assignee_usernames: Vec<String>,
 
-    // /// The usernames of the initial assignees of the merge request
-    // assignee_usernames: Option<Vec<String>>,
-    /// The IDs of the initial reviewers of the merge request
-    reviewer_ids: Option<Vec<String>>,
+    /// The usernames of the initial assignees of the merge request
+    pub reviewer_usernames: Vec<String>,
 
-    // /// The usernames of the initial reviewers of the merge request
-    // reviewer_usernames: Option<Vec<String>>,
     /// Whether to remove the source branch after the merge request is merged
-    remove_source_branch: Option<bool>,
+    pub remove_source_branch: bool,
 
     /// Whether to squash the commits into a single commit
-    squash: Option<bool>,
+    pub squash: bool,
+
+    /// Whether to open the merge request as a draft
+    pub open_as_draft: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -462,6 +462,7 @@ impl ForgeImpl {
                     config.forgejo.token.clone(),
                     config.ca_bundle.clone(),
                     config.tls_accept_non_compliant_certs,
+                    config.forgejo.wip_prefix.clone(),
                 )
                 .map(|forge| forge.into())
             }

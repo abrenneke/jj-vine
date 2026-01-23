@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use bon::Builder;
 use serde::Deserialize;
 
 use crate::{
@@ -84,69 +85,97 @@ fn default_remote_name() -> String {
     "origin".to_string()
 }
 
-fn default_branch() -> String {
-    "main".to_string()
-}
-
 const fn default_true() -> bool {
     true
 }
 
 /// Configuration for jj-vine
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Builder)]
 #[serde(rename_all = "camelCase")]
 pub struct Config {
     /// Which forge to use (GitLab, GitHub, or Forgejo).
     pub forge: ForgeType,
 
+    /// The branch name to use for MRs into `trunk()`. You will generally only
+    /// need to set this explicitly if you use a branch name other than
+    /// `main`, `master`, or `trunk`, and jj-vine is having difficulty
+    /// detecting the correct branch name automatically.
+    #[serde(default)]
+    pub default_base_branch: Option<String>,
+
     // ===== Common Configuration =====
     /// Git remote name (defaults to "origin").
     #[serde(default = "default_remote_name")]
+    #[builder(default = default_remote_name())]
     pub remote_name: String,
 
-    /// Default branch name (defaults to "main").
-    #[serde(default = "default_branch")]
-    pub default_branch: String,
-
-    /// Optional path to CA bundle for TLS verification.
+    /// Optional path to CA bundle for TLS verification. Only useful if you
+    /// have a self-hosted forge without a publicly trusted certificate.
     #[serde(default)]
     pub ca_bundle: Option<String>,
 
     /// Accept non-compliant TLS certificates (for certificates that don't meet
-    /// strict X.509 standards).
+    /// strict X.509 standards). This is almost always unnecessary unless
+    /// you have a unique situation.
     #[serde(default)]
+    #[builder(default)]
     pub tls_accept_non_compliant_certs: bool,
 
     /// Configuration for MR description generation.
     #[serde(default)]
+    #[builder(default)]
     pub description: DescriptionConfig,
 
     /// Delete source branch when MR is merged (defaults to true).
+    ///
+    /// Unsupported by GitHub and Forgejo - this option will have no effect.
+    /// Those forges only offer this as a repository-level default +
+    /// on-merge flag.
     #[serde(default = "default_true")]
+    #[builder(default)]
     pub delete_source_branch: bool,
 
     /// Squash commits when MR is merged (defaults to false).
+    ///
+    /// Unsupported by GitHub and Forgejo - this option will have no effect.
+    /// Those forges only offer this as a repository-level default +
+    /// on-merge flag.
     #[serde(default)]
+    #[builder(default)]
     pub squash_commits: bool,
 
     /// Assign created MRs to yourself (defaults to false).
     #[serde(default)]
+    #[builder(default)]
     pub assign_to_self: bool,
 
     /// Default reviewers for created MRs (list of usernames).
     #[serde(default)]
+    #[builder(default)]
     pub default_reviewers: Vec<String>,
+
+    /// Open newly created MRs as drafts (defaults to false).
+    ///
+    /// On Forgejo and GitLab, this will add "WIP: " and "Draft: " prefixes to
+    /// the MR titles, respectively. This is configurable for Forgejo using the
+    /// `jj-vine.forgejo.wip_prefix` setting.
+    #[serde(default)]
+    #[builder(default)]
+    pub open_as_draft: bool,
 
     /// GitLab configuration.
     #[serde(default)]
+    #[builder(default)]
     pub gitlab: GitLabConfig,
 
     /// GitHub configuration.
     #[serde(default)]
+    #[builder(default)]
     pub github: GitHubConfig,
 
     /// Forgejo/Gitea/Codeberg configuration.
     #[serde(default)]
+    #[builder(default)]
     pub forgejo: ForgejoConfig,
 }
 
@@ -234,6 +263,14 @@ impl GitHubConfig {
     }
 }
 
+/// Not exactly documented, but the default repository setting for Forgejo is:
+/// ```go
+/// WorkInProgressPrefixes: []string{"WIP:", "[WIP]"}
+/// ```
+fn default_wip_prefix() -> String {
+    "WIP: ".to_string()
+}
+
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ForgejoConfig {
@@ -253,6 +290,10 @@ pub struct ForgejoConfig {
     /// API access token.
     #[serde(default)]
     pub token: String,
+
+    /// Prefix for WIP merge requests.
+    #[serde(default = "default_wip_prefix")]
+    pub wip_prefix: String,
 }
 
 impl ForgejoConfig {
@@ -498,7 +539,6 @@ mod tests {
         assert_eq!(config.gitlab.project, "my-group/my-project".to_string());
         assert_eq!(config.gitlab.token, "glpat-test123".to_string());
         assert_eq!(config.remote_name, "origin");
-        assert_eq!(config.default_branch, "main");
     }
 
     #[test]
@@ -553,7 +593,6 @@ mod tests {
         assert_eq!(config.gitlab.project, "my-group/my-project".to_string());
         assert_eq!(config.gitlab.token, "glpat-test123".to_string());
         assert_eq!(config.remote_name, "upstream");
-        assert_eq!(config.default_branch, "master");
     }
 
     #[test]

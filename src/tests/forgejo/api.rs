@@ -173,17 +173,17 @@ async fn test_invalid_token_errors_clearly() -> Result<()> {
         "invalid-token-12345".to_string(),
         ca_bundle,
         accept_non_compliant,
+        "WIP: ".to_string(),
     )?;
 
     let result = client
-        .create_merge_request(
-            ForgeCreateMergeRequestOptions::builder()
-                .source_branch(unique_branch("invalid-token"))
-                .target_branch("main".to_string())
-                .title("This should fail".to_string())
-                .description("Testing invalid token".to_string())
-                .build(),
-        )
+        .create_merge_request(ForgeCreateMergeRequestOptions {
+            source_branch: unique_branch("invalid-token"),
+            target_branch: "main".to_string(),
+            title: "This should fail".to_string(),
+            description: Some("Testing invalid token".to_string()),
+            ..Default::default()
+        })
         .await;
 
     assert!(result.unwrap_err().to_string().contains("401"));
@@ -210,17 +210,17 @@ async fn test_nonexistent_project_errors_clearly() -> Result<()> {
         token,
         ca_bundle,
         accept_non_compliant,
+        "WIP: ".to_string(),
     )?;
 
     let result = client
-        .create_merge_request(
-            ForgeCreateMergeRequestOptions::builder()
-                .source_branch(unique_branch("nonexistent-project"))
-                .target_branch("main".to_string())
-                .title("This should fail".to_string())
-                .description("Testing nonexistent project".to_string())
-                .build(),
-        )
+        .create_merge_request(ForgeCreateMergeRequestOptions {
+            source_branch: unique_branch("nonexistent-project"),
+            target_branch: "main".to_string(),
+            title: "This should fail".to_string(),
+            description: Some("Testing nonexistent project".to_string()),
+            ..Default::default()
+        })
         .await;
 
     assert!(result.unwrap_err().to_string().contains("404"));

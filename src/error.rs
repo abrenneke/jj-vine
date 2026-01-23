@@ -2,6 +2,26 @@ use snafu::{Backtrace, ChainCompat, Location, Snafu};
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
+macro_rules! make_whatever {
+    ($fmt:literal$(, $($arg:expr),* $(,)?)?) => {
+        snafu::FromString::without_source(
+            snafu::__format!($fmt$(, $($arg),*)*),
+        )
+    };
+}
+
+pub(crate) use make_whatever;
+
+#[allow(unused)]
+macro_rules! err_whatever {
+($fmt:literal$(, $($arg:expr),* $(,)?)?) => {
+        core::result::Result::Err(make_whatever!($fmt$(, $($arg),*)*))
+    };
+}
+
+#[allow(unused)]
+pub(crate) use err_whatever;
+
 #[derive(Snafu)]
 #[snafu(visibility(pub))]
 pub enum Error {
@@ -145,13 +165,16 @@ pub enum Error {
         location: Box<Location>,
     },
 
-    #[snafu(display("{message}"))]
+    #[snafu(display("{message}"), whatever)]
     Other {
         message: String,
         backtrace: Box<Backtrace>,
 
         #[snafu(implicit)]
         location: Box<Location>,
+
+        #[snafu(source(from(Box<dyn std::error::Error>, Some)))]
+        source: Option<Box<dyn std::error::Error>>,
     },
 
     #[snafu(display("Invalid component: {component}"))]
@@ -249,10 +272,7 @@ fn error_trace(error: &Error, f: &mut std::fmt::Formatter) -> Result<(), std::fm
 
 impl Error {
     pub fn new(message: impl Into<String>) -> Self {
-        OtherSnafu {
-            message: message.into(),
-        }
-        .build()
+        make_whatever!("{}", message.into())
     }
 }
 

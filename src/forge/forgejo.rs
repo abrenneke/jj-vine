@@ -34,6 +34,10 @@ pub struct ForgejoForge {
     target_repo: String,
     token: String,
     client: reqwest::Client,
+
+    /// Prefix to add for draft merge requests. Configurable per-repository in
+    /// Forgejo.
+    wip_prefix: String,
 }
 
 /// Forgejo/Gitea user
@@ -179,6 +183,7 @@ impl ForgejoForge {
         token: impl Into<String>,
         ca_bundle: Option<impl AsRef<Path>>,
         accept_non_compliant_certs: bool,
+        wip_prefix: String,
     ) -> Result<Self> {
         let mut client_builder = reqwest::Client::builder();
 
@@ -250,6 +255,7 @@ impl ForgejoForge {
             target_repo: target_repo.into(),
             token: token.into(),
             client,
+            wip_prefix,
         })
     }
 
@@ -386,39 +392,54 @@ impl Forge for ForgejoForge {
 
     async fn create_merge_request(
         &self,
-        options: ForgeCreateMergeRequestOptions,
+        ForgeCreateMergeRequestOptions {
+            assignee_usernames,
+            description,
+            reviewer_usernames,
+            source_branch,
+            target_branch,
+            title,
+            open_as_draft,
+            // Forge supports this as a default repository setting, but not a per-pull-request
+            // setting.
+            remove_source_branch: _remove_source_branch,
+            // Forge supports this as a default repository setting, but not a per-pull-request
+            // setting.
+            squash: _squash,
+        }: ForgeCreateMergeRequestOptions,
     ) -> Result<ForgeMergeRequest> {
-        let url = format!("/repos/{}/{}/pulls", self.target_owner, self.target_repo);
-
-        // For fork workflows, head needs to be "owner:branch"
         let head = if self.source_project_id != self.target_project_id {
-            format!("{}:{}", self.source_owner, options.source_branch)
+            format!("{}:{}", self.source_owner, source_branch)
         } else {
-            options.source_branch.clone()
+            source_branch.clone()
         };
 
         let mut payload = serde_json::json!({
-            "title": options.title,
+            // Not exactly documented, but Forgejo detects this based on a repository-configurable prefix.
+            "title": if open_as_draft { format!("{}{}", self.wip_prefix, title) } else { title },
             "head": head,
-            "base": options.target_branch,
+            "base": target_branch,
         });
 
-        if let Some(desc) = options.description {
+        if let Some(desc) = description {
             payload["body"] = serde_json::json!(desc);
         }
 
-        let pr: PullRequest = self.request(Method::POST, url, Some(payload)).await?;
+        let pr: PullRequest = self
+            .request(
+                Method::POST,
+                format!("/repos/{}/{}/pulls", self.target_owner, self.target_repo),
+                Some(payload),
+            )
+            .await?;
 
-        if let Some(assignees) = options.assignee_ids
-            && !assignees.is_empty()
-        {
-            self.add_assignees(pr.number, assignees).await?;
+        if !assignee_usernames.is_empty() {
+            self.add_assignees(pr.number, assignee_usernames).await?;
         }
 
-        if let Some(reviewers) = options.reviewer_ids
-            && !reviewers.is_empty()
-        {
-            self.request_reviewers(pr.number, reviewers).await?;
+        if !reviewer_usernames.is_empty() {
+            self.request_reviewers(pr.number, reviewer_usernames)
+                .await?;
         }
 
         Ok(ForgeMergeRequest::Forgejo(pr))
@@ -752,6 +773,7 @@ mod tests {
             "test-token".to_string(),
             None::<&str>,
             false,
+            "WIP: ".to_string(),
         );
 
         assert!(forge.is_ok());
@@ -775,6 +797,7 @@ mod tests {
             "test-token".to_string(),
             None::<&str>,
             false,
+            "WIP: ".to_string(),
         );
 
         assert!(forge.is_ok());

@@ -90,12 +90,14 @@ impl<'a> ExecuteAction for UpdateMRDescriptionAction<'a> {
             .collect();
 
         if let Some(current_mr) = all_mrs.get(self.bookmark.as_str()) {
+            let default_branch = ctx.jj.default_branch()?;
+
             let stack_description = generate_stack_description(
                 &self.bookmark,
                 stack,
                 &all_mrs,
                 &ctx.config.description,
-                &ctx.config.default_branch,
+                default_branch,
                 ctx.forge,
             );
 
