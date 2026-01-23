@@ -47,19 +47,9 @@ sync-readmes:
 release VERSION:
     #!/usr/bin/env bash
     set -euo pipefail
-    
+
     if [[ ! "{{VERSION}}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
         echo "Error: Version must be in format X.Y.Z (e.g., 0.2.0)"
-        exit 1
-    fi
-    
-    if [[ ! "$(jj bookmark list -r @-)" =~ "main" ]]; then
-        echo "Error: You are not on top of the main bookmark. You are on $(jj log -r @- --template 'self.change_id()' --no-graph)"
-        exit 1
-    fi
-
-    if [[ -n "$(jj diff)" ]]; then
-        echo "Error: Working copy is not clean. Please commit your changes first."
         exit 1
     fi
 
@@ -67,25 +57,31 @@ release VERSION:
         echo "Error: CODEBERG_TOKEN environment variable is not set."
         exit 1
     fi
-    
+
+    jj new main
+
     sed -i '' 's/^version = ".*"/version = "{{VERSION}}"/' Cargo.toml
+
     cargo build --release
+
     jj commit -m "chore: bump version to {{VERSION}}"
     jj bookmark set main -r @-
     jj tag set v{{VERSION}} -r @-
     jj git push
+
     cargo publish
-    
+
     http post https://codeberg.org/api/v1/repos/abrenneke/jj-vine/releases \
         -A bearer -a $CODEBERG_TOKEN \
+        --print h \
         tag_name=v{{VERSION}} \
         name=v{{VERSION}} \
         body="Release v{{VERSION}}." \
         draft:=true \
         prerelease:=false
-        
+
     echo "Release v{{VERSION}} created successfully."
-    echo "Finish release notes at: https://codeberg.org/abrenneke/jj-vine/releases/v{{VERSION}}/edit"
+    echo "Finish release notes at: https://codeberg.org/abrenneke/jj-vine/releases/edit/v{{VERSION}}"
 
 # Starts a forgejo server using docker compose. Codeberg has low rate limits, so for integration tests we need to run our own instance.
 start-forgejo:
