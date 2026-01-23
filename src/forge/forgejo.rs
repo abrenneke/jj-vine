@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::{
     description::FormatMergeRequest,
-    error::{Error, Result},
+    error::{ConfigSnafu, Error, ForgejoApiSnafu, Result},
     forge::{
         ApprovalSatisfaction,
         ApprovalStatus,
@@ -187,26 +187,34 @@ impl ForgejoForge {
         }
 
         if let Some(ca_path) = ca_bundle {
-            let ca_cert = std::fs::read(ca_path.as_ref()).map_err(|e| Error::Config {
-                message: format!(
-                    "Failed to read CA bundle at {}: {}",
-                    ca_path.as_ref().to_string_lossy(),
-                    e
-                ),
+            let ca_cert = std::fs::read(ca_path.as_ref()).map_err(|e| {
+                ConfigSnafu {
+                    message: format!(
+                        "Failed to read CA bundle at {}: {}",
+                        ca_path.as_ref().to_string_lossy(),
+                        e
+                    ),
+                }
+                .build()
             })?;
 
-            let certs =
-                reqwest::Certificate::from_pem_bundle(&ca_cert).map_err(|e| Error::Config {
+            let certs = reqwest::Certificate::from_pem_bundle(&ca_cert).map_err(|e| {
+                ConfigSnafu {
                     message: format!("Failed to parse CA bundle: {}", e),
-                })?;
+                }
+                .build()
+            })?;
 
             for cert in certs {
                 client_builder = client_builder.add_root_certificate(cert);
             }
         }
 
-        let client = client_builder.build().map_err(|e| Error::Config {
-            message: format!("Failed to build HTTP client: {}", e),
+        let client = client_builder.build().map_err(|e| {
+            ConfigSnafu {
+                message: format!("Failed to build HTTP client: {}", e),
+            }
+            .build()
         })?;
 
         // Strip trailing slashes from base_url to avoid double slashes in constructed
@@ -217,20 +225,20 @@ impl ForgejoForge {
         let target_project_id = target_project_id.into();
 
         let source_project_id_clone = source_project_id.clone();
-        let (source_owner, source_repo) =
-            source_project_id_clone
-                .split_once('/')
-                .ok_or(Error::Config {
-                    message: format!("Invalid source project ID: {}", source_project_id),
-                })?;
+        let (source_owner, source_repo) = source_project_id_clone.split_once('/').ok_or(
+            ConfigSnafu {
+                message: format!("Invalid source project ID: {}", source_project_id),
+            }
+            .build(),
+        )?;
 
         let target_project_id_clone = target_project_id.clone();
-        let (target_owner, target_repo) =
-            target_project_id_clone
-                .split_once('/')
-                .ok_or(Error::Config {
-                    message: format!("Invalid target project ID: {}", target_project_id),
-                })?;
+        let (target_owner, target_repo) = target_project_id_clone.split_once('/').ok_or(
+            ConfigSnafu {
+                message: format!("Invalid target project ID: {}", target_project_id),
+            }
+            .build(),
+        )?;
 
         Ok(Self {
             base_url,
@@ -268,19 +276,23 @@ impl ForgejoForge {
         if !response.status().is_success() {
             let status = response.status();
             let text = response.text().await?;
-            return Err(Error::ForgejoApi {
+            return Err(ForgejoApiSnafu {
                 message: format!("Failed request: {} - {}", status, text),
-            });
+            }
+            .build());
         }
 
         let body = response.text().await?;
-        let data: T = serde_json::from_str(&body).map_err(|e| Error::ForgejoApi {
-            message: format!(
-                "Failed to parse response to {}: {}, response: {}",
-                path.as_ref(),
-                e,
-                body
-            ),
+        let data: T = serde_json::from_str(&body).map_err(|e| {
+            ForgejoApiSnafu {
+                message: format!(
+                    "Failed to parse response to {}: {}, response: {}",
+                    path.as_ref(),
+                    e,
+                    body
+                ),
+            }
+            .build()
         })?;
         Ok(data)
     }
@@ -322,7 +334,7 @@ impl Forge for ForgejoForge {
             .await
         {
             Ok(user) => Ok(Some(user.into())),
-            Err(Error::ForgejoApi { message }) if message.contains("404") => Ok(None),
+            Err(Error::ForgejoApi { message, .. }) if message.contains("404") => Ok(None),
             Err(e) => Err(e),
         }
     }
@@ -562,9 +574,10 @@ impl Forge for ForgejoForge {
                 }
             }
             reqwest::StatusCode::NOT_FOUND => Ok(CheckStatus::None),
-            status => Err(Error::ForgejoApi {
+            status => Err(ForgejoApiSnafu {
                 message: format!("Failed to get commit status: {}", status),
-            }),
+            }
+            .build()),
         }
     }
 

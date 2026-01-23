@@ -1,203 +1,161 @@
 use crate::{
-    commands::submit::SubmitCommandConfig,
+    error::Result,
     forge::{Forge, ForgeCreateMergeRequestOptions, ForgeMergeRequestState, forgejo::ForgejoForge},
     tests::{TestRepo, unique_branch},
 };
 
-/// Test that submit creates a PR via the Forgejo API
 #[tokio::test]
-async fn test_submit_creates_pr() {
+async fn test_submit_creates_pr() -> Result<()> {
     let repo = TestRepo::with_forgejo_remote();
 
     let branch = unique_branch("create-pr");
-    repo.jj.exec(["new", "main"]).unwrap();
+    repo.jj.exec(["new", "main"])?;
     repo.create_change("test.txt", "content", "Test commit")
         .create_and_push_bookmark(&branch);
 
-    // Submit the bookmark
-    repo.submit(SubmitCommandConfig {
-        revset: Some(branch.clone()),
-        ..Default::default()
-    })
-    .await;
+    repo.run(["submit", &branch]).await;
 
-    // Verify PR was created
     let pr = repo
         .forge()
         .find_merge_request_by_source_branch(&branch)
-        .await
-        .expect("Failed to query Forgejo")
+        .await?
         .expect("PR should exist");
 
     assert_eq!(pr.source_branch(), branch);
     assert_eq!(pr.target_branch(), "main");
     assert_eq!(pr.state(), ForgeMergeRequestState::Open);
+
+    Ok(())
 }
 
-/// Test that submit creates stacked PRs with correct targets
 #[tokio::test]
-async fn test_submit_creates_stacked_prs() {
+async fn test_submit_creates_stacked_prs() -> Result<()> {
     let repo = TestRepo::with_forgejo_remote();
 
     let branch_a = unique_branch("stack-a");
     let branch_b = unique_branch("stack-b");
     let branch_c = unique_branch("stack-c");
 
-    // Create stack: main -> A -> B -> C
-    repo.jj.exec(["new", "main"]).unwrap();
+    // main -> A -> B -> C
+    repo.jj.exec(["new", "main"])?;
     repo.create_change("a.txt", "a", "Commit A")
         .create_and_push_bookmark(&branch_a);
 
-    repo.jj.exec(["new"]).unwrap();
+    repo.jj.exec(["new"])?;
     repo.create_change("b.txt", "b", "Commit B")
         .create_and_push_bookmark(&branch_b);
 
-    repo.jj.exec(["new"]).unwrap();
+    repo.jj.exec(["new"])?;
     repo.create_change("c.txt", "c", "Commit C")
         .create_and_push_bookmark(&branch_c);
 
-    // Submit the entire stack via C
-    repo.submit(SubmitCommandConfig {
-        revset: Some(branch_c.clone()),
-        ..Default::default()
-    })
-    .await;
+    repo.run(["submit", &branch_c]).await;
 
-    // Verify PR A: targets main
-    let pr_a = repo
-        .forge()
-        .find_merge_request_by_source_branch(&branch_a)
-        .await
-        .expect("Failed to query Forgejo")
-        .expect("PR A should exist");
-    assert_eq!(pr_a.target_branch(), "main");
+    assert_eq!(
+        repo.forge()
+            .find_merge_request_by_source_branch(&branch_a)
+            .await?
+            .map(|pr| pr.target_branch().to_string()),
+        Some("main".to_string())
+    );
 
-    // Verify PR B: targets A
-    let pr_b = repo
-        .forge()
-        .find_merge_request_by_source_branch(&branch_b)
-        .await
-        .expect("Failed to query Forgejo")
-        .expect("PR B should exist");
-    assert_eq!(pr_b.target_branch(), branch_a);
+    assert_eq!(
+        repo.forge()
+            .find_merge_request_by_source_branch(&branch_b)
+            .await?
+            .map(|pr| pr.target_branch().to_string()),
+        Some(branch_a.to_string())
+    );
 
-    // Verify PR C: targets B
-    let pr_c = repo
-        .forge()
-        .find_merge_request_by_source_branch(&branch_c)
-        .await
-        .expect("Failed to query Forgejo")
-        .expect("PR C should exist");
-    assert_eq!(pr_c.target_branch(), branch_b);
+    assert_eq!(
+        repo.forge()
+            .find_merge_request_by_source_branch(&branch_c)
+            .await?
+            .map(|pr| pr.target_branch().to_string()),
+        Some(branch_b.to_string())
+    );
+
+    Ok(())
 }
 
-/// Test that resubmitting finds and reuses existing PR
 #[tokio::test]
-async fn test_submit_is_idempotent() {
+async fn test_submit_is_idempotent() -> Result<()> {
     let repo = TestRepo::with_forgejo_remote();
 
     let branch = unique_branch("idempotent");
-    repo.jj.exec(["new", "main"]).unwrap();
+    repo.jj.exec(["new", "main"])?;
     repo.create_change("test.txt", "content", "Test commit")
         .create_and_push_bookmark(&branch);
 
-    // First submit
-    repo.submit(SubmitCommandConfig {
-        revset: Some(branch.clone()),
-        ..Default::default()
-    })
-    .await;
+    repo.run(["submit", &branch]).await;
 
     let pr1 = repo
         .forge()
         .find_merge_request_by_source_branch(&branch)
-        .await
-        .expect("Failed to query")
+        .await?
         .expect("PR should exist");
 
-    // Second submit (should reuse existing PR)
-    repo.submit(SubmitCommandConfig {
-        revset: Some(branch.clone()),
-        ..Default::default()
-    })
-    .await;
+    repo.run(["submit", &branch]).await;
 
     let pr2 = repo
         .forge()
         .find_merge_request_by_source_branch(&branch)
-        .await
-        .expect("Failed to query")
+        .await?
         .expect("PR should exist");
 
-    // Same PR should be reused
-    assert_eq!(pr1.iid(), pr2.iid(), "Should reuse the same PR");
+    assert_eq!(pr1.iid(), pr2.iid());
+
+    Ok(())
 }
 
-/// Test that PR is retargeted when middle bookmark is deleted
 #[tokio::test]
-async fn test_submit_retargets_after_middle_bookmark_deleted() {
+async fn test_submit_retargets_after_middle_bookmark_deleted() -> Result<()> {
     let repo = TestRepo::with_forgejo_remote();
 
     let branch_a = unique_branch("retarget-a");
     let branch_b = unique_branch("retarget-b");
     let branch_c = unique_branch("retarget-c");
 
-    // Create stack: main -> A -> B -> C
-    repo.jj.exec(["new", "main"]).unwrap();
+    // main -> A -> B -> C
+    repo.jj.exec(["new", "main"])?;
     repo.create_change("a.txt", "a", "Commit A")
         .create_and_push_bookmark(&branch_a);
 
-    repo.jj.exec(["new"]).unwrap();
+    repo.jj.exec(["new"])?;
     repo.create_change("b.txt", "b", "Commit B")
         .create_and_push_bookmark(&branch_b);
 
-    repo.jj.exec(["new"]).unwrap();
+    repo.jj.exec(["new"])?;
     repo.create_change("c.txt", "c", "Commit C")
         .create_and_push_bookmark(&branch_c);
 
-    // Submit all three
-    repo.submit(SubmitCommandConfig {
-        revset: Some(branch_c.clone()),
-        ..Default::default()
-    })
-    .await;
+    repo.run(["submit", &branch_c]).await;
 
-    // Verify C targets B initially
-    let pr_c = repo
-        .forge()
-        .find_merge_request_by_source_branch(&branch_c)
-        .await
-        .expect("Query failed")
-        .expect("PR C should exist");
-    assert_eq!(pr_c.target_branch(), branch_b);
-
-    // Delete bookmark B
-    repo.jj.exec(["bookmark", "delete", &branch_b]).unwrap();
-
-    // Resubmit C - should retarget to A
-    repo.submit(SubmitCommandConfig {
-        revset: Some(branch_c.clone()),
-        ..Default::default()
-    })
-    .await;
-
-    // Verify C now targets A
-    let pr_c_updated = repo
-        .forge()
-        .find_merge_request_by_source_branch(&branch_c)
-        .await
-        .expect("Query failed")
-        .expect("PR C should exist");
     assert_eq!(
-        pr_c_updated.target_branch(),
-        branch_a,
-        "PR C should now target A after B was deleted"
+        repo.forge()
+            .find_merge_request_by_source_branch(&branch_c)
+            .await?
+            .map(|pr| pr.target_branch().to_string()),
+        Some(branch_b.to_string())
     );
+
+    repo.jj.exec(["bookmark", "delete", &branch_b])?;
+
+    repo.run(["submit", &branch_c]).await;
+
+    assert_eq!(
+        repo.forge()
+            .find_merge_request_by_source_branch(&branch_c)
+            .await?
+            .map(|pr| pr.target_branch().to_string()),
+        Some(branch_a.to_string())
+    );
+
+    Ok(())
 }
 
-/// Test that invalid token produces clear 401 error
 #[tokio::test]
-async fn test_invalid_token_errors_clearly() {
+async fn test_invalid_token_errors_clearly() -> Result<()> {
     dotenv::dotenv().ok();
 
     let host = std::env::var("FORGEJO_HOST").expect("FORGEJO_HOST required");
@@ -208,7 +166,6 @@ async fn test_invalid_token_errors_clearly() {
         .and_then(|v| v.parse::<bool>().ok())
         .unwrap_or(false);
 
-    // Create client with invalid token
     let client = ForgejoForge::new(
         host,
         project.clone(),
@@ -216,16 +173,12 @@ async fn test_invalid_token_errors_clearly() {
         "invalid-token-12345".to_string(),
         ca_bundle,
         accept_non_compliant,
-    )
-    .expect("Failed to create Forgejo client");
+    )?;
 
-    let branch_name = unique_branch("invalid-token");
-
-    // Attempt to create PR with invalid token
     let result = client
         .create_merge_request(
             ForgeCreateMergeRequestOptions::builder()
-                .source_branch(branch_name.clone())
+                .source_branch(unique_branch("invalid-token"))
                 .target_branch("main".to_string())
                 .title("This should fail".to_string())
                 .description("Testing invalid token".to_string())
@@ -233,19 +186,13 @@ async fn test_invalid_token_errors_clearly() {
         )
         .await;
 
-    assert!(result.is_err(), "Should fail with invalid token");
-    let err = result.unwrap_err().to_string();
+    assert!(result.unwrap_err().to_string().contains("401"));
 
-    assert!(
-        err.contains("401"),
-        "Error should mention invalid token: {}",
-        err
-    );
+    Ok(())
 }
 
-/// Test that nonexistent project produces clear 404 error
 #[tokio::test]
-async fn test_nonexistent_project_errors_clearly() {
+async fn test_nonexistent_project_errors_clearly() -> Result<()> {
     dotenv::dotenv().ok();
 
     let host = std::env::var("FORGEJO_HOST").expect("FORGEJO_HOST required");
@@ -256,24 +203,19 @@ async fn test_nonexistent_project_errors_clearly() {
         .and_then(|v| v.parse::<bool>().ok())
         .unwrap_or(false);
 
-    // Create client with nonexistent project
     let client = ForgejoForge::new(
         host,
-        "nonexistent/fake-project-12345".to_string(),
-        "nonexistent/fake-project-12345".to_string(),
+        "nonexistent/fake-project-12345",
+        "nonexistent/fake-project-12345",
         token,
         ca_bundle,
         accept_non_compliant,
-    )
-    .expect("Failed to create Forgejo client");
+    )?;
 
-    let branch_name = unique_branch("nonexistent-project");
-
-    // Attempt to create PR with nonexistent project
     let result = client
         .create_merge_request(
             ForgeCreateMergeRequestOptions::builder()
-                .source_branch(branch_name.clone())
+                .source_branch(unique_branch("nonexistent-project"))
                 .target_branch("main".to_string())
                 .title("This should fail".to_string())
                 .description("Testing nonexistent project".to_string())
@@ -281,11 +223,7 @@ async fn test_nonexistent_project_errors_clearly() {
         )
         .await;
 
-    assert!(result.is_err(), "Should fail with nonexistent project");
-    let err = result.unwrap_err().to_string();
-    assert!(
-        err.contains("404") || err.to_lowercase().contains("not found"),
-        "Error should mention project not found: {}",
-        err
-    );
+    assert!(result.unwrap_err().to_string().contains("404"));
+
+    Ok(())
 }

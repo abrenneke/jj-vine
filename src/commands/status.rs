@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use clap::Args;
+use clap::{Args, ValueEnum};
 use enum_dispatch::enum_dispatch;
 use futures::{
     StreamExt,
@@ -16,10 +16,10 @@ use tracing::info;
 use crate::{
     bookmark::Bookmark,
     cli::CliConfig,
-    commands::{GetBookmarksOptions, StrVisualWidth, get_changes_from_cli_args},
+    commands::{GetBookmarksOptions, StrVisualWidth},
     config::Config,
     description::FormatMergeRequest,
-    error::{Error, Result},
+    error::{ConfigSnafu, Error, InvalidComponentSnafu, Result},
     forge::{
         ApprovalSatisfaction,
         CheckStatus,
@@ -27,7 +27,6 @@ use crate::{
         ForgeImpl,
         ForgeMergeRequest,
         MergeRequestStatus,
-        create_forge,
     },
     jj::Jujutsu,
     output::Output,
@@ -36,25 +35,63 @@ use crate::{
 #[derive(Args)]
 pub struct StatusCommandConfig {
     /// Output mode
-    /// - flat: Flat list of bookmarks and their status
-    #[arg(short = 'o', long = "output", default_value = "flat")]
-    output_mode: DisplayStatusMode,
+    /// - two-line-compact: Two-lines per merge request
+    #[arg(short = 'o', long = "output", default_value = "two-line-compact")]
+    pub output_mode: DisplayStatusMode,
 
-    /// Include only `(mine() & tracked_remote_bookmarks()) ~ trunk()`
-    #[arg(long)]
-    tracked: bool,
-
-    /// Use a manual revset
-    #[arg(short = 'r', long)]
-    revset: Option<String>,
+    /// Options for the revset
+    #[command(flatten)]
+    pub revset_options: StatusCommandRevsetOptions,
 }
 
 impl StatusCommandConfig {
+    pub fn help_long() -> String {
+        format!(
+            r#"
+Show the status of tracked bookmarks and their {}
+
+{}
+
+Show the status of all my bookmarks:
+{}
+
+Show the status of all tracked bookmarks:
+{}
+
+Show the status of a specific revset:
+{}
+"#,
+            match ForgeImpl::from_cwd() {
+                Ok(forge) => format!("{}s", forge.mr_name()),
+                Err(_) => "MRs/PRs".to_string(),
+            },
+            "Examples:".yellow().bold(),
+            "jj vine status".green().bold(),
+            "jj vine status --tracked".green().bold(),
+            "jj vine status -r <revset>".green().bold(),
+        )
+    }
+}
+
+#[derive(Args, Default)]
+#[group(required = false, multiple = false)]
+pub struct StatusCommandRevsetOptions {
+    /// Use a manual revset
+    #[arg(short = 'r', long)]
+    pub revset: Option<String>,
+
+    /// Include only `(mine() & tracked_remote_bookmarks()) ~ trunk()`
+    #[arg(long)]
+    pub tracked: bool,
+}
+
+impl StatusCommandRevsetOptions {
     fn to_get_bookmarks_options(&self) -> GetBookmarksOptions {
-        GetBookmarksOptions {
-            mine: self.revset.is_none() && !self.tracked,
-            revset: self.revset.clone(),
-            tracked: self.tracked,
+        match (self.revset.as_deref(), self.tracked) {
+            (Some(revset), false) => GetBookmarksOptions::Revset(revset.to_string()),
+            (None, true) => GetBookmarksOptions::Tracked,
+            (None, false) => GetBookmarksOptions::Mine,
+            _ => unreachable!(),
         }
     }
 }
@@ -75,13 +112,14 @@ struct BookmarkStatusError {
     error: Error,
 }
 
-pub async fn status(config: StatusCommandConfig, cli_config: CliConfig<'_>) -> Result<()> {
+pub async fn status(config: &StatusCommandConfig, cli_config: &CliConfig<'_>) -> Result<()> {
     let jj = Jujutsu::new(&cli_config.repository)?;
     let repo_config = Config::load(&cli_config.repository)?;
-    let forge = create_forge(&repo_config)?;
+    let forge = ForgeImpl::new(&repo_config)?;
     let output = cli_config.output;
 
-    let changes = get_changes_from_cli_args(&config.to_get_bookmarks_options(), &jj)?;
+    let revset = config.revset_options.to_get_bookmarks_options().to_revset();
+    let changes = jj.log(revset)?;
     let bookmarks: Vec<_> = Bookmark::from_changes(&changes).into_iter().collect();
 
     if bookmarks.is_empty() {
@@ -141,9 +179,11 @@ pub async fn status(config: StatusCommandConfig, cli_config: CliConfig<'_>) -> R
     Ok(())
 }
 
-#[derive(Clone, Copy)]
-enum DisplayStatusMode {
-    FlatList,
+#[derive(ValueEnum, Clone, Copy)]
+pub enum DisplayStatusMode {
+    /// Render the status of merge requests in a two-line compact format.
+    #[value(id = "two-line-compact")]
+    TwoLineCompact,
 }
 
 impl std::str::FromStr for DisplayStatusMode {
@@ -151,10 +191,11 @@ impl std::str::FromStr for DisplayStatusMode {
 
     fn from_str(s: &str) -> Result<Self> {
         match s {
-            "flat" => Ok(DisplayStatusMode::FlatList),
-            _ => Err(Error::Config {
+            "flat" => Ok(DisplayStatusMode::TwoLineCompact),
+            _ => Err(ConfigSnafu {
                 message: format!("Invalid output mode: {}. Valid modes are: flat", s),
-            }),
+            }
+            .build()),
         }
     }
 }
@@ -167,7 +208,9 @@ impl DisplayStatusMode {
         output: &dyn Output,
     ) -> String {
         match self {
-            DisplayStatusMode::FlatList => print_two_line_compact(statuses, forge, output).await,
+            DisplayStatusMode::TwoLineCompact => {
+                print_two_line_compact(statuses, forge, output).await
+            }
         }
     }
 }
@@ -324,9 +367,10 @@ fn get_component(name: &str) -> Result<StatusComponentImpl> {
         "created" => Ok(CreatedAtComponent {}.into()),
         "url" => Ok(MergeRequestURLComponent {}.into()),
         "num_discussions" => Ok(NumOpenDiscussionsComponent {}.into()),
-        _ => Err(Error::InvalidComponent {
+        _ => Err(InvalidComponentSnafu {
             component: name.to_string(),
-        }),
+        }
+        .build()),
     }
 }
 

@@ -1,3 +1,12 @@
+use assertables::{
+    assert_any,
+    assert_contains,
+    assert_is_empty,
+    assert_none,
+    assert_not_contains,
+    assert_some,
+};
+
 use crate::{
     bookmark::{Bookmark, BookmarkGraph, BookmarkRef},
     error::Result,
@@ -8,12 +17,11 @@ use crate::{
 fn test_deleted_middle_bookmark() -> Result<()> {
     let repo = TestRepo::new();
 
-    // Create stack: a -> b -> c
+    // a -> b -> c
     repo.commit_with_bookmark("file1.txt", "content1", "Commit A", "bookmark-a")
         .commit_with_bookmark("file2.txt", "content2", "Commit B", "bookmark-b")
         .commit_with_bookmark("file3.txt", "content3", "Commit C", "bookmark-c");
 
-    // Delete middle bookmark
     repo.jj.exec(["bookmark", "delete", "bookmark-b"]).unwrap();
 
     let changes = repo.jj.log("mine() & bookmarks()")?;
@@ -23,16 +31,12 @@ fn test_deleted_middle_bookmark() -> Result<()> {
 
     let bookmark_a = graph.find_bookmark_in_components("bookmark-a").unwrap();
 
-    assert!(graph.find_bookmark_in_components("bookmark-b").is_none());
+    assert_none!(graph.find_bookmark_in_components("bookmark-b"));
 
     let bookmark_c = graph.find_bookmark_in_components("bookmark-c").unwrap();
 
-    assert!(
-        bookmark_c
-            .parents
-            .iter()
-            .any(|p| p == &BookmarkRef::Bookmark(bookmark_a.clone()))
-    );
+    assert_any!(bookmark_c.parents.iter(), |p| p
+        == &BookmarkRef::Bookmark(bookmark_a.clone()));
 
     Ok(())
 }
@@ -74,9 +78,9 @@ fn test_base_branch_not_included_in_submission() -> Result<()> {
     let graph = BookmarkGraph::from_bookmarks(&repo.jj, bookmarks.iter().cloned(), false)?;
     let stack = graph.component_containing("feature-2").unwrap();
 
-    assert!(stack.contains("feature-1"));
-    assert!(stack.contains("feature-2"));
-    assert!(!stack.contains("main"));
+    assert_contains!(stack, "feature-1");
+    assert_contains!(stack, "feature-2");
+    assert_not_contains!(stack, "main");
 
     Ok(())
 }
@@ -112,7 +116,7 @@ fn test_submit_base_branch_errors() -> Result<()> {
     let bookmarks: Vec<_> = Bookmark::from_changes(&changes).into_iter().collect();
     let graph = BookmarkGraph::from_bookmarks(&repo.jj, bookmarks.iter().cloned(), true)?;
 
-    assert!(graph.components().is_empty(), "Should have no stacks");
+    assert_is_empty!(graph.components());
 
     Ok(())
 }
@@ -162,14 +166,16 @@ fn test_graph_skips_default_branch_history() -> Result<()> {
 
     let graph = BookmarkGraph::from_bookmarks(&repo.jj, bookmarks.iter().cloned(), false)?;
 
-    assert!(graph.component_containing("main").is_none());
-    assert!(graph.component_containing("feature-1").is_some());
+    assert_none!(graph.component_containing("main"));
+    assert_some!(graph.component_containing("feature-1"));
 
     Ok(())
 }
 
 #[cfg(not(feature = "no-e2e-tests"))]
 mod e2e {
+    use assertables::assert_contains;
+
     use crate::{
         error::Result,
         tests::{TestRepo, unique_branch},
@@ -177,60 +183,32 @@ mod e2e {
 
     #[tokio::test]
     async fn test_multiple_independent_stacks_dont_incorrectly_retarget() -> Result<()> {
-        let repo = TestRepo::with_gitlab_remote();
+        let repo = TestRepo::with_forgejo_remote();
 
-        // Create two independent stacks:
-        // Stack 1: main -> stack1-a -> stack1-b
-        // Stack 2: main -> stack2-a
+        // main -> a -> b
+        // main -> c
 
-        // Stack 1, bookmark A
         repo.jj.exec(["new", "main"])?;
-        let branch_1a = unique_branch("stack1-a");
-        repo.create_change("file1.txt", "stack1-a content", "Stack 1 A")
-            .create_and_push_bookmark(&branch_1a);
+        let a = unique_branch("a");
+        repo.create_change("file1.txt", "a content", "A")
+            .create_and_push_bookmark(&a);
 
-        // Stack 1, bookmark B
         repo.jj.exec(["new"])?;
-        let branch_1b = unique_branch("stack1-b");
-        repo.create_change("file2.txt", "stack1-b content", "Stack 1 B")
-            .create_and_push_bookmark(&branch_1b);
+        let b = unique_branch("b");
+        repo.create_change("file2.txt", "b content", "B")
+            .create_and_push_bookmark(&b);
 
-        // Stack 2, bookmark A (independent from stack 1)
         repo.jj.exec(["new", "main"])?;
-        let branch_2a = unique_branch("stack2-a");
-        repo.create_change("file3.txt", "stack2-a content", "Stack 2 A")
-            .create_and_push_bookmark(&branch_2a);
+        let c = unique_branch("c");
+        repo.create_change("file3.txt", "c content", "C")
+            .create_and_push_bookmark(&c);
 
-        // Dry run submission to see what the tool wants to do
-        let output = repo
-            .submit(crate::commands::submit::SubmitCommandConfig {
-                tracked: true,
-                dry_run: true,
-                ..Default::default()
-            })
-            .await;
+        let output = repo.run(["submit", "--tracked", "--dry-run"]).await;
 
-        // Verify that stack2-a targets main, not stack1-b
-        assert!(
-            output.contains(&format!("Would create {} -> main", branch_1a)),
-            "{} should target main, output:\n{}",
-            branch_1a,
-            output
-        );
-        assert!(
-            output.contains(&format!("Would create {} -> {}", branch_1b, branch_1a)),
-            "{} should target {}, output:\n{}",
-            branch_1b,
-            branch_1a,
-            output
-        );
-        assert!(
-            output.contains(&format!("Would create {} -> main", branch_2a)),
-            "{} should target main (not {}!), output:\n{}",
-            branch_2a,
-            branch_1b,
-            output
-        );
+        // Verify that c targets main, not b
+        assert_contains!(output, &format!("Would create {} -> main", a));
+        assert_contains!(output, &format!("Would create {} -> {}", b, a));
+        assert_contains!(output, &format!("Would create {} -> main", c));
 
         Ok(())
     }

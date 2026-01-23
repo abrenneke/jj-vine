@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::{
     description::FormatMergeRequest,
-    error::{Error, Result},
+    error::{ConfigSnafu, GitLabApiSnafu, Result},
     forge::{
         ApprovalSatisfaction,
         ApprovalStatus,
@@ -73,26 +73,34 @@ impl GitLabForge {
 
         // Add custom CA bundle if provided
         if let Some(ca_path) = ca_bundle {
-            let ca_cert = std::fs::read(ca_path.as_ref()).map_err(|e| Error::Config {
-                message: format!(
-                    "Failed to read CA bundle at {}: {}",
-                    ca_path.as_ref().to_string_lossy(),
-                    e
-                ),
+            let ca_cert = std::fs::read(ca_path.as_ref()).map_err(|e| {
+                ConfigSnafu {
+                    message: format!(
+                        "Failed to read CA bundle at {}: {}",
+                        ca_path.as_ref().to_string_lossy(),
+                        e
+                    ),
+                }
+                .build()
             })?;
 
-            let certs =
-                reqwest::Certificate::from_pem_bundle(&ca_cert).map_err(|e| Error::Config {
+            let certs = reqwest::Certificate::from_pem_bundle(&ca_cert).map_err(|e| {
+                ConfigSnafu {
                     message: format!("Failed to parse CA bundle: {}", e),
-                })?;
+                }
+                .build()
+            })?;
 
             for cert in certs {
                 client_builder = client_builder.add_root_certificate(cert);
             }
         }
 
-        let client = client_builder.build().map_err(|e| Error::Config {
-            message: format!("Failed to build HTTP client: {}", e),
+        let client = client_builder.build().map_err(|e| {
+            ConfigSnafu {
+                message: format!("Failed to build HTTP client: {}", e),
+            }
+            .build()
         })?;
 
         Ok(Self {
@@ -128,19 +136,23 @@ impl GitLabForge {
         if !response.status().is_success() {
             let status = response.status();
             let text = response.text().await?;
-            return Err(Error::GitLabApi {
+            return Err(GitLabApiSnafu {
                 message: format!("Failed to get: {} - {}", status, text),
-            });
+            }
+            .build());
         }
 
         let body = response.text().await?;
-        let data: T = serde_json::from_str(&body).map_err(|e| Error::GitLabApi {
-            message: format!(
-                "Failed to parse GET response to {}: {}, response: {}",
-                path.as_ref(),
-                e,
-                body
-            ),
+        let data: T = serde_json::from_str(&body).map_err(|e| {
+            GitLabApiSnafu {
+                message: format!(
+                    "Failed to parse GET response to {}: {}, response: {}",
+                    path.as_ref(),
+                    e,
+                    body
+                ),
+            }
+            .build()
         })?;
         Ok(data)
     }
@@ -388,9 +400,10 @@ impl Forge for GitLabForge {
             StatusCode::NOT_FOUND => Ok(CheckStatus::None),
             // Shrug, guess this means no pipeline is configured
             StatusCode::FORBIDDEN => Ok(CheckStatus::None),
-            _ => Err(Error::GitLabApi {
+            _ => Err(GitLabApiSnafu {
                 message: format!("Failed to get pipeline status: {}", response.status()),
-            }),
+            }
+            .build()),
         }
     }
 

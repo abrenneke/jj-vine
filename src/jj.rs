@@ -1,11 +1,12 @@
 use std::{path::PathBuf, process::Command};
 
 use serde::{Deserialize, Serialize};
+use snafu::ResultExt;
 use tracing::trace;
 
 #[cfg(test)]
 use crate::bookmark::Bookmark;
-use crate::error::{Error, Result};
+use crate::error::{ConfigSnafu, Error, JjCommandSnafu, JsonSnafu, ParseSnafu, Result};
 
 #[derive(Debug, Clone)]
 pub struct CommandOutput {
@@ -82,9 +83,10 @@ impl std::str::FromStr for BookmarkInfo {
 
     fn from_str(s: &str) -> Result<Self> {
         if s.is_empty() {
-            return Err(Error::Parse {
+            return Err(ParseSnafu {
                 message: "Empty bookmark name".to_string(),
-            });
+            }
+            .build());
         }
 
         let remote_different_from_local = s.ends_with("*");
@@ -342,10 +344,11 @@ impl Jujutsu {
         let stderr = String::from_utf8_lossy(&output.stderr);
 
         if !output.status.success() {
-            return Err(Error::JjCommand {
+            return Err(JjCommandSnafu {
                 message: format!("jj {} failed: {}", args.as_ref().join(" "), stderr),
                 output: Some(output),
-            });
+            }
+            .build());
         }
 
         // TODO interleave
@@ -362,8 +365,11 @@ impl Jujutsu {
 
     /// Find the jj binary
     fn which() -> Result<PathBuf> {
-        which::which("jj").map_err(|e| Error::Config {
-            message: format!("jj binary not found in PATH: {}", e),
+        which::which("jj").map_err(|e| {
+            ConfigSnafu {
+                message: format!("jj binary not found in PATH: {}", e),
+            }
+            .build()
         })
     }
 
@@ -406,10 +412,20 @@ impl Jujutsu {
             .chunks(fields.len())
             .map(|chunk| match chunk {
                 [self_commit, remote_tracked_bookmarks, local_bookmarks] => {
-                    let self_commit: JJCommit = serde_json::from_str(self_commit)?;
+                    let self_commit: JJCommit =
+                        serde_json::from_str(self_commit).context(JsonSnafu {
+                            json: self_commit.to_string(),
+                        })?;
+
                     let remote_tracked_bookmarks: Vec<JJBookmark> =
-                        serde_json::from_str(remote_tracked_bookmarks)?;
-                    let local_bookmarks: Vec<JJBookmark> = serde_json::from_str(local_bookmarks)?;
+                        serde_json::from_str(remote_tracked_bookmarks).context(JsonSnafu {
+                            json: remote_tracked_bookmarks.to_string(),
+                        })?;
+
+                    let local_bookmarks: Vec<JJBookmark> = serde_json::from_str(local_bookmarks)
+                        .context(JsonSnafu {
+                            json: local_bookmarks.to_string(),
+                        })?;
 
                     Ok(Change {
                         commit_id: self_commit.commit_id,
@@ -440,9 +456,10 @@ impl Jujutsu {
                             .collect(),
                     })
                 }
-                _ => Err(Error::Parse {
+                _ => Err(ParseSnafu {
                     message: format!("Failed to parse change line from jj: {:?}", chunk),
-                }),
+                }
+                .build()),
             })
             .collect()
     }
@@ -518,8 +535,8 @@ struct JJAuthor {
 struct JJBookmark {
     name: String,
     remote: Option<String>,
-    target: Vec<String>,
-    tracking_target: Option<Vec<String>>,
+    target: Vec<Option<String>>,
+    tracking_target: Option<Vec<Option<String>>>,
 }
 
 #[cfg(test)]

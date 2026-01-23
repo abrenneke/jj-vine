@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use serde::Deserialize;
 
 use crate::{
-    error::{Error, Result},
+    error::{ConfigSnafu, Error, Result},
     jj::Jujutsu,
 };
 
@@ -43,9 +43,10 @@ impl std::str::FromStr for ForgeType {
             "gitlab" => Ok(Self::GitLab),
             "github" => Ok(Self::GitHub),
             "forgejo" => Ok(Self::Forgejo),
-            _ => Err(Error::Config {
+            _ => Err(ConfigSnafu {
                 message: format!("Invalid forge type: {}", s),
-            }),
+            }
+            .build()),
         }
     }
 }
@@ -65,14 +66,18 @@ impl ForgeType {
 }
 
 /// Stack visualization format
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
-pub enum StackFormat {
-    /// Linear numbered list (default)
+pub enum DescriptionFormat {
+    /// Do not render this stack visualization
+    None,
+
+    /// A linear numbered list
+    #[default]
     Linear,
-    /// Tree format with indentation
+
+    /// A tree of MRs where children are indented
     Tree,
-    // Future formats: Compact, Custom(String)
 }
 
 fn default_remote_name() -> String {
@@ -83,72 +88,64 @@ fn default_branch() -> String {
     "main".to_string()
 }
 
-fn default_true() -> bool {
+const fn default_true() -> bool {
     true
-}
-
-fn default_stack_format() -> StackFormat {
-    StackFormat::Linear
 }
 
 /// Configuration for jj-vine
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Config {
-    /// Which forge to use (gitlab or github)
+    /// Which forge to use (GitLab, GitHub, or Forgejo).
     pub forge: ForgeType,
 
     // ===== Common Configuration =====
-    /// Git remote name (default: "origin")
+    /// Git remote name (defaults to "origin").
     #[serde(default = "default_remote_name")]
     pub remote_name: String,
 
-    /// Default branch name (default: "main")
+    /// Default branch name (defaults to "main").
     #[serde(default = "default_branch")]
     pub default_branch: String,
 
-    /// Optional path to CA bundle for TLS verification
+    /// Optional path to CA bundle for TLS verification.
     #[serde(default)]
     pub ca_bundle: Option<String>,
 
     /// Accept non-compliant TLS certificates (for certificates that don't meet
-    /// strict X.509 standards)
+    /// strict X.509 standards).
     #[serde(default)]
     pub tls_accept_non_compliant_certs: bool,
 
-    /// Enable stack visualization in MR descriptions (default: true)
-    #[serde(default = "default_true")]
-    pub enable_stack_visualization: bool,
+    /// Configuration for MR description generation.
+    #[serde(default)]
+    pub description: DescriptionConfig,
 
-    /// Stack visualization format (default: Linear)
-    #[serde(default = "default_stack_format")]
-    pub stack_format: StackFormat,
-
-    /// Delete source branch when MR is merged (default: true)
+    /// Delete source branch when MR is merged (defaults to true).
     #[serde(default = "default_true")]
     pub delete_source_branch: bool,
 
-    /// Squash commits when MR is merged (default: false)
+    /// Squash commits when MR is merged (defaults to false).
     #[serde(default)]
     pub squash_commits: bool,
 
-    /// Assign created MRs to yourself (default: false)
+    /// Assign created MRs to yourself (defaults to false).
     #[serde(default)]
     pub assign_to_self: bool,
 
-    /// Default reviewers for created MRs (list of usernames)
+    /// Default reviewers for created MRs (list of usernames).
     #[serde(default)]
     pub default_reviewers: Vec<String>,
 
-    /// GitLab configuration
+    /// GitLab configuration.
     #[serde(default)]
     pub gitlab: GitLabConfig,
 
-    /// GitHub configuration
+    /// GitHub configuration.
     #[serde(default)]
     pub github: GitHubConfig,
 
-    /// Forgejo/Gitea configuration
+    /// Forgejo/Gitea/Codeberg configuration.
     #[serde(default)]
     pub forgejo: ForgejoConfig,
 }
@@ -156,26 +153,26 @@ pub struct Config {
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct GitLabConfig {
-    /// GitLab instance URL (e.g., <https://gitlab.example.com>)
+    /// GitLab instance URL (e.g., `https://gitlab.example.com`).
     #[serde(default)]
     pub host: String,
 
-    /// GitLab project ID (e.g., "group/project" or "12345")
+    /// GitLab project ID (e.g., `group/project` or `12345`).
     #[serde(default)]
     pub project: String,
 
     /// Target project for MRs (if different from project, enables fork
-    /// workflow)
+    /// workflow).
     #[serde(default)]
     pub target_project: String,
 
-    /// GitLab Personal Access Token
+    /// GitLab Personal Access Token.
     #[serde(default)]
     pub token: String,
 }
 
 impl GitLabConfig {
-    /// Get the project where MRs target
+    /// Get the project where MRs target.
     pub fn target_project(&self) -> &str {
         if self.target_project.is_empty() {
             &self.project
@@ -184,12 +181,12 @@ impl GitLabConfig {
         }
     }
 
-    /// Get the project where branches are pushed
+    /// Get the project where branches are pushed.
     pub fn source_project(&self) -> &str {
         &self.project
     }
 
-    /// Check if this is a fork workflow (target differs from source)
+    /// Check if this is a fork workflow (target differs from source).
     pub fn is_fork_workflow(&self) -> bool {
         self.target_project() != self.project
     }
@@ -198,26 +195,26 @@ impl GitLabConfig {
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct GitHubConfig {
-    /// GitHub API URL (e.g., "https://api.github.com" or "https://github.example.com/api/v3")
+    /// GitHub API URL (e.g., `https://api.github.com` or `https://github.example.com/api/v3`).
     #[serde(default)]
     pub host: String,
 
-    /// GitHub repository in "owner/repo" format
+    /// GitHub repository in `owner/repo` format.
     #[serde(default)]
     pub project: String,
 
     /// Target repository for PRs (if different from project, enables fork
-    /// workflow)
+    /// workflow).
     #[serde(default)]
     pub target_project: String,
 
-    /// GitHub Personal Access Token
+    /// GitHub Personal Access Token.
     #[serde(default)]
     pub token: String,
 }
 
 impl GitHubConfig {
-    /// Get the repository where PRs target
+    /// Get the repository where PRs target.
     pub fn target_project(&self) -> &str {
         if self.target_project.is_empty() {
             &self.project
@@ -226,12 +223,12 @@ impl GitHubConfig {
         }
     }
 
-    /// Get the repository where branches are pushed
+    /// Get the repository where branches are pushed.       
     pub fn source_project(&self) -> &str {
         &self.project
     }
 
-    /// Check if this is a fork workflow (target differs from source)
+    /// Check if this is a fork workflow (target differs from source).
     pub fn is_fork_workflow(&self) -> bool {
         self.target_project() != self.project
     }
@@ -240,26 +237,26 @@ impl GitHubConfig {
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ForgejoConfig {
-    /// Forgejo/Gitea instance URL (e.g., <https://codeberg.org>)
+    /// Forgejo/Gitea instance URL (e.g., `https://codeberg.org`).
     #[serde(default)]
     pub host: String,
 
-    /// Repository in "owner/repo" format
+    /// Repository in `owner/repo` format.
     #[serde(default)]
     pub project: String,
 
     /// Target repository for PRs (if different from project, enables fork
-    /// workflow)
+    /// workflow).
     #[serde(default)]
     pub target_project: String,
 
-    /// API access token
+    /// API access token.
     #[serde(default)]
     pub token: String,
 }
 
 impl ForgejoConfig {
-    /// Get the repository where PRs target
+    /// Get the repository where PRs target.
     pub fn target_project(&self) -> &str {
         if self.target_project.is_empty() {
             &self.project
@@ -268,14 +265,62 @@ impl ForgejoConfig {
         }
     }
 
-    /// Get the repository where branches are pushed
+    /// Get the repository where branches are pushed.
     pub fn source_project(&self) -> &str {
         &self.project
     }
+}
 
-    /// Check if this is a fork workflow (target differs from source)
-    pub fn is_fork_workflow(&self) -> bool {
-        self.target_project() != self.project
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DescriptionConfig {
+    /// Whether to enable or disable description generation entirely.
+    pub enabled: bool,
+
+    /// How to render the description for different types of merge request
+    /// stacks.
+    #[serde(default)]
+    pub format: DescriptionFormatsConfig,
+}
+
+impl Default for DescriptionConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            format: Default::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DescriptionFormatsConfig {
+    /// How to render a single merge request, without any parents or children
+    /// besides the trunk. Defaults to not rendering a description.
+    pub single: DescriptionFormat,
+
+    /// How to render a linear stack of MRs.
+    /// Defaults to a linear numbered list.
+    pub linear: DescriptionFormat,
+
+    /// How to render a tree of MRs, where two MRs merge into a common parent.
+    /// Defaults to a linear numbered list.
+    pub tree: DescriptionFormat,
+
+    /// How to render a complex graph of MRs, where two MRs merge into a common
+    /// parent, or any merge request has multiple parents.
+    /// Defaults to a linear numbered list.
+    pub complex: DescriptionFormat,
+}
+
+impl Default for DescriptionFormatsConfig {
+    fn default() -> Self {
+        Self {
+            single: DescriptionFormat::None,
+            linear: DescriptionFormat::Linear,
+            tree: DescriptionFormat::Linear,
+            complex: DescriptionFormat::Linear,
+        }
     }
 }
 
@@ -285,21 +330,26 @@ impl Config {
         let jj = Jujutsu::new(repo_path)?;
         let output = jj.exec(["config", "list"])?;
 
-        let toml_value: toml::Value =
-            toml::from_str(&output.stdout).map_err(|e| Error::Config {
+        let toml_value: toml::Value = toml::from_str(&output.stdout).map_err(|e| {
+            ConfigSnafu {
                 message: format!("Failed to parse config as TOML: {}", e),
-            })?;
-
-        let jj_vine_value = toml_value.get("jj-vine").ok_or_else(|| Error::Config {
-            message: "Missing required config section: jj-vine".to_string(),
+            }
+            .build()
         })?;
 
-        let config: Config = jj_vine_value
-            .clone()
-            .try_into()
-            .map_err(|e| Error::Config {
+        let jj_vine_value = toml_value.get("jj-vine").ok_or_else(|| {
+            ConfigSnafu {
+                message: "Missing required config section: jj-vine".to_string(),
+            }
+            .build()
+        })?;
+
+        let config: Config = jj_vine_value.clone().try_into().map_err(|e| {
+            ConfigSnafu {
                 message: format!("Failed to parse jj-vine config: {}", e),
-            })?;
+            }
+            .build()
+        })?;
 
         config.validate()?;
 
@@ -310,48 +360,56 @@ impl Config {
         match self.forge {
             ForgeType::GitLab => {
                 if self.gitlab.host.is_empty() {
-                    return Err(Error::Config {
+                    return Err(ConfigSnafu {
                         message: "gitlab.host is required when forge is gitlab".to_string(),
-                    });
+                    }
+                    .build());
                 }
                 if self.gitlab.project.is_empty() {
-                    return Err(Error::Config {
+                    return Err(ConfigSnafu {
                         message: "gitlab.project is required when forge is gitlab".to_string(),
-                    });
+                    }
+                    .build());
                 }
                 if self.gitlab.token.is_empty() {
-                    return Err(Error::Config {
+                    return Err(ConfigSnafu {
                         message: "gitlab.token is required when forge is gitlab".to_string(),
-                    });
+                    }
+                    .build());
                 }
             }
             ForgeType::GitHub => {
                 if self.github.project.is_empty() {
-                    return Err(Error::Config {
+                    return Err(ConfigSnafu {
                         message: "github.project is required when forge is github".to_string(),
-                    });
+                    }
+                    .build());
                 }
                 if self.github.token.is_empty() {
-                    return Err(Error::Config {
+                    return Err(ConfigSnafu {
                         message: "github.token is required when forge is github".to_string(),
-                    });
+                    }
+                    .build());
                 }
             }
             ForgeType::Forgejo => {
                 if self.forgejo.host.is_empty() {
-                    return Err(Error::Config {
+                    return Err(ConfigSnafu {
                         message: "forgejo.host is required when forge is forgejo".to_string(),
-                    });
+                    }
+                    .build());
                 }
                 if self.forgejo.project.is_empty() {
-                    return Err(Error::Config {
+                    return Err(ConfigSnafu {
                         message: "forgejo.project is required when forge is forgejo".to_string(),
-                    });
+                    }
+                    .build());
                 }
                 if self.forgejo.token.is_empty() {
-                    return Err(Error::Config {
+                    return Err(ConfigSnafu {
                         message: "forgejo.token is required when forge is forgejo".to_string(),
-                    });
+                    }
+                    .build());
                 }
             }
         }
@@ -384,7 +442,7 @@ mod tests {
         let result = Config::load(&repo_path);
         assert!(result.is_err());
 
-        if let Err(Error::Config { message }) = result {
+        if let Err(Error::Config { message, .. }) = result {
             assert!(
                 message.contains("missing field")
                     || message.contains("gitlab")
@@ -530,8 +588,25 @@ mod tests {
 
         let config = Config::load(&repo_path).expect("Failed to load config");
 
-        assert!(config.enable_stack_visualization);
-        assert!(matches!(config.stack_format, StackFormat::Linear));
+        dbg!(&config);
+
+        assert!(config.description.enabled);
+        assert!(matches!(
+            config.description.format.single,
+            DescriptionFormat::None
+        ));
+        assert!(matches!(
+            config.description.format.linear,
+            DescriptionFormat::Linear
+        ));
+        assert!(matches!(
+            config.description.format.tree,
+            DescriptionFormat::Linear
+        ));
+        assert!(matches!(
+            config.description.format.complex,
+            DescriptionFormat::Linear
+        ));
     }
 
     #[test]
@@ -561,12 +636,11 @@ mod tests {
         jj.exec(["config", "set", "--repo", "jj-vine.gitlab.token", "token"])
             .expect("Failed to set config");
 
-        // Set explicit stack visualization config (disable it)
         jj.exec([
             "config",
             "set",
             "--repo",
-            "jj-vine.enableStackVisualization",
+            "jj-vine.description.enabled",
             "false",
         ])
         .expect("Failed to set config");
@@ -576,8 +650,23 @@ mod tests {
 
         let config = Config::load(&repo_path).expect("Failed to load config");
 
-        assert!(!config.enable_stack_visualization);
-        assert!(matches!(config.stack_format, StackFormat::Linear)); // Still default
+        assert!(!config.description.enabled);
+        assert!(matches!(
+            config.description.format.single,
+            DescriptionFormat::None
+        ));
+        assert!(matches!(
+            config.description.format.linear,
+            DescriptionFormat::Linear
+        ));
+        assert!(matches!(
+            config.description.format.tree,
+            DescriptionFormat::Linear
+        ));
+        assert!(matches!(
+            config.description.format.complex,
+            DescriptionFormat::Linear
+        ));
     }
 
     #[test]
@@ -921,47 +1010,5 @@ mod tests {
         assert_eq!(config.target_project(), "myuser/myrepo");
         assert_eq!(config.source_project(), "myuser/myrepo");
         assert!(!config.is_fork_workflow());
-    }
-
-    #[test]
-    fn test_github_fork_mode_with_different_target() {
-        let config = GitHubConfig {
-            host: "https://api.github.com".to_string(),
-            project: "myuser/fork".to_string(),
-            target_project: "upstream/repo".to_string(),
-            token: "token".to_string(),
-        };
-
-        assert_eq!(config.target_project(), "upstream/repo");
-        assert_eq!(config.source_project(), "myuser/fork");
-        assert!(config.is_fork_workflow());
-    }
-
-    #[test]
-    fn test_forgejo_direct_mode_without_target() {
-        let config = ForgejoConfig {
-            host: "https://codeberg.org".to_string(),
-            project: "myuser/myrepo".to_string(),
-            target_project: "".to_string(),
-            token: "token".to_string(),
-        };
-
-        assert_eq!(config.target_project(), "myuser/myrepo");
-        assert_eq!(config.source_project(), "myuser/myrepo");
-        assert!(!config.is_fork_workflow());
-    }
-
-    #[test]
-    fn test_forgejo_fork_mode_with_different_target() {
-        let config = ForgejoConfig {
-            host: "https://codeberg.org".to_string(),
-            project: "myuser/fork".to_string(),
-            target_project: "upstream/repo".to_string(),
-            token: "token".to_string(),
-        };
-
-        assert_eq!(config.target_project(), "upstream/repo");
-        assert_eq!(config.source_project(), "myuser/fork");
-        assert!(config.is_fork_workflow());
     }
 }

@@ -9,7 +9,11 @@ use bon::Builder;
 use enum_dispatch::enum_dispatch;
 use serde::{Deserialize, Serialize};
 
-use crate::{config::ForgeType, description::FormatMergeRequest, error::Result};
+use crate::{
+    config::{Config, ForgeType},
+    description::FormatMergeRequest,
+    error::Result,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ForgeUser {
@@ -410,49 +414,57 @@ pub enum ForgeImpl {
     Test(test::TestForge),
 }
 
-/// Create a forge instance based on configuration.
-pub fn create_forge(config: &crate::config::Config) -> Result<ForgeImpl> {
-    config.validate()?;
+impl ForgeImpl {
+    /// Create a new forge. Looks for a jj-vine config in the current directory.
+    pub fn from_cwd() -> Result<Self> {
+        let cwd = std::env::current_dir()?;
+        let config = Config::load(&cwd)?;
+        Self::new(&config)
+    }
 
-    match config.forge {
-        ForgeType::GitLab => {
-            let source = config.gitlab.source_project();
-            let target = config.gitlab.target_project();
-            gitlab::GitLabForge::new(
-                config.gitlab.host.clone(),
-                source.to_string(),
-                target.to_string(),
-                config.gitlab.token.clone(),
-                config.ca_bundle.clone(),
-                config.tls_accept_non_compliant_certs,
-            )
-            .map(|forge| forge.into())
-        }
-        ForgeType::GitHub => {
-            let source = config.github.source_project();
-            let target = config.github.target_project();
-            github::GitHubForge::new(
-                config.github.host.clone(),
-                source.to_string(),
-                target.to_string(),
-                config.github.token.clone(),
-                config.ca_bundle.clone(),
-                config.tls_accept_non_compliant_certs,
-            )
-            .map(|forge| forge.into())
-        }
-        ForgeType::Forgejo => {
-            let source = config.forgejo.source_project();
-            let target = config.forgejo.target_project();
-            forgejo::ForgejoForge::new(
-                config.forgejo.host.clone(),
-                source.to_string(),
-                target.to_string(),
-                config.forgejo.token.clone(),
-                config.ca_bundle.clone(),
-                config.tls_accept_non_compliant_certs,
-            )
-            .map(|forge| forge.into())
+    pub fn new(config: &Config) -> Result<Self> {
+        config.validate()?;
+
+        match config.forge {
+            ForgeType::GitLab => {
+                let source = config.gitlab.source_project();
+                let target = config.gitlab.target_project();
+                gitlab::GitLabForge::new(
+                    config.gitlab.host.clone(),
+                    source.to_string(),
+                    target.to_string(),
+                    config.gitlab.token.clone(),
+                    config.ca_bundle.clone(),
+                    config.tls_accept_non_compliant_certs,
+                )
+                .map(|forge| forge.into())
+            }
+            ForgeType::GitHub => {
+                let source = config.github.source_project();
+                let target = config.github.target_project();
+                github::GitHubForge::new(
+                    config.github.host.clone(),
+                    source.to_string(),
+                    target.to_string(),
+                    config.github.token.clone(),
+                    config.ca_bundle.clone(),
+                    config.tls_accept_non_compliant_certs,
+                )
+                .map(|forge| forge.into())
+            }
+            ForgeType::Forgejo => {
+                let source = config.forgejo.source_project();
+                let target = config.forgejo.target_project();
+                forgejo::ForgejoForge::new(
+                    config.forgejo.host.clone(),
+                    source.to_string(),
+                    target.to_string(),
+                    config.forgejo.token.clone(),
+                    config.ca_bundle.clone(),
+                    config.tls_accept_non_compliant_certs,
+                )
+                .map(|forge| forge.into())
+            }
         }
     }
 }

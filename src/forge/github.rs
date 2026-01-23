@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::{
     description::FormatMergeRequest,
-    error::{Error, Result},
+    error::{ConfigSnafu, Error, GitHubApiSnafu, Result},
     forge::{
         ApprovalSatisfaction,
         ApprovalStatus,
@@ -271,26 +271,34 @@ impl GitHubForge {
         }
 
         if let Some(ca_path) = ca_bundle {
-            let ca_cert = std::fs::read(ca_path.as_ref()).map_err(|e| Error::Config {
-                message: format!(
-                    "Failed to read CA bundle at {}: {}",
-                    ca_path.as_ref().to_string_lossy(),
-                    e
-                ),
+            let ca_cert = std::fs::read(ca_path.as_ref()).map_err(|e| {
+                ConfigSnafu {
+                    message: format!(
+                        "Failed to read CA bundle at {}: {}",
+                        ca_path.as_ref().to_string_lossy(),
+                        e
+                    ),
+                }
+                .build()
             })?;
 
-            let certs =
-                reqwest::Certificate::from_pem_bundle(&ca_cert).map_err(|e| Error::Config {
+            let certs = reqwest::Certificate::from_pem_bundle(&ca_cert).map_err(|e| {
+                ConfigSnafu {
                     message: format!("Failed to parse CA bundle: {}", e),
-                })?;
+                }
+                .build()
+            })?;
 
             for cert in certs {
                 client_builder = client_builder.add_root_certificate(cert);
             }
         }
 
-        let client = client_builder.build().map_err(|e| Error::Config {
-            message: format!("Failed to build HTTP client: {}", e),
+        let client = client_builder.build().map_err(|e| {
+            ConfigSnafu {
+                message: format!("Failed to build HTTP client: {}", e),
+            }
+            .build()
         })?;
 
         // Strip trailing slashes from base_url to avoid double slashes in constructed
@@ -329,19 +337,23 @@ impl GitHubForge {
         if !response.status().is_success() {
             let status = response.status();
             let text = response.text().await?;
-            return Err(Error::GitHubApi {
+            return Err(GitHubApiSnafu {
                 message: format!("Failed to get: {} - {}", status, text),
-            });
+            }
+            .build());
         }
 
         let body = response.text().await?;
-        let data: T = serde_json::from_str(&body).map_err(|e| Error::GitHubApi {
-            message: format!(
-                "Failed to parse GET response to {}: {}, response: {}",
-                path.as_ref(),
-                e,
-                body
-            ),
+        let data: T = serde_json::from_str(&body).map_err(|e| {
+            GitHubApiSnafu {
+                message: format!(
+                    "Failed to parse GET response to {}: {}, response: {}",
+                    path.as_ref(),
+                    e,
+                    body
+                ),
+            }
+            .build()
         })?;
         Ok(data)
     }
@@ -378,22 +390,25 @@ impl GitHubForge {
         if !response.status().is_success() {
             let status = response.status();
             let text = response.text().await?;
-            return Err(Error::GitHubApi {
+            return Err(GitHubApiSnafu {
                 message: format!("GraphQL request failed: {} - {}", status, text),
-            });
+            }
+            .build());
         }
 
         let body = response.text().await?;
-        let data: GraphQLResponse<T> =
-            serde_json::from_str(&body).map_err(|e| Error::GitHubApi {
+        let data: GraphQLResponse<T> = serde_json::from_str(&body).map_err(|e| {
+            GitHubApiSnafu {
                 message: format!(
                     "Failed to parse GraphQL response: {}, response: {}",
                     e, body
                 ),
-            })?;
+            }
+            .build()
+        })?;
 
         if let Some(errors) = data.errors {
-            return Err(Error::GitHubApi {
+            return Err(GitHubApiSnafu {
                 message: format!(
                     "GraphQL request failed: {}",
                     errors
@@ -402,7 +417,8 @@ impl GitHubForge {
                         .collect::<Vec<String>>()
                         .join(", ")
                 ),
-            });
+            }
+            .build());
         }
 
         Ok(data.data)
@@ -448,7 +464,7 @@ impl Forge for GitHubForge {
             .await
         {
             Ok(user) => Ok(Some(user.into())),
-            Err(Error::GitHubApi { message }) if message.contains("404") => Ok(None),
+            Err(Error::GitHubApi { message, .. }) if message.contains("404") => Ok(None),
             Err(e) => Err(e),
         }
     }
@@ -857,13 +873,19 @@ query GetDiscussions($owner: String!, $name: String!, $pr_number: Int!) {
 
         let pull_request = response
             .repository
-            .ok_or(Error::GitHubApi {
-                message: format!("Repository {} not found", self.target_project_id),
-            })?
+            .ok_or(
+                GitHubApiSnafu {
+                    message: format!("Repository {} not found", self.target_project_id),
+                }
+                .build(),
+            )?
             .pull_request
-            .ok_or(Error::GitHubApi {
-                message: format!("Pull request {} not found", pr_number),
-            })?;
+            .ok_or(
+                GitHubApiSnafu {
+                    message: format!("Pull request {} not found", pr_number),
+                }
+                .build(),
+            )?;
 
         let root_comments = &pull_request.comments.nodes;
 

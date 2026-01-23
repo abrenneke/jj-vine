@@ -1,19 +1,19 @@
 #![cfg(test)]
 #![allow(dead_code)]
 
-use std::{path::PathBuf, process::Command};
+use std::path::PathBuf;
 
+use clap::Parser;
+use snafu::ResultExt;
 use tempfile::TempDir;
 
 #[cfg(not(feature = "no-e2e-tests"))]
 use crate::forge::{forgejo::ForgejoForge, github::GitHubForge, gitlab::GitLabForge};
 use crate::{
-    cli::CliConfig,
-    commands::submit::SubmitCommandConfig,
-    error::Result,
+    cli::Cli,
+    error::{ClapSnafu, Result},
     forge::Forge,
     jj::Jujutsu,
-    output::BufferedOutput,
 };
 
 /// Generate a unique test branch name to avoid conflicts between test runs
@@ -39,16 +39,15 @@ fn make_repo() -> (TempDir, PathBuf) {
     let dir = TempDir::new().unwrap();
     let path = dir.path().to_path_buf();
 
-    let output = Command::new("jj")
-        .args(["git", "init"])
-        .current_dir(&path)
-        .output()
+    let jj = Jujutsu::new(&path).unwrap();
+
+    jj.exec(["git", "init"]).unwrap();
+
+    jj.exec(["config", "set", "--repo", "user.name", "Test User"])
         .unwrap();
-    assert!(
-        output.status.success(),
-        "jj init failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+    jj.exec(["config", "set", "--repo", "user.email", "test@example.com"])
+        .unwrap();
+    jj.exec(["metaedit", "--update-author"]).unwrap();
 
     (dir, path)
 }
@@ -417,24 +416,19 @@ impl<T> TestRepo<T> {
         self
     }
 
-    /// Submit bookmarks with options
-    pub async fn submit(&self, config: SubmitCommandConfig) -> String {
-        self.try_submit(config).await.unwrap()
+    /// Run the CLI with the given arguments
+    pub async fn run<'a>(&self, args: impl AsRef<[&'a str]>) -> String {
+        self.try_run(args).await.unwrap()
     }
 
-    /// Submit bookmarks with options, returning Result for error testing
-    pub async fn try_submit(&self, config: SubmitCommandConfig) -> Result<String> {
-        let buffered_output = BufferedOutput::new();
-        crate::commands::submit::submit(
-            config,
-            CliConfig {
-                repository: self.path.clone(),
-                output: &buffered_output,
-            },
-        )
-        .await?;
-
-        Ok(strip_ansi_escapes::strip_str(buffered_output.get_buffer()))
+    /// Run the CLI with the given arguments, returning Result for error testing
+    pub async fn try_run<'a>(&self, args: impl AsRef<[&'a str]>) -> Result<String> {
+        let args = args.as_ref();
+        let mut cli = Cli::try_parse_from(["jj-vine"].iter().chain(args)).context(ClapSnafu {
+            arguments: args.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
+        })?;
+        cli.repository = cli.repository.or(Some(self.path.clone()));
+        cli.run_captured().await
     }
 }
 

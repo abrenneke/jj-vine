@@ -15,10 +15,10 @@ use unicode_segmentation::UnicodeSegmentation;
 use crate::{
     bookmark::{Bookmark, BookmarkGraph},
     cli::CliConfig,
-    commands::{GetBookmarksOptions, StrVisualWidth, get_changes_from_cli_args},
+    commands::{GetBookmarksOptions, StrVisualWidth},
     config::Config,
-    error::{CLISnafu, Error, Result},
-    forge::create_forge,
+    error::{AggregateSnafu, OtherSnafu, Result},
+    forge::ForgeImpl,
     jj::Jujutsu,
     submit::{
         execute::{self, MRUpdate, MRUpdateType},
@@ -28,61 +28,115 @@ use crate::{
 
 #[derive(Args)]
 pub struct SubmitCommandConfig {
-    /// The revset to submit (mutually exclusive with --tracked)
-    pub revset: Option<String>,
+    /// Options for the revset
+    #[command(flatten)]
+    pub revset_options: SubmitCommandRevsetOptions,
 
-    /// Submit all tracked bookmarks (equivalent to "(mine() &
-    /// tracked_remote_bookmarks()) ~ trunk()")
-    #[arg(long)]
-    pub tracked: bool,
-
-    /// Remote to push to
+    /// The remote to push to.
     #[arg(long, default_value = "origin")]
     pub remote: String,
 
-    /// Dry run - don't actually push or create MRs
+    /// Don't actually modify any merge requests or push bookmarks, only print
+    /// what would be done.
     #[arg(long)]
     pub dry_run: bool,
+}
+
+impl SubmitCommandConfig {
+    pub fn help_long() -> String {
+        format!(
+            r#"
+Submit one or more bookmarks to the code forge.
+This command will create merge requests that don't exist, update
+existing merge requests to the correct target branch, and sync all
+merge request descriptions.
+
+{}
+
+Submit a single bookmark:
+{}
+
+Submit all tracked bookmarks:
+{}
+
+Preview submitting a revset without making changes:
+{}
+"#,
+            "Examples:".yellow().bold(),
+            "jj vine submit <bookmark>".green().bold(),
+            "jj vine submit --tracked".green().bold(),
+            "jj vine submit -r <revset> --dry-run".green().bold(),
+        )
+        .trim()
+        .to_string()
+    }
+}
+
+#[derive(Args, Default)]
+#[group(required = true, multiple = false)]
+pub struct SubmitCommandRevsetOptions {
+    /// The revset to submit (may use -r or not).
+    #[arg(id = "revset")]
+    pub revset_positional: Option<String>,
+
+    /// The revset to submit (may use -r or not).
+    #[arg(id = "revset_arg", short = 'r', long)]
+    pub revset: Option<String>,
+
+    /// Submit all tracked bookmarks.
+    ///
+    /// While this is roughly equivalent to
+    /// `(mine() & tracked_remote_bookmarks()) ~ trunk()`, it includes the
+    /// additional stipulation that all submitted bookmarks must be already
+    /// pushed to the remote. Bookmarks which have non-tracked parents or
+    /// children will be skipped over.
+    #[arg(short = 't', long)]
+    pub tracked: bool,
+}
+
+impl SubmitCommandRevsetOptions {
+    fn to_get_bookmarks_options(&self) -> GetBookmarksOptions {
+        match (
+            self.revset_positional.as_deref(),
+            self.revset.as_deref(),
+            self.tracked,
+        ) {
+            (Some(revset), None, false) => GetBookmarksOptions::Revset(revset.to_string()),
+            (None, Some(revset), false) => GetBookmarksOptions::Revset(revset.to_string()),
+            (None, None, true) => GetBookmarksOptions::Tracked,
+            _ => unreachable!(),
+        }
+    }
 }
 
 impl Default for SubmitCommandConfig {
     fn default() -> Self {
         Self {
-            revset: None,
-            tracked: false,
+            revset_options: Default::default(),
             remote: "origin".to_string(),
             dry_run: false,
         }
     }
 }
 
-impl SubmitCommandConfig {
-    fn to_get_bookmarks_options(&self) -> GetBookmarksOptions {
-        GetBookmarksOptions {
-            mine: false,
-            revset: self.revset.clone(),
-            tracked: self.tracked,
-        }
-    }
-}
-
 /// Submit bookmarks and their dependencies as GitLab MRs
-pub async fn submit(config: SubmitCommandConfig, cli_config: CliConfig<'_>) -> Result<()> {
+pub async fn submit(config: &SubmitCommandConfig, cli_config: &CliConfig<'_>) -> Result<()> {
     let jj = Jujutsu::new(&cli_config.repository)?;
 
-    let changes = get_changes_from_cli_args(&config.to_get_bookmarks_options(), &jj)?;
+    let revset = config.revset_options.to_get_bookmarks_options().to_revset();
+    let changes = jj.log(revset)?;
     let bookmarks: Vec<_> = Bookmark::from_changes(&changes).into_iter().collect();
 
     ensure!(
         !bookmarks.is_empty(),
-        CLISnafu {
+        OtherSnafu {
             message: "No bookmarks in revset".to_string(),
         }
     );
 
     let output = cli_config.output;
     let repo_config = Config::load(&cli_config.repository)?;
-    let forge = create_forge(&repo_config)?;
+    let forge = ForgeImpl::new(&repo_config)?;
 
     output.log_message(&format!(
         "Submitting bookmarks: {}",
@@ -100,8 +154,11 @@ pub async fn submit(config: SubmitCommandConfig, cli_config: CliConfig<'_>) -> R
             .join(" | ")
     ))?;
     let bookmarks: Vec<_> = Bookmark::from_changes(&changes).into_iter().collect();
-    let bookmark_graph =
-        BookmarkGraph::from_bookmarks(&jj, bookmarks.iter().cloned(), config.tracked)?;
+    let bookmark_graph = BookmarkGraph::from_bookmarks(
+        &jj,
+        bookmarks.iter().cloned(),
+        config.revset_options.tracked,
+    )?;
 
     let submission_plan = plan::plan(
         &jj,
@@ -193,12 +250,10 @@ pub async fn submit(config: SubmitCommandConfig, cli_config: CliConfig<'_>) -> R
     }
 
     if !result.errors.is_empty() {
-        return Err(Error::Config {
-            message: format!(
-                "{} error(s) occurred during submission",
-                result.errors.len()
-            ),
-        });
+        return Err(AggregateSnafu {
+            errors: result.errors,
+        }
+        .build());
     }
 
     Ok(())

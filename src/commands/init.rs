@@ -1,7 +1,8 @@
-use std::path::PathBuf;
+use std::{collections::HashMap, path::PathBuf};
 
 use dialoguer::{Input, Password, Select};
 use owo_colors::OwoColorize;
+use serde::Deserialize;
 
 use crate::{cli::CliConfig, config::ForgeType, error::Result, jj::Jujutsu};
 
@@ -18,7 +19,7 @@ struct ForkDetection {
 }
 
 /// Initialize jj-vine configuration for this repository
-pub async fn init(cli_config: CliConfig<'_>) -> Result<()> {
+pub async fn init(cli_config: &CliConfig<'_>) -> Result<()> {
     println!("This will configure jj-vine for your repository.");
     println!(
         "{}",
@@ -115,14 +116,69 @@ pub async fn init(cli_config: CliConfig<'_>) -> Result<()> {
         }
     }
 
-    println!();
+    let jj = Jujutsu::new(&cli_config.repository)?;
+
+    let recommended_alias = match forge_type {
+        ForgeType::GitLab => "pr",
+        ForgeType::GitHub => "mr",
+        ForgeType::Forgejo => "pr",
+    };
+    let recommendation = format!(
+        "\nIt is useful to set up an alias for this command, such as {}! Run {} to set it up.",
+        format!("jj {}", recommended_alias).bold().magenta(),
+        format!(
+            r#"jj config set --user aliases.{} '["util", "exec", "--", "jj-vine"]'"#,
+            recommended_alias
+        )
+        .cyan()
+    );
+
+    let message = match toml::from_str::<JJConfig>(&jj.exec(["config", "list", "aliases"])?.stdout)
+    {
+        Ok(JJConfig {
+            aliases: Some(aliases),
+            ..
+        }) => {
+            let alias = aliases
+                .iter()
+                .find(|(_, args)| args.contains(&"jj-vine".to_string()));
+            match alias {
+                Some((alias, _)) => format!(
+                    "Configuration complete! You can now use: {}.",
+                    format!("jj {}", alias).bold()
+                )
+                .green()
+                .to_string(),
+                None => format!(
+                    "Configuration complete! You can now use: {}.{}",
+                    "jj-vine submit".bold(),
+                    recommendation
+                )
+                .green()
+                .to_string(),
+            }
+        }
+        _ => format!(
+            "Configuration complete! You can now use: {}.{}",
+            "jj-vine submit".bold(),
+            recommendation
+        )
+        .green()
+        .to_string(),
+    };
+
     println!(
-        "{} {}",
+        "\n{} {}\n\nThere are more configuration options available. See all configuration options at https://codeberg.org/abrenneke/jj-vine#configuration.",
         "✓".green().bold(),
-        "Configuration complete! You can now use: jj mr submit".green()
+        message
     );
 
     Ok(())
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct JJConfig {
+    aliases: Option<HashMap<String, Vec<String>>>,
 }
 
 /// Initialize GitLab-specific configuration

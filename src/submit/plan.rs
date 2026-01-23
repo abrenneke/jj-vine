@@ -159,58 +159,60 @@ pub async fn plan<'a>(
 
     let mut mr_action_ids: Vec<usize> = Vec::new();
 
-    for bookmark in graph.bookmarks() {
-        let bookmark = graph.find_bookmark_in_components(bookmark.name()).unwrap();
+    for component in graph.components() {
+        for bookmark in component.topological_sort()? {
+            let bookmark = graph.find_bookmark_in_components(&bookmark).unwrap();
 
-        // TODO let user pick target branch
-        let target_branch = match bookmark.parents.first() {
-            Some(BookmarkRef::Bookmark(b)) => b.name().to_string(),
-            Some(BookmarkRef::Trunk) | None => config.default_branch.clone(),
-        };
+            // TODO let user pick target branch
+            let target_branch = match bookmark.parents.first() {
+                Some(BookmarkRef::Bookmark(b)) => b.name(),
+                Some(BookmarkRef::Trunk) | None => &config.default_branch,
+            };
 
-        let push_dependency = push_action_ids
-            .get(bookmark.name())
-            .copied()
-            .map(|id| vec![id])
-            .unwrap_or_default();
+            let push_dependency = push_action_ids
+                .get(bookmark.name())
+                .copied()
+                .map(|id| vec![id])
+                .unwrap_or_default();
 
-        match existing_mrs.get(bookmark.name()) {
-            Some(existing_mr) => {
-                if existing_mr.target_branch() != target_branch {
+            match existing_mrs.get(bookmark.name()) {
+                Some(existing_mr) => {
+                    if existing_mr.target_branch() != target_branch {
+                        let action_id = get_id();
+                        mr_action_ids.push(action_id);
+
+                        batches.push(vec![PlannedAction {
+                            id: action_id,
+                            action: Action::UpdateMRBase {
+                                bookmark: bookmark.name().to_string(),
+                                mr_iid: existing_mr.iid().to_string(),
+                                new_target_branch: target_branch.to_string(),
+                            },
+                            dependencies: push_dependency,
+                        }]);
+                    }
+                }
+                None => {
+                    let title = get_mr_title(jj, bookmark.name(), target_branch)?;
                     let action_id = get_id();
                     mr_action_ids.push(action_id);
 
                     batches.push(vec![PlannedAction {
                         id: action_id,
-                        action: Action::UpdateMRBase {
+                        action: Action::CreateMR {
                             bookmark: bookmark.name().to_string(),
-                            mr_iid: existing_mr.iid().to_string(),
-                            new_target_branch: target_branch.clone(),
+                            target_branch: target_branch.to_string(),
+                            title,
+                            description: String::new(),
                         },
                         dependencies: push_dependency,
                     }]);
                 }
             }
-            None => {
-                let title = get_mr_title(jj, bookmark.name(), &target_branch)?;
-                let action_id = get_id();
-                mr_action_ids.push(action_id);
-
-                batches.push(vec![PlannedAction {
-                    id: action_id,
-                    action: Action::CreateMR {
-                        bookmark: bookmark.name().to_string(),
-                        target_branch,
-                        title,
-                        description: String::new(),
-                    },
-                    dependencies: push_dependency,
-                }]);
-            }
         }
     }
 
-    if config.enable_stack_visualization {
+    if config.description.enabled {
         let bookmarks_needing_descriptions: Vec<_> = graph
             .bookmarks()
             .filter(|bookmark| {

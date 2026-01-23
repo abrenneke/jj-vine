@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
-    error::{Error, Result},
+    error::{BookmarkNotFoundSnafu, Error, Result},
     jj::{BookmarkInfo, Change, Jujutsu},
 };
 
@@ -87,8 +87,11 @@ impl ChangeComponent<'_> {
 
     /// Get the downstack of a bookmark in the component
     pub fn downstack_of(&self, name: &str) -> Result<Vec<Bookmark<'_>>> {
-        let bookmark = self.find(name).ok_or_else(|| Error::BookmarkNotFound {
-            name: name.to_string(),
+        let bookmark = self.find(name).ok_or_else(|| {
+            BookmarkNotFoundSnafu {
+                name: name.to_string(),
+            }
+            .build()
         })?;
 
         Ok(bookmark.downstack())
@@ -142,8 +145,11 @@ impl ChangeComponent<'_> {
     /// Check if the component is linear from a given bookmark, down to the
     /// trunk. Returns an Err if the bookmark is not found in the component.
     pub fn is_linear_from(&self, bookmark: &str) -> Result<bool> {
-        let bookmark = self.find(bookmark).ok_or_else(|| Error::BookmarkNotFound {
-            name: bookmark.to_string(),
+        let bookmark = self.find(bookmark).ok_or_else(|| {
+            BookmarkNotFoundSnafu {
+                name: bookmark.to_string(),
+            }
+            .build()
         })?;
 
         Ok(bookmark.is_linear())
@@ -536,11 +542,12 @@ impl<'a> BookmarkGraph<'a> {
     /// the bookmark is feature-b, the downstack is [feature-b, feature-a,
     /// main].
     pub fn downstack_of(&self, bookmark_name: &str) -> Result<Vec<Bookmark<'_>>> {
-        let component =
-            self.component_containing(bookmark_name)
-                .ok_or_else(|| Error::BookmarkNotFound {
-                    name: bookmark_name.to_string(),
-                })?;
+        let component = self.component_containing(bookmark_name).ok_or_else(|| {
+            BookmarkNotFoundSnafu {
+                name: bookmark_name.to_string(),
+            }
+            .build()
+        })?;
 
         component.downstack_of(bookmark_name)
     }

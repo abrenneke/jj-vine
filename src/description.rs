@@ -1,11 +1,14 @@
-use std::collections::{HashMap, HashSet};
+use std::{
+    borrow::Cow,
+    collections::{HashMap, HashSet},
+};
 
 use enum_dispatch::enum_dispatch;
 use itertools::Itertools;
 
 use crate::{
     bookmark::{BookmarkRef, ChangeComponent},
-    config::StackFormat,
+    config::{DescriptionConfig, DescriptionFormat},
     forge::{ForgeImpl, ForgeMergeRequest},
 };
 
@@ -20,15 +23,41 @@ pub trait FormatMergeRequest {
 }
 
 pub enum DescriptionFormatter {
+    None,
     LinearList(LinearListFormatter),
     Tree(TreeFormatter),
 }
 
 impl DescriptionFormatter {
-    pub fn format_stack(&self, context: &FormatContext) -> String {
+    pub fn format_single(&self, context: &FormatContext) -> String {
         match self {
-            DescriptionFormatter::LinearList(formatter) => formatter.format_stack(context),
-            DescriptionFormatter::Tree(formatter) => formatter.format_stack(context),
+            DescriptionFormatter::None => String::new(),
+            DescriptionFormatter::LinearList(formatter) => formatter.format_single(context),
+            DescriptionFormatter::Tree(formatter) => formatter.format_single(context),
+        }
+    }
+
+    pub fn format_linear(&self, context: &FormatContext) -> String {
+        match self {
+            DescriptionFormatter::None => String::new(),
+            DescriptionFormatter::LinearList(formatter) => formatter.format_linear(context),
+            DescriptionFormatter::Tree(formatter) => formatter.format_linear(context),
+        }
+    }
+
+    pub fn format_tree(&self, context: &FormatContext) -> String {
+        match self {
+            DescriptionFormatter::None => String::new(),
+            DescriptionFormatter::LinearList(formatter) => formatter.format_tree(context),
+            DescriptionFormatter::Tree(formatter) => formatter.format_tree(context),
+        }
+    }
+
+    pub fn format_graph(&self, context: &FormatContext) -> String {
+        match self {
+            DescriptionFormatter::None => String::new(),
+            DescriptionFormatter::LinearList(formatter) => formatter.format_graph(context),
+            DescriptionFormatter::Tree(formatter) => formatter.format_graph(context),
         }
     }
 }
@@ -36,161 +65,202 @@ impl DescriptionFormatter {
 pub struct LinearListFormatter;
 
 impl LinearListFormatter {
-    pub fn format_stack(&self, context: &FormatContext) -> String {
+    pub fn format_single(&self, context: &FormatContext) -> String {
         let mut lines = Vec::new();
-
         let mr_name = context.format_merge_request.mr_name();
 
-        match &context.component {
-            component if component.len() == 1 => {
-                return String::new();
-            }
-            component if component.is_linear() => {
-                lines.push(format!(
-                    "This {mr_name} is part of a stack containing {} {mr_name}s:\n",
-                    component.len()
-                ));
+        lines.push(format!(
+            "This {mr_name} is part of a stack containing 1 {mr_name}:\n",
+        ));
 
-                let ordered_bookmarks: Vec<_> = context
-                    .component
-                    .topological_sort()
-                    .expect("Cycle detected in bookmark graph!")
-                    .into_iter()
-                    .map(|name| {
-                        BookmarkRef::Bookmark(
-                            context
-                                .component
-                                .find(&name)
-                                .expect("Bookmark not found in component!")
-                                .clone(),
-                        )
-                    })
-                    .collect();
+        let ordered_bookmarks: Vec<_> = context
+            .component
+            .topological_sort()
+            .expect("Cycle detected in bookmark graph!")
+            .into_iter()
+            .map(|name| {
+                BookmarkRef::Bookmark(
+                    context
+                        .component
+                        .find(&name)
+                        .expect("Bookmark not found in component!")
+                        .clone(),
+                )
+            })
+            .collect();
 
-                for (idx, bookmark) in [BookmarkRef::Trunk]
-                    .iter()
-                    .chain(ordered_bookmarks.iter())
-                    .enumerate()
-                {
-                    lines.push(Self::format_bookmark(bookmark, idx, context, None, 1));
-                }
-            }
-            component if component.is_tree() => {
-                lines.push(format!(
-                    "This {mr_name} is part of a tree containing {} {mr_name}s:\n",
-                    component.len()
-                ));
+        for (idx, bookmark) in [BookmarkRef::Trunk]
+            .iter()
+            .chain(ordered_bookmarks.iter())
+            .enumerate()
+        {
+            lines.push(Self::format_bookmark(bookmark, idx, context, None, 1));
+        }
 
-                let ordered_bookmarks: Vec<_> = component
-                    .topological_sort()
-                    .expect("Cycle detected in bookmark graph!")
-                    .into_iter()
-                    .map(|name| {
-                        BookmarkRef::Bookmark(
-                            context
-                                .component
-                                .find(&name)
-                                .expect("Bookmark not found in component!")
-                                .clone(),
-                        )
-                    })
-                    .collect();
+        lines.join("\n")
+    }
 
-                for (idx, bookmark) in [BookmarkRef::Trunk]
-                    .iter()
-                    .chain(ordered_bookmarks.iter())
-                    .enumerate()
-                {
-                    let (num_siblings, parents) = match bookmark {
-                        BookmarkRef::Bookmark(bookmark) => {
-                            let parent = match &bookmark.parents[..] {
-                                [] => &BookmarkRef::Trunk,
-                                [parent] => parent,
-                                _ => panic!(
-                                    "Bookmark in tree should have exactly one parent. Has: {:?}",
-                                    bookmark.parents
-                                ),
-                            };
-                            let num_siblings = component
-                                .all_bookmarks()
-                                .into_iter()
-                                .filter(|b| b.has_parent_ref(parent))
-                                .count();
-                            (num_siblings, Some(&bookmark.parents[..]))
-                        }
-                        BookmarkRef::Trunk => (0, None),
+    pub fn format_linear(&self, context: &FormatContext) -> String {
+        let mut lines = Vec::new();
+        let mr_name = context.format_merge_request.mr_name();
+
+        lines.push(format!(
+            "This {mr_name} is part of a stack containing {} {mr_name}s:\n",
+            context.component.len()
+        ));
+
+        let ordered_bookmarks: Vec<_> = context
+            .component
+            .topological_sort()
+            .expect("Cycle detected in bookmark graph!")
+            .into_iter()
+            .map(|name| {
+                BookmarkRef::Bookmark(
+                    context
+                        .component
+                        .find(&name)
+                        .expect("Bookmark not found in component!")
+                        .clone(),
+                )
+            })
+            .collect();
+
+        for (idx, bookmark) in [BookmarkRef::Trunk]
+            .iter()
+            .chain(ordered_bookmarks.iter())
+            .enumerate()
+        {
+            lines.push(Self::format_bookmark(bookmark, idx, context, None, 1));
+        }
+
+        lines.join("\n")
+    }
+
+    pub fn format_tree(&self, context: &FormatContext) -> String {
+        let mut lines = Vec::new();
+        let mr_name = context.format_merge_request.mr_name();
+
+        lines.push(format!(
+            "This {mr_name} is part of a tree containing {} {mr_name}s:\n",
+            context.component.len()
+        ));
+
+        let ordered_bookmarks: Vec<_> = context
+            .component
+            .topological_sort()
+            .expect("Cycle detected in bookmark graph!")
+            .into_iter()
+            .map(|name| {
+                BookmarkRef::Bookmark(
+                    context
+                        .component
+                        .find(&name)
+                        .expect("Bookmark not found in component!")
+                        .clone(),
+                )
+            })
+            .collect();
+
+        for (idx, bookmark) in [BookmarkRef::Trunk]
+            .iter()
+            .chain(ordered_bookmarks.iter())
+            .enumerate()
+        {
+            let (num_siblings, parents) = match bookmark {
+                BookmarkRef::Bookmark(bookmark) => {
+                    let parent = match &bookmark.parents[..] {
+                        [] => &BookmarkRef::Trunk,
+                        [parent] => parent,
+                        _ => panic!(
+                            "Bookmark in tree should have exactly one parent. Has: {:?}",
+                            bookmark.parents
+                        ),
                     };
-
-                    lines.push(Self::format_bookmark(
-                        bookmark,
-                        idx,
-                        context,
-                        parents,
-                        num_siblings,
-                    ));
+                    let num_siblings = context
+                        .component
+                        .all_bookmarks()
+                        .into_iter()
+                        .filter(|b| b.has_parent_ref(parent))
+                        .count();
+                    (num_siblings, Some(&bookmark.parents[..]))
                 }
+                BookmarkRef::Trunk => (0, None),
+            };
+
+            lines.push(Self::format_bookmark(
+                bookmark,
+                idx,
+                context,
+                parents,
+                num_siblings,
+            ));
+        }
+
+        lines.join("\n")
+    }
+
+    pub fn format_graph(&self, context: &FormatContext) -> String {
+        let mut lines = Vec::new();
+        let mr_name = context.format_merge_request.mr_name();
+
+        lines.push(format!(
+            "This {mr_name} is part of a complex set of {mr_name}s containing {} {mr_name}s:\n",
+            context.component.len()
+        ));
+
+        let ordered_bookmarks: Vec<_> = context
+            .component
+            .topological_sort()
+            .expect("Cycle detected in bookmark graph!")
+            .into_iter()
+            .map(|name| {
+                BookmarkRef::Bookmark(
+                    context
+                        .component
+                        .find(&name)
+                        .expect("Bookmark not found in component!")
+                        .clone(),
+                )
+            })
+            .collect();
+
+        let mut seen = HashSet::new();
+
+        for (idx, bookmark) in [BookmarkRef::Trunk]
+            .iter()
+            .chain(ordered_bookmarks.iter())
+            .enumerate()
+        {
+            if seen.contains(bookmark) {
+                continue;
             }
-            component => {
-                lines.push(format!(
-                    "This {mr_name} is part of a complex set of {mr_name}s containing {} {mr_name}s:\n",
-                    component.len()
-                ));
+            seen.insert(bookmark);
 
-                let ordered_bookmarks: Vec<_> = component
-                    .topological_sort()
-                    .expect("Cycle detected in bookmark graph!")
-                    .into_iter()
-                    .map(|name| {
-                        BookmarkRef::Bookmark(
-                            context
-                                .component
-                                .find(&name)
-                                .expect("Bookmark not found in component!")
-                                .clone(),
-                        )
-                    })
-                    .collect();
-
-                let mut seen = HashSet::new();
-
-                for (idx, bookmark) in [BookmarkRef::Trunk]
-                    .iter()
-                    .chain(ordered_bookmarks.iter())
-                    .enumerate()
-                {
-                    if seen.contains(bookmark) {
-                        continue;
-                    }
-                    seen.insert(bookmark);
-
-                    let (num_siblings, parents) = match bookmark {
-                        BookmarkRef::Bookmark(bookmark) => {
-                            let num_siblings = component
-                                .all_bookmarks()
-                                .into_iter()
-                                .filter(|b| {
-                                    b.parents.iter().any(|p| match p {
-                                        BookmarkRef::Bookmark(p) => {
-                                            bookmark.has_parent_bookmark(p.name())
-                                        }
-                                        BookmarkRef::Trunk => false,
-                                    })
-                                })
-                                .count();
-                            (num_siblings, Some(&bookmark.parents[..]))
-                        }
-                        BookmarkRef::Trunk => (0, None),
-                    };
-
-                    lines.push(Self::format_bookmark(
-                        bookmark,
-                        idx,
-                        context,
-                        parents,
-                        num_siblings,
-                    ));
+            let (num_siblings, parents) = match bookmark {
+                BookmarkRef::Bookmark(bookmark) => {
+                    let num_siblings = context
+                        .component
+                        .all_bookmarks()
+                        .into_iter()
+                        .filter(|b| {
+                            b.parents.iter().any(|p| match p {
+                                BookmarkRef::Bookmark(p) => bookmark.has_parent_bookmark(p.name()),
+                                BookmarkRef::Trunk => false,
+                            })
+                        })
+                        .count();
+                    (num_siblings, Some(&bookmark.parents[..]))
                 }
-            }
+                BookmarkRef::Trunk => (0, None),
+            };
+
+            lines.push(Self::format_bookmark(
+                bookmark,
+                idx,
+                context,
+                parents,
+                num_siblings,
+            ));
         }
 
         lines.join("\n")
@@ -266,32 +336,55 @@ impl LinearListFormatter {
 pub struct TreeFormatter;
 
 impl TreeFormatter {
-    pub fn format_stack(&self, context: &FormatContext) -> String {
+    pub fn format_single(&self, context: &FormatContext) -> String {
+        let mut lines = Vec::new();
         let mr_name = context.format_merge_request.mr_name();
 
-        let mut lines = match &context.component {
-            component if component.len() == 1 => {
-                return String::new();
-            }
-            component if component.is_linear() => {
-                vec![format!(
-                    "This {mr_name} is part of a stack containing {} {mr_name}s:\n",
-                    component.len()
-                )]
-            }
-            component if component.is_tree() => {
-                vec![format!(
-                    "This {mr_name} is part of a tree containing {} {mr_name}s:\n",
-                    component.len()
-                )]
-            }
-            component => {
-                vec![format!(
-                    "This {mr_name} is part of a complex set of {mr_name}s containing {} {mr_name}s:\n",
-                    component.len()
-                )]
-            }
-        };
+        lines.push(format!(
+            "This {mr_name} is part of a stack containing 1 {mr_name}:\n",
+        ));
+
+        self.format_tree_recursive(&BookmarkRef::Trunk, None, 0, context, &mut lines, 0, 0);
+
+        lines.join("\n")
+    }
+
+    pub fn format_linear(&self, context: &FormatContext) -> String {
+        let mut lines = Vec::new();
+        let mr_name = context.format_merge_request.mr_name();
+
+        lines.push(format!(
+            "This {mr_name} is part of a stack containing {} {mr_name}s:\n",
+            context.component.len()
+        ));
+
+        self.format_tree_recursive(&BookmarkRef::Trunk, None, 0, context, &mut lines, 0, 0);
+
+        lines.join("\n")
+    }
+
+    pub fn format_tree(&self, context: &FormatContext) -> String {
+        let mut lines = Vec::new();
+        let mr_name = context.format_merge_request.mr_name();
+
+        lines.push(format!(
+            "This {mr_name} is part of a tree containing {} {mr_name}s:\n",
+            context.component.len()
+        ));
+
+        self.format_tree_recursive(&BookmarkRef::Trunk, None, 0, context, &mut lines, 0, 0);
+
+        lines.join("\n")
+    }
+
+    pub fn format_graph(&self, context: &FormatContext) -> String {
+        let mut lines = Vec::new();
+        let mr_name = context.format_merge_request.mr_name();
+
+        lines.push(format!(
+            "This {mr_name} is part of a complex set of {mr_name}s containing {} {mr_name}s:\n",
+            context.component.len()
+        ));
 
         self.format_tree_recursive(&BookmarkRef::Trunk, None, 0, context, &mut lines, 0, 0);
 
@@ -422,8 +515,8 @@ impl TreeFormatter {
     }
 }
 
-const START_MARKER: &str = "<!-- start jj-vine stack -->";
-const END_MARKER: &str = "<!-- end jj-vine stack -->";
+pub const START_MARKER: &str = "<!-- start jj-vine stack -->";
+pub const END_MARKER: &str = "<!-- end jj-vine stack -->";
 
 /// Context for building stack visualizations
 pub struct FormatContext<'a, 'forge, 'lookup> {
@@ -444,10 +537,14 @@ pub struct FormatContext<'a, 'forge, 'lookup> {
 }
 
 /// Generate a new description with stack visualization and user content
-pub fn insert_stack_into_description(
+pub fn insert_stack_into_description<'a>(
     stack_description: &str,
-    existing_description: &str,
-) -> String {
+    existing_description: &'a str,
+) -> Cow<'a, str> {
+    if stack_description.is_empty() {
+        return Cow::Borrowed(existing_description);
+    }
+
     let mut result = String::new();
 
     let (before, after) = match (
@@ -474,30 +571,42 @@ pub fn insert_stack_into_description(
         result.push_str(&format!("\n\n{after}"));
     }
 
-    result
+    Cow::Owned(result)
 }
 
 /// Generates a description for a bookmark in a stack.
 pub fn generate_stack_description(
     bookmark: &str,
-    stack: &ChangeComponent,
+    component: &ChangeComponent,
     existing_mrs: &HashMap<String, ForgeMergeRequest>,
-    format: &StackFormat,
+    config: &DescriptionConfig,
     base_branch: &str,
     format_merge_request: &ForgeImpl,
 ) -> String {
-    let formatter = match format {
-        StackFormat::Linear => DescriptionFormatter::LinearList(LinearListFormatter),
-        StackFormat::Tree => DescriptionFormatter::Tree(TreeFormatter),
+    let formatter = |format: DescriptionFormat| match format {
+        DescriptionFormat::None => DescriptionFormatter::None,
+        DescriptionFormat::Linear => DescriptionFormatter::LinearList(LinearListFormatter),
+        DescriptionFormat::Tree => DescriptionFormatter::Tree(TreeFormatter),
     };
 
-    formatter.format_stack(&FormatContext {
-        component: (*stack).clone(),
+    let context = FormatContext {
+        component: (*component).clone(),
         this_bookmark: bookmark.to_string(),
         merge_request_lookup: existing_mrs,
         base_branch: base_branch.to_string(),
         format_merge_request,
-    })
+    };
+
+    match component {
+        component if component.len() == 1 => {
+            formatter(config.format.single).format_single(&context)
+        }
+        component if component.is_linear() => {
+            formatter(config.format.linear).format_linear(&context)
+        }
+        component if component.is_tree() => formatter(config.format.tree).format_tree(&context),
+        _ => formatter(config.format.complex).format_graph(&context),
+    }
 }
 
 #[cfg(test)]
@@ -513,17 +622,14 @@ mod tests {
 
     #[test]
     fn test_parse_empty_description() {
-        assert_str_eq!(
-            insert_stack_into_description("", ""),
-            format!("{START_MARKER}\n\n{END_MARKER}")
-        );
+        assert_str_eq!(insert_stack_into_description("", ""), format!(""));
     }
 
     #[test]
     fn test_parse_user_content_only() {
         assert_str_eq!(
             insert_stack_into_description("", "User's description here"),
-            format!("User's description here\n\n{START_MARKER}\n\n{END_MARKER}")
+            format!("User's description here")
         );
     }
 
@@ -590,7 +696,7 @@ mod tests {
             base_branch: "main".to_string(),
             format_merge_request: &ForgeImpl::Test(forge),
         };
-        let description = formatter.format_stack(&context);
+        let description = formatter.format_linear(&context);
 
         assert_str_eq!(
             description,
@@ -720,7 +826,7 @@ mod tests {
             base_branch: "main".to_string(),
             format_merge_request: &ForgeImpl::Test(forge),
         };
-        let description = formatter.format_stack(&context);
+        let description = formatter.format_tree(&context);
 
         assert_str_eq!(
             description,
@@ -885,7 +991,7 @@ mod tests {
             base_branch: "main".to_string(),
             format_merge_request: &ForgeImpl::Test(forge),
         };
-        let description = formatter.format_stack(&context);
+        let description = formatter.format_graph(&context);
 
         assert_str_eq!(
             description,
@@ -960,7 +1066,7 @@ mod tests {
             base_branch: "main".to_string(),
             format_merge_request: &ForgeImpl::Test(forge),
         };
-        let description = formatter.format_stack(&context);
+        let description = formatter.format_linear(&context);
 
         assert_str_eq!(
             description,
@@ -1090,7 +1196,7 @@ mod tests {
             base_branch: "main".to_string(),
             format_merge_request: &ForgeImpl::Test(forge),
         };
-        let description = formatter.format_stack(&context);
+        let description = formatter.format_tree(&context);
 
         assert_str_eq!(
             description,
@@ -1255,7 +1361,7 @@ mod tests {
             base_branch: "main".to_string(),
             format_merge_request: &ForgeImpl::Test(forge),
         };
-        let description = formatter.format_stack(&context);
+        let description = formatter.format_graph(&context);
 
         assert_str_eq!(
             description,

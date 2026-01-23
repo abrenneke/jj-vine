@@ -7,7 +7,7 @@ use tracing::error;
 use crate::{
     bookmark::BookmarkGraph,
     description::{generate_stack_description, insert_stack_into_description},
-    error::{Error, Result},
+    error::{BookmarkNotFoundSnafu, Error, Result},
     forge::Forge,
     submit::execute::{
         ActionResultData,
@@ -47,8 +47,11 @@ impl<'a> ExecuteAction for UpdateMRDescriptionAction<'a> {
         let stack = self
             .bookmark_graph
             .component_containing(&self.bookmark)
-            .ok_or_else(|| Error::BookmarkNotFound {
-                name: self.bookmark.clone(),
+            .ok_or_else(|| {
+                BookmarkNotFoundSnafu {
+                    name: self.bookmark.clone(),
+                }
+                .build()
             })?;
         // TODO deterministic
         // .sorted_by(|a, b| {
@@ -91,7 +94,7 @@ impl<'a> ExecuteAction for UpdateMRDescriptionAction<'a> {
                 &self.bookmark,
                 stack,
                 &all_mrs,
-                &ctx.config.stack_format,
+                &ctx.config.description,
                 &ctx.config.default_branch,
                 ctx.forge,
             );

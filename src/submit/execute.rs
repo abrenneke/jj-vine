@@ -26,13 +26,13 @@ use crate::{
 };
 
 /// Result of executing a submission plan
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct SubmissionResult {
     /// All MRs (created, updated, and unchanged)
     pub merge_requests: Vec<MRUpdate>,
 
     /// Any errors that occurred (non-fatal)
-    pub errors: Vec<String>,
+    pub errors: Vec<Error>,
 
     /// Bookmarks that were successfully pushed
     pub bookmarks_pushed: Vec<String>,
@@ -52,7 +52,7 @@ pub enum ActionResultData {
     DryRun,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ActionResult {
     pub id: usize,
     pub data: Result<ActionResultData>,
@@ -141,7 +141,6 @@ pub async fn execute(
                         .iter()
                         .find(|result| result.id == *id)
                         .unwrap()
-                        .clone()
                 })
                 .filter(|result| result.data.is_err())
                 .collect::<Vec<_>>();
@@ -238,7 +237,7 @@ pub async fn execute(
             }
             Ok(ActionResultData::DryRun) => {}
             Err(error) => {
-                errors.push(error.to_string());
+                errors.push(error);
             }
         }
     }

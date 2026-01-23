@@ -62,6 +62,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "assertables"
+version = "9.8.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4dcd1f7f2f608b9a888a851f234086946c2ca1dfeadf1431c5082fee0942eeb6"
+
+[[package]]
 name = "atomic-waker"
 version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -895,6 +901,7 @@ dependencies = [
 name = "jj-vine"
 version = "0.1.0"
 dependencies = [
+ "assertables",
  "bon",
  "clap",
  "cli-table",

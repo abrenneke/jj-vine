@@ -1,6 +1,7 @@
-use jj_vine::{cli::cli_main, error::Result};
+use clap::Parser;
+use jj_vine::{cli::Cli, error::Result};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    cli_main().await
+    Cli::parse().run_stdout().await
 }
