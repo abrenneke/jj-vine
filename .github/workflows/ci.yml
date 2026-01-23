@@ -167,13 +167,13 @@ jobs:
         if: runner.os != 'Windows'
         uses: actions/attest-build-provenance@v3
         with:
-          subject-path: dist/jj-vine-${{ matrix.platform.target }}-v${{ inputs.tag_name || github.ref_name }}
+          subject-path: dist/jj-vine-${{ matrix.platform.target }}-${{ inputs.tag_name || github.ref_name }}
 
       - name: Generate attestation (Windows)
         if: runner.os == 'Windows'
         uses: actions/attest-build-provenance@v3
         with:
-          subject-path: dist/jj-vine-${{ matrix.platform.target }}-v${{ inputs.tag_name || github.ref_name }}.exe
+          subject-path: dist/jj-vine-${{ matrix.platform.target }}-${{ inputs.tag_name || github.ref_name }}.exe
 
   release:
     name: Update Codeberg Release
