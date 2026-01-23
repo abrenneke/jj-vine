@@ -53,8 +53,13 @@ release VERSION:
         exit 1
     fi
 
-    if [ -z "${CODEBERG_TOKEN:-}" ]; then
+    if [ -z "$CODEBERG_TOKEN" ]; then
         echo "Error: CODEBERG_TOKEN environment variable is not set."
+        exit 1
+    fi
+
+    if [ -z "$GITHUB_TOKEN" ]; then
+        echo "Error: GITHUB_TOKEN environment variable is not set."
         exit 1
     fi
 
@@ -71,8 +76,16 @@ release VERSION:
 
     cargo publish
 
+    echo "Waiting 10 seconds for Codeberg to sync to GitHub..."
+    sleep 10
+
+    http post https://api.github.com/repos/abrenneke/jj-vine/actions/workflows/ci.yml/dispatches \
+        -A bearer -a "$GITHUB_TOKEN" \
+        ref=main \
+        inputs:='{"tag_name":"v{{VERSION}}"}'
+
     http post https://codeberg.org/api/v1/repos/abrenneke/jj-vine/releases \
-        -A bearer -a $CODEBERG_TOKEN \
+        -A bearer -a "$CODEBERG_TOKEN" \
         --print h \
         tag_name=v{{VERSION}} \
         name=v{{VERSION}} \
