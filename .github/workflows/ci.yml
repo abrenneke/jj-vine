@@ -127,15 +127,15 @@ jobs:
         run: |
           mkdir -p dist
           VERSION="${{ inputs.tag_name || github.ref_name }}"
-          cp target/${{ matrix.platform.target }}/release/jj-vine dist/jj-vine-${{ matrix.platform.target }}-v${VERSION}
-          chmod +x dist/jj-vine-${{ matrix.platform.target }}-v${VERSION}
+          cp target/${{ matrix.platform.target }}/release/jj-vine dist/jj-vine-${{ matrix.platform.target }}-${VERSION}
+          chmod +x dist/jj-vine-${{ matrix.platform.target }}-${VERSION}
 
       - name: Prepare binary (Windows)
         if: runner.os == 'Windows'
         run: |
           New-Item -ItemType Directory -Force -Path dist
           $VERSION = "${{ inputs.tag_name || github.ref_name }}"
-          Copy-Item target/${{ matrix.platform.target }}/release/jj-vine.exe dist/jj-vine-${{ matrix.platform.target }}-v${VERSION}.exe
+          Copy-Item target/${{ matrix.platform.target }}/release/jj-vine.exe dist/jj-vine-${{ matrix.platform.target }}-${VERSION}.exe
 
       - name: Generate SHA256 checksum (Unix)
         if: runner.os != 'Windows'
@@ -143,9 +143,9 @@ jobs:
           cd dist
           VERSION="${{ inputs.tag_name || github.ref_name }}"
           if [ "${{ runner.os }}" = "macOS" ]; then
-            shasum -a 256 jj-vine-${{ matrix.platform.target }}-v${VERSION} > jj-vine-${{ matrix.platform.target }}-v${VERSION}.sha256
+            shasum -a 256 jj-vine-${{ matrix.platform.target }}-${VERSION} > jj-vine-${{ matrix.platform.target }}-${VERSION}.sha256
           else
-            sha256sum jj-vine-${{ matrix.platform.target }}-v${VERSION} > jj-vine-${{ matrix.platform.target }}-v${VERSION}.sha256
+            sha256sum jj-vine-${{ matrix.platform.target }}-${VERSION} > jj-vine-${{ matrix.platform.target }}-${VERSION}.sha256
           fi
 
       - name: Generate SHA256 checksum (Windows)
@@ -153,8 +153,8 @@ jobs:
         run: |
           cd dist
           $VERSION = "${{ inputs.tag_name || github.ref_name }}"
-          $hash = (Get-FileHash -Algorithm SHA256 jj-vine-${{ matrix.platform.target }}-v${VERSION}.exe).Hash.ToLower()
-          "$hash  jj-vine-${{ matrix.platform.target }}-v${VERSION}.exe" | Out-File -Encoding ASCII jj-vine-${{ matrix.platform.target }}-v${VERSION}.exe.sha256
+          $hash = (Get-FileHash -Algorithm SHA256 jj-vine-${{ matrix.platform.target }}-${VERSION}.exe).Hash.ToLower()
+          "$hash  jj-vine-${{ matrix.platform.target }}-${VERSION}.exe" | Out-File -Encoding ASCII jj-vine-${{ matrix.platform.target }}-${VERSION}.exe.sha256
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v6
