@@ -189,11 +189,32 @@ pub async fn submit(config: &SubmitCommandConfig, cli_config: &CliConfig<'_>) ->
 
         let mut table = vec![];
 
+        let mut updates: Vec<_> = result
+            .merge_requests
+            .iter()
+            .sorted_by_key(|mr| mr.mr.iid())
+            .collect();
+
+        // If an MR was just created, don't also report that it was updated
+        for (index, update) in updates.clone().into_iter().enumerate() {
+            if let MRUpdateType::DescriptionUpdated = update.update_type
+                && updates
+                    .iter()
+                    .find(|u| {
+                        u.mr.iid() == update.mr.iid()
+                            && matches!(u.update_type, MRUpdateType::Created)
+                    })
+                    .is_some()
+            {
+                updates.remove(index);
+            }
+        }
+
         for MRUpdate {
             mr,
             bookmark,
             update_type,
-        } in result.merge_requests.iter().sorted_by_key(|mr| mr.mr.iid())
+        } in updates
         {
             match update_type {
                 MRUpdateType::Created => {
