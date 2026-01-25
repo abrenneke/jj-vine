@@ -54,7 +54,7 @@ impl From<ForgejoUser> for ForgeUser {
     fn from(user: ForgejoUser) -> Self {
         ForgeUser {
             id: Some(user.id.to_string()),
-            username: user.login,
+            username: Some(user.login),
         }
     }
 }
@@ -349,7 +349,12 @@ impl Forge for ForgejoForge {
         &self,
         branch: &str,
     ) -> Result<Option<ForgeMergeRequest>> {
-        let user = self.current_user().await?.username;
+        let user = self.current_user().await?.username.ok_or_else(|| {
+            ConfigSnafu {
+                message: "Current user has no username".to_string(),
+            }
+            .build()
+        })?;
 
         // Forgejo doesn't support filtering by head branch in the API yet,
         // so we fetch all open PRs and filter client-side

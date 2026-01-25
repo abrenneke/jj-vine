@@ -55,6 +55,7 @@ just test
 
 1. A GitLab instance (GitLab.com or self-hosted)
 2. A GitHub instance (GitHub.com or GitHub Enterprise)
+3. An Azure DevOps account (dev.azure.com or self-hosted)
 3. A test repository with push access
 4. A personal access token with `api` scope
 5. SSH access configured (for git push operations)
@@ -74,7 +75,7 @@ just test
    just start-forgejo
    ```
 4. If needed, initialize the Forgejo server (one-time setup).
- 
+
    - Create your administrator user on the setup page
    - Add your SSH key to the user settings
    - Generate an access token

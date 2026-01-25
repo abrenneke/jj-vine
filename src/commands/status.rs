@@ -523,7 +523,7 @@ component!(CreatedAtComponent, async |data: &StatusData<'_>| {
 component!(MergeRequestURLComponent, async |data: &StatusData<'_>| {
     Ok(Some(
         data.merge_request
-            .url()
+            .url(data.forge)
             .truecolor(100, 100, 100)
             .to_string(),
     ))

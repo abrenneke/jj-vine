@@ -61,7 +61,7 @@ impl From<GetDiscussionsQueryUser> for ForgeUser {
     fn from(user: GetDiscussionsQueryUser) -> Self {
         ForgeUser {
             id: None,
-            username: user.login,
+            username: Some(user.login),
         }
     }
 }

@@ -7,6 +7,7 @@ Supports the following code forges:
 - GitLab ([gitlab.com](https://gitlab.com) or self-hosted)
 - [GitHub](https://github.com) or GitHub Enterprise
 - [Forgejo](https://forgejo.org) / [Codeberg](https://codeberg.org) / Gitea
+- [Azure DevOps](https://azure.microsoft.com/en-us/products/devops)
 
 *The canonical location for `jj-vine` is [codeberg.org/abrenneke/jj-vine](https://codeberg.org/abrenneke/jj-vine). GitHub is used as a mirror and CI only.*
 
@@ -34,6 +35,7 @@ Supports the following code forges:
     - [GitLab](#gitlab)
     - [GitHub](#github)
     - [Forgejo/Codeberg/Gitea](#forgejo-codeberg-gitea)
+    - [Azure DevOps](#azure-devops)
   - [Common Settings](#common-settings)
 - [Description Generation / Stack Visualization](#description-generation--stack-visualization)
 
@@ -53,7 +55,7 @@ Supports the following code forges:
 
 As `jj` is so flexible, it can sometimes be tedious to manage pull requests for a `jj` repository. Additionally, many people like the "stacked pull request" workflow, where a tool can manage your stack of pull requests for you, including modifying the base branch, description, and other settings. `jj-vine` aims to smooth out the process of managing pull requests for a `jj` repository.
 
-There are many tools these days that aim to solve this problem, most notably [`jj-spr`](https://github.com/LucioFranco/jj-spr) and [`jj-stack`](https://github.com/keanemind/jj-stack). `jj-vine` has its own preferred workflow and design choices, and is not a direct replacement for these tools. `jj-vine` supports multiple code forges including GitLab, GitHub, and Forgejo.
+There are many tools these days that aim to solve this problem, most notably [`jj-spr`](https://github.com/LucioFranco/jj-spr) and [`jj-stack`](https://github.com/keanemind/jj-stack). `jj-vine` has its own preferred workflow and design choices, and is not a direct replacement for these tools. `jj-vine` supports multiple code forges: GitLab, GitHub, Forgejo, and Azure DevOps (including self-hosted instances).
 
 Major differences:
 
@@ -64,7 +66,7 @@ Major differences:
 ## Main Features
 
 - **Stacked pull/merge request creation**
-    
+
     Automatically creates pull/merge requests with correct base branches based on bookmark dependencies.
 - **Stack visualization**
 
@@ -73,7 +75,7 @@ Major differences:
 
     `jj-vine` is not opinionated about how you should structure your commits, bookmarks, and pull/merge requests. It can work with what you have. It also works great with auto-generated bookmarks.
 - **Complex branching**
-    
+
     Not only does `jj-vine` support trees of bookmarks, but it fully supports complex (DAG) graphs of changes just like `jj` itself does. While actual forge support for PRs/MRs with multiple parents may be limited, `jj-vine` can still visualize and manage them.
 - **Status**
 
@@ -102,7 +104,7 @@ The preferred way to install `jj-vine` is to use [`cargo-binstall`](https://gith
 cargo binstall jj-vine
 ```
 
-### Pre-built Binaries  
+### Pre-built Binaries
 
 Pre-built binaries are available for Linux, macOS, and Windows (ARM64 and x86_64 for all). You can download directly from the [releases page](https://codeberg.org/abrenneke/jj-vine/releases).
 
@@ -152,7 +154,7 @@ jj config set --user aliases.vine '["util", "exec", "--", "jj-vine"]'
     ```
 
     This creates two pull requests:
-    
+
     - `feature-a` targeting `main`
     - `feature-b` targeting `feature-a`
 
@@ -244,7 +246,7 @@ Ad a minimum, the `jj-vine.forge` configuration setting must be set to the type 
 
 | Setting | Description | Type | Required | Default |
 |---------|-------------|------|----------|---------|
-| `forge` | The type of forge you are using (gitlab, github, forgejo) | "gitlab" \| "github" \| "forgejo" | Yes | - |
+| `forge` | The type of forge you are using | "gitlab" \| "github" \| "forgejo" \| "azure" | Yes | - |
 
 #### GitLab
 
@@ -280,6 +282,22 @@ Required when `jj-vine.forge` is set to `forgejo`.
 | `forgejo.target_project` | Target repository for pull requests (e.g., `upstream-owner/repo`). Use if you are using a fork. | String | No | (same as `forgejo.project`) |
 | `forgejo.wip_prefix` | Prefix for WIP/draft pull requests. What counts as a draft pull request is configurable per-repository on Forgejo. | String | No | "WIP: " |
 
+#### Azure DevOps
+
+Required when `jj-vine.forge` is set to `azure`.
+
+| Setting | Description | Type | Required | Default |
+|---------|-------------|------|----------|---------|
+| `azure.host` | Azure DevOps instance URL (e.g., `https://dev.azure.com`) | String | Yes | - |
+| `azure.vsspsHost` | Azure DevOps Security (VSSP) host (e.g., `https://vssps.dev.azure.com`). Used to look up other users for automatic review requests. | String | No | - |
+| `azure.project` | Organization and project where branches are pushed, formatted as `organization/project` | String | Yes | - |
+| `azure.sourceRepositoryName` | Name of the repository in the project where branches are pushed | String | Required if `azure.source_repository_id` is not set | - |
+| `azure.sourceRepositoryId` | ID of the repository in the project where branches are pushed | String | Required if `azure.source_repository_name` is not set | - |
+| `azure.token` | Personal Access Token | String | Yes | - |
+| `azure.targetProject` | Target organization & project for pull requests (e.g., `upstream-organization/project`). Use if you are using a fork. | String | No | (same as `azure.project`) |
+| `azure.targetRepositoryName` | Name of the repository in the target project for pull requests | String | Required if `azure.targetRepositoryId` is not set and `azure.targetProject` is different from `azure.project` | - |
+| `azure.targetRepositoryId` | ID of the repository in the target project for pull requests | String | Required if `azure.targetRepositoryName` is not set and `azure.targetProject` is different from `azure.project` | - |
+
 ### Common Settings
 
 These settings apply to all forges:
@@ -289,8 +307,8 @@ These settings apply to all forges:
 | `remoteName` | The remote name to use for pushing and pulling branches | String | No | "origin" |
 | `deleteSourceBranch` | Configures the pull/merge request to delete the source branch when merged. Currently has no effect for GitHub and Forgejo (is a repository-level setting and on-merge flag only) | Boolean | No | true |
 | `squashCommits` | Configures the pull/merge request to squash commits when merging. Currently has no effect for GitHub and Forgejo (is a repository-level setting and on-merge flag only) | Boolean | No | false |
-| `assignToSelf` | Automatically assign created pull/merge requests to yourself | Boolean | No | false |
-| `defaultReviewers` | List of usernames to automatically add as reviewers when creating pull/merge requests | Array<String> | No | [] |
+| `assignToSelf` | Automatically assign created pull/merge requests to yourself. Has no effect for AzureDevOps | Boolean | No | false |
+| `defaultReviewers` | List of usernames to automatically add as reviewers when creating pull/merge requests. For Azure DevOps, this should be a list of "user descriptors" and `azure.vsspsHost` must be set | Array<String> | No | [] |
 | `caBundle` | Path to CA certificate bundle for custom TLS | String \| null | No | null |
 | `tlsAcceptNonCompliantCerts` | Accept non-compliant TLS certificates (for certificates that don't meet strict X.509 standards). This is almost always unnecessary unless you have a unique situation. | Boolean | No | false |
 | `defaultBaseBranch` | Default target branch for pull/merge requests into `trunk()` | String | No | (detected automatically using the `trunk()` revset) |
@@ -299,7 +317,7 @@ These settings apply to all forges:
 
 ## Description Generation / Stack Visualization
 
-`jj-vine` can generate stack diagrams for pull/merge requests and add them to the descriptions of pull/merge requests. When enabled, 
+`jj-vine` can generate stack diagrams for pull/merge requests and add them to the descriptions of pull/merge requests. When enabled,
 every time you `submit` your bookmark(s), the descriptions for all impacted pull/merge requests will be updated as well.
 
 ### Configuration
@@ -317,7 +335,7 @@ The following sections show examples of the different formats.
 
 ### Linear Format
 
-#### Linear/Single Bookmark Stack 
+#### Linear/Single Bookmark Stack
 
 (`description.format.single = "linear"` and `description.format.linear = "linear"`)
 
@@ -473,7 +491,7 @@ There are a decent amount of tests, but there could always be more.
 
 ### Why a new project?
 
-Well primarily, existing tools did not support GitLab (though `jj-vine` now supports GitLab, GitHub, and Forgejo). `jj-spr` was too heavy-handed - it imposes a strict "one pull request per commit" workflow. `jj-stack` was in TypeScript (nothing against it, but seems sane for a `jj` tool to also be built in Rust). My current `jj` workflow was also just different enough that those existing tools did not fit my needs.
+Well primarily, existing tools did not support GitLab (though `jj-vine` now supports GitLab, GitHub, Forgejo, and Azure DevOps). `jj-spr` was too heavy-handed - it imposes a strict "one pull request per commit" workflow. `jj-stack` was in TypeScript (nothing against it, but seems sane for a `jj` tool to also be built in Rust). My current `jj` workflow was also just different enough that those existing tools did not fit my needs.
 
 ## Contributing
 

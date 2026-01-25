@@ -70,13 +70,15 @@ impl ExecuteAction for CreateMRAction {
                 None
             };
 
-            let mut reviewer_ids = Vec::new();
+            let mut reviewer_usernames = Vec::new();
             for username in &ctx.config.default_reviewers {
                 match ctx.forge.user_by_username(username).await {
-                    Ok(Some(ForgeUser {
-                        id: Some(user_id), ..
-                    })) => reviewer_ids.push(user_id),
-                    Ok(None) | Ok(Some(ForgeUser { id: None, .. })) => {
+                    Ok(Some(ForgeUser { id, username })) => {
+                        if let Some(identifier) = username.or(id) {
+                            reviewer_usernames.push(identifier);
+                        }
+                    }
+                    Ok(None) => {
                         let warning = format!("Warning: Reviewer '{}' not found", username);
                         ctx.output.log_message(&warning.yellow().to_string());
                     }
@@ -105,7 +107,7 @@ impl ExecuteAction for CreateMRAction {
                                 .flatten()
                                 .collect(),
                         )
-                        .reviewer_usernames(reviewer_ids)
+                        .reviewer_usernames(reviewer_usernames)
                         .open_as_draft(ctx.config.open_as_draft)
                         .build(),
                 )
@@ -115,7 +117,7 @@ impl ExecuteAction for CreateMRAction {
                     ctx.output.log_completed(&format!(
                         "Created MR {}: {}",
                         format!("!{}", mr.iid()).cyan(),
-                        &mr.url().dimmed()
+                        &mr.url(ctx.forge).dimmed()
                     ));
                     Ok(ActionResultData::MRUpdated(Box::new(MRUpdate {
                         mr,

@@ -46,7 +46,7 @@ impl From<GitHubUser> for ForgeUser {
     fn from(user: GitHubUser) -> Self {
         ForgeUser {
             id: Some(user.id.to_string()),
-            username: user.login,
+            username: Some(user.login),
         }
     }
 }

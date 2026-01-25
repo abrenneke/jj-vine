@@ -1,3 +1,4 @@
+pub mod azure;
 pub mod forgejo;
 pub mod github;
 pub mod gitlab;
@@ -21,7 +22,7 @@ pub struct ForgeUser {
     pub id: Option<String>,
 
     /// The username of the user
-    pub username: String,
+    pub username: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -30,6 +31,7 @@ pub enum ForgeMergeRequest {
     GitHub(github::PullRequest),
     Forgejo(forgejo::PullRequest),
     Test(test::MergeRequest),
+    AzureDevOps(Box<azure::GitPullRequest>),
 }
 
 impl ForgeMergeRequest {
@@ -39,6 +41,7 @@ impl ForgeMergeRequest {
             ForgeMergeRequest::GitHub(pr) => Cow::Owned(pr.number.to_string()),
             ForgeMergeRequest::Forgejo(pr) => Cow::Owned(pr.number.to_string()),
             ForgeMergeRequest::Test(mr) => Cow::Owned(mr.id.clone()),
+            ForgeMergeRequest::AzureDevOps(mr) => Cow::Owned(mr.pull_request_id.to_string()),
         }
     }
 
@@ -48,6 +51,7 @@ impl ForgeMergeRequest {
             ForgeMergeRequest::GitHub(pr) => &pr.title,
             ForgeMergeRequest::Forgejo(pr) => &pr.title,
             ForgeMergeRequest::Test(mr) => &mr.title,
+            ForgeMergeRequest::AzureDevOps(mr) => &mr.title,
         }
     }
 
@@ -57,6 +61,7 @@ impl ForgeMergeRequest {
             ForgeMergeRequest::GitHub(pr) => pr.body.as_deref().unwrap_or(""),
             ForgeMergeRequest::Forgejo(pr) => pr.body.as_deref().unwrap_or(""),
             ForgeMergeRequest::Test(mr) => mr.description.as_deref().unwrap_or(""),
+            ForgeMergeRequest::AzureDevOps(mr) => &mr.description,
         }
     }
 
@@ -66,6 +71,9 @@ impl ForgeMergeRequest {
             ForgeMergeRequest::GitHub(pr) => &pr.head.ref_name,
             ForgeMergeRequest::Forgejo(pr) => &pr.head.ref_name,
             ForgeMergeRequest::Test(mr) => &mr.source_branch,
+            ForgeMergeRequest::AzureDevOps(mr) => {
+                mr.source_ref_name.trim_start_matches("refs/heads/")
+            }
         }
     }
 
@@ -75,6 +83,9 @@ impl ForgeMergeRequest {
             ForgeMergeRequest::GitHub(pr) => &pr.base.ref_name,
             ForgeMergeRequest::Forgejo(pr) => &pr.base.ref_name,
             ForgeMergeRequest::Test(mr) => &mr.target_branch,
+            ForgeMergeRequest::AzureDevOps(mr) => {
+                mr.target_ref_name.trim_start_matches("refs/heads/")
+            }
         }
     }
 
@@ -110,24 +121,43 @@ impl ForgeMergeRequest {
                 }
             }
             ForgeMergeRequest::Test(mr) => mr.state,
+            ForgeMergeRequest::AzureDevOps(mr) => match mr.status {
+                azure::PullRequestStatus::Abandoned => ForgeMergeRequestState::Closed,
+                azure::PullRequestStatus::Completed => ForgeMergeRequestState::Merged,
+                azure::PullRequestStatus::Active => ForgeMergeRequestState::Open,
+                azure::PullRequestStatus::All => ForgeMergeRequestState::Open,
+                azure::PullRequestStatus::NotSet => ForgeMergeRequestState::Open,
+            },
         }
     }
 
-    pub fn url(&self) -> &str {
+    pub fn url(&self, forge: &ForgeImpl) -> Cow<'_, str> {
         match self {
-            ForgeMergeRequest::GitLab(mr) => &mr.web_url,
-            ForgeMergeRequest::GitHub(pr) => &pr.html_url,
-            ForgeMergeRequest::Forgejo(pr) => &pr.html_url,
-            ForgeMergeRequest::Test(mr) => &mr.url,
+            ForgeMergeRequest::GitLab(mr) => Cow::Borrowed(&mr.web_url),
+            ForgeMergeRequest::GitHub(pr) => Cow::Borrowed(&pr.html_url),
+            ForgeMergeRequest::Forgejo(pr) => Cow::Borrowed(&pr.html_url),
+            ForgeMergeRequest::Test(mr) => Cow::Borrowed(&mr.url),
+            ForgeMergeRequest::AzureDevOps(mr) => match forge {
+                ForgeImpl::AzureDevOps(forge) => Cow::Owned(mr.web_url(forge)),
+                _ => panic!(
+                    "Azure DevOps merge request URL can only be retrieved from an Azure DevOps forge"
+                ),
+            },
         }
     }
 
-    pub fn edit_url(&self) -> Cow<'_, str> {
+    pub fn edit_url(&self, forge: &ForgeImpl) -> Cow<'_, str> {
         match self {
             ForgeMergeRequest::GitLab(mr) => Cow::Owned(format!("{}/edit", mr.web_url)),
             ForgeMergeRequest::GitHub(pr) => Cow::Borrowed(&pr.html_url),
             ForgeMergeRequest::Forgejo(pr) => Cow::Borrowed(&pr.html_url),
             ForgeMergeRequest::Test(mr) => Cow::Borrowed(&mr.url),
+            ForgeMergeRequest::AzureDevOps(mr) => match forge {
+                ForgeImpl::AzureDevOps(forge) => Cow::Owned(mr.web_url(forge)),
+                _ => panic!(
+                    "Azure DevOps merge request URL can only be retrieved from an Azure DevOps forge"
+                ),
+            },
         }
     }
 
@@ -137,6 +167,7 @@ impl ForgeMergeRequest {
             ForgeMergeRequest::GitHub(pr) => &pr.user.login,
             ForgeMergeRequest::Forgejo(pr) => &pr.user.login,
             ForgeMergeRequest::Test(mr) => &mr.author_username,
+            ForgeMergeRequest::AzureDevOps(mr) => &mr.created_by.descriptor,
         }
     }
 
@@ -155,6 +186,10 @@ impl ForgeMergeRequest {
                 .parse()
                 .expect("Failed to parse created at timestamp from Forgejo API response"),
             ForgeMergeRequest::Test(mr) => mr.created_at,
+            ForgeMergeRequest::AzureDevOps(mr) => mr
+                .creation_date
+                .parse()
+                .expect("Failed to parse created at timestamp from Azure DevOps API response"),
         }
     }
 
@@ -180,6 +215,12 @@ impl ForgeMergeRequest {
                 .map(ForgeUser::from)
                 .collect(),
             ForgeMergeRequest::Test(mr) => mr.assignees.clone(),
+            ForgeMergeRequest::AzureDevOps(mr) => mr
+                .reviewers
+                .clone()
+                .into_iter()
+                .map(ForgeUser::from)
+                .collect(),
         }
     }
 
@@ -205,6 +246,12 @@ impl ForgeMergeRequest {
                 .map(ForgeUser::from)
                 .collect(),
             ForgeMergeRequest::Test(mr) => mr.reviewers.clone(),
+            ForgeMergeRequest::AzureDevOps(mr) => mr
+                .reviewers
+                .clone()
+                .into_iter()
+                .map(ForgeUser::from)
+                .collect(),
         }
     }
 }
@@ -412,6 +459,7 @@ pub enum ForgeImpl {
     GitHub(github::GitHubForge),
     Forgejo(forgejo::ForgejoForge),
     Test(test::TestForge),
+    AzureDevOps(azure::AzureDevOpsForge),
 }
 
 impl ForgeImpl {
@@ -466,6 +514,22 @@ impl ForgeImpl {
                 )
                 .map(|forge| forge.into())
             }
+            ForgeType::AzureDevOps => azure::AzureDevOpsForge::builder()
+                .base_url(config.azure.host.clone())
+                .vssps_base_url(config.azure.vssps_host.clone())
+                .source_project_id(config.azure.source_project_id())
+                .target_project_id(config.azure.target_project_id())
+                .token(config.azure.token.clone())
+                .maybe_source_repository_name(config.azure.source_repository_name.clone())
+                .maybe_target_repository_name(
+                    config.azure.target_repository_name().map(str::to_string),
+                )
+                .maybe_source_repository_id(config.azure.source_repository_id.clone())
+                .maybe_target_repository_id(config.azure.target_repository_id().map(str::to_string))
+                .accept_non_compliant_certs(config.tls_accept_non_compliant_certs)
+                .maybe_ca_bundle(config.ca_bundle.clone())
+                .build()
+                .map(Into::into),
         }
     }
 }

@@ -56,7 +56,7 @@ impl TestForge {
             users,
             current_user: current_user.unwrap_or_else(|| ForgeUser {
                 id: None,
-                username: "test".to_string(),
+                username: Some("test".to_string()),
             }),
             state: RwLock::new(TestForgeState {
                 next_merge_request_id: 1,

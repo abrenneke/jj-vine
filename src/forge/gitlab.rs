@@ -39,7 +39,7 @@ impl From<GitLabUser> for ForgeUser {
     fn from(user: GitLabUser) -> Self {
         ForgeUser {
             id: Some(user.id.to_string()),
-            username: user.username,
+            username: Some(user.username),
         }
     }
 }

@@ -221,7 +221,7 @@ pub async fn submit(config: &SubmitCommandConfig, cli_config: &CliConfig<'_>) ->
                     table.push(vec![
                         bookmark.magenta().cell(),
                         mr.title().wrap(60).cell(),
-                        mr.edit_url().dimmed().cell(),
+                        mr.edit_url(&forge).dimmed().cell(),
                         "[created]".green().cell(),
                     ]);
                 }
@@ -231,15 +231,15 @@ pub async fn submit(config: &SubmitCommandConfig, cli_config: &CliConfig<'_>) ->
                     table.push(vec![
                         bookmark.magenta().cell(),
                         mr.title().wrap(60).cell(),
-                        mr.url().dimmed().cell(),
-                        "[updated]".green().dimmed().cell(),
+                        mr.url(&forge).dimmed().cell(),
+                        "[updated]".green().cell(),
                     ]);
                 }
                 MRUpdateType::Unchanged => {
                     table.push(vec![
                         bookmark.magenta().cell(),
                         mr.title().wrap(60).cell(),
-                        mr.url().dimmed().cell(),
+                        mr.url(&forge).dimmed().cell(),
                         " ".cell(),
                     ]);
                 }

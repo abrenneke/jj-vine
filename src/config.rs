@@ -9,7 +9,7 @@ use crate::{
 };
 
 /// Forge type (GitLab, GitHub, or Forgejo)
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize, strum::VariantArray)]
 #[serde(rename_all = "lowercase")]
 pub enum ForgeType {
     /// GitLab (GitLab.com or self-hosted)
@@ -20,6 +20,21 @@ pub enum ForgeType {
 
     /// Forgejo/Gitea (self-hosted or Codeberg)
     Forgejo,
+
+    /// Azure DevOps
+    #[serde(rename = "azure")]
+    AzureDevOps,
+}
+
+impl ForgeType {
+    pub fn display_name(&self) -> &str {
+        match self {
+            ForgeType::GitLab => "GitLab",
+            ForgeType::GitHub => "GitHub",
+            ForgeType::Forgejo => "Forgejo",
+            ForgeType::AzureDevOps => "Azure DevOps",
+        }
+    }
 }
 
 impl std::fmt::Display for ForgeType {
@@ -31,6 +46,7 @@ impl std::fmt::Display for ForgeType {
                 ForgeType::GitLab => "gitlab",
                 ForgeType::GitHub => "github",
                 ForgeType::Forgejo => "forgejo",
+                ForgeType::AzureDevOps => "azure",
             }
         )
     }
@@ -44,6 +60,7 @@ impl std::str::FromStr for ForgeType {
             "gitlab" => Ok(Self::GitLab),
             "github" => Ok(Self::GitHub),
             "forgejo" => Ok(Self::Forgejo),
+            "azure" => Ok(Self::AzureDevOps),
             _ => Err(ConfigSnafu {
                 message: format!("Invalid forge type: {}", s),
             }
@@ -60,6 +77,8 @@ impl ForgeType {
             Some(Self::GitHub)
         } else if host.contains("forgejo") || host.contains("gitea") || host.contains("codeberg") {
             Some(Self::Forgejo)
+        } else if host.contains("azure") {
+            Some(Self::AzureDevOps)
         } else {
             None
         }
@@ -93,7 +112,7 @@ const fn default_true() -> bool {
 #[derive(Debug, Clone, Deserialize, Builder)]
 #[serde(rename_all = "camelCase")]
 pub struct Config {
-    /// Which forge to use (GitLab, GitHub, or Forgejo).
+    /// Which forge to use.
     pub forge: ForgeType,
 
     /// The branch name to use for MRs into `trunk()`. You will generally only
@@ -177,6 +196,11 @@ pub struct Config {
     #[serde(default)]
     #[builder(default)]
     pub forgejo: ForgejoConfig,
+
+    /// Azure DevOps configuration.
+    #[serde(default)]
+    #[builder(default)]
+    pub azure: AzureDevOpsConfig,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -252,7 +276,7 @@ impl GitHubConfig {
         }
     }
 
-    /// Get the repository where branches are pushed.       
+    /// Get the repository where branches are pushed.
     pub fn source_project(&self) -> &str {
         &self.project
     }
@@ -309,6 +333,68 @@ impl ForgejoConfig {
     /// Get the repository where branches are pushed.
     pub fn source_project(&self) -> &str {
         &self.project
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AzureDevOpsConfig {
+    /// Azure DevOps instance URL (e.g., `https://dev.azure.com`).
+    #[serde(default)]
+    pub host: String,
+
+    #[serde(default)]
+    pub project: String,
+
+    #[serde(default)]
+    pub target_project: String,
+
+    #[serde(default)]
+    pub token: String,
+
+    #[serde(default)]
+    pub source_repository_name: Option<String>,
+
+    #[serde(default)]
+    pub target_repository_name: Option<String>,
+
+    #[serde(default)]
+    pub source_repository_id: Option<String>,
+
+    #[serde(default)]
+    pub target_repository_id: Option<String>,
+
+    #[serde(default)]
+    pub vssps_host: String,
+}
+
+impl AzureDevOpsConfig {
+    pub fn source_project_id(&self) -> &str {
+        &self.project
+    }
+
+    pub fn target_project_id(&self) -> &str {
+        if self.target_project.is_empty() {
+            &self.project
+        } else {
+            &self.target_project
+        }
+    }
+
+    pub fn target_repository_name(&self) -> Option<&str> {
+        if self.target_repository_name.is_none() {
+            self.source_repository_name.as_deref()
+        } else {
+            self.target_repository_name.as_deref()
+        }
+    }
+
+    pub fn target_repository_id(&self) -> Option<&str> {
+        if self.target_repository_id.is_none() {
+            self.source_repository_id.as_deref()
+        } else {
+            self.target_repository_id.as_deref()
+        }
     }
 }
 
@@ -451,6 +537,34 @@ impl Config {
                         message: "forgejo.token is required when forge is forgejo".to_string(),
                     }
                     .build());
+                }
+            }
+            ForgeType::AzureDevOps => {
+                if self.azure.host.is_empty() {
+                    return ConfigSnafu {
+                        message: "azure.host is required when forge is azure".to_string(),
+                    }
+                    .fail();
+                }
+                if self.azure.project.is_empty() {
+                    return ConfigSnafu {
+                        message: "azure.project is required when forge is azure".to_string(),
+                    }
+                    .fail();
+                }
+                if self.azure.token.is_empty() {
+                    return ConfigSnafu {
+                        message: "azure.token is required when forge is azure".to_string(),
+                    }
+                    .fail();
+                }
+                if self.azure.source_repository_name.is_none()
+                    && self.azure.source_repository_id.is_none()
+                {
+                    return ConfigSnafu {
+                        message: "azure.source_repository_name or azure.source_repository_id is required when forge is azure".to_string(),
+                    }
+                    .fail();
                 }
             }
         }

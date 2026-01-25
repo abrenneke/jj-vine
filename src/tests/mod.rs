@@ -1,3 +1,4 @@
+mod azure;
 mod edge_cases;
 mod forgejo;
 mod github;

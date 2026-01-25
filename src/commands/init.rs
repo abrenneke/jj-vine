@@ -1,16 +1,26 @@
 use std::{collections::HashMap, path::PathBuf};
 
-use dialoguer::{Input, Password, Select};
+use dialoguer::{Input, Select};
+use itertools::Itertools;
 use owo_colors::OwoColorize;
 use serde::Deserialize;
+use strum::VariantArray;
 
 use crate::{cli::CliConfig, config::ForgeType, error::Result, jj::Jujutsu};
+
+mod azure;
+mod forgejo;
+mod github;
+mod gitlab;
 
 #[derive(Debug, Clone)]
 struct DetectedForge {
     forge_type: ForgeType,
     host: String,
     project: String,
+
+    /// Only for Azure DevOps, the name of the repository.
+    repository_name: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -36,7 +46,7 @@ pub async fn init(cli_config: &CliConfig<'_>) -> Result<()> {
     let forge_type = if let Some(existing) = existing_forge {
         existing
     } else if let Some(ref detected_forge) = detected {
-        detected_forge.forge_type.clone()
+        detected_forge.forge_type
     } else {
         let selection = Select::new()
             .with_prompt(format!(
@@ -44,16 +54,11 @@ pub async fn init(cli_config: &CliConfig<'_>) -> Result<()> {
                 "Which forge are you using?".bold(),
                 "jj-vine.forge".dimmed()
             ))
-            .items(["GitLab", "GitHub", "Forgejo"])
+            .items(ForgeType::VARIANTS.iter().map(|v| v.display_name()))
             .default(0)
             .interact()?;
 
-        match selection {
-            0 => ForgeType::GitLab,
-            1 => ForgeType::GitHub,
-            2 => ForgeType::Forgejo,
-            _ => ForgeType::GitLab,
-        }
+        ForgeType::VARIANTS[selection]
     };
 
     set_config(
@@ -91,7 +96,7 @@ pub async fn init(cli_config: &CliConfig<'_>) -> Result<()> {
 
     match forge_type {
         ForgeType::GitLab => {
-            init_gitlab(
+            gitlab::init(
                 &cli_config.repository,
                 detected.as_ref(),
                 fork_detection.as_ref(),
@@ -99,7 +104,7 @@ pub async fn init(cli_config: &CliConfig<'_>) -> Result<()> {
             .await?;
         }
         ForgeType::GitHub => {
-            init_github(
+            github::init(
                 &cli_config.repository,
                 detected.as_ref(),
                 fork_detection.as_ref(),
@@ -107,7 +112,15 @@ pub async fn init(cli_config: &CliConfig<'_>) -> Result<()> {
             .await?;
         }
         ForgeType::Forgejo => {
-            init_forgejo(
+            forgejo::init(
+                &cli_config.repository,
+                detected.as_ref(),
+                fork_detection.as_ref(),
+            )
+            .await?;
+        }
+        ForgeType::AzureDevOps => {
+            azure::init(
                 &cli_config.repository,
                 detected.as_ref(),
                 fork_detection.as_ref(),
@@ -122,6 +135,7 @@ pub async fn init(cli_config: &CliConfig<'_>) -> Result<()> {
         ForgeType::GitLab => "pr",
         ForgeType::GitHub => "mr",
         ForgeType::Forgejo => "pr",
+        ForgeType::AzureDevOps => "pr",
     };
     let recommendation = format!(
         "\nIt is useful to set up an alias for this command, such as {}! Run {} to set it up.",
@@ -141,7 +155,7 @@ pub async fn init(cli_config: &CliConfig<'_>) -> Result<()> {
         }) => {
             let alias = aliases
                 .iter()
-                .find(|(_, args)| args.contains(&"jj-vine".to_string()));
+                .find(|(_, args)| args.iter().any(|a| a.contains("jj-vine")));
             match alias {
                 Some((alias, _)) => format!(
                     "Configuration complete! You can now use: {}.",
@@ -179,363 +193,6 @@ pub async fn init(cli_config: &CliConfig<'_>) -> Result<()> {
 #[derive(Debug, Clone, Deserialize)]
 struct JJConfig {
     aliases: Option<HashMap<String, Vec<String>>>,
-}
-
-/// Initialize GitLab-specific configuration
-async fn init_gitlab(
-    repo_path: impl Into<PathBuf>,
-    detected: Option<&DetectedForge>,
-    fork_detection: Option<&ForkDetection>,
-) -> Result<()> {
-    let repo_path = repo_path.into();
-    let existing_host = get_config(&repo_path, "jj-vine.gitlab.host");
-    let existing_project = get_config(&repo_path, "jj-vine.gitlab.project");
-    let existing_target_project = get_config(&repo_path, "jj-vine.gitlab.targetProject");
-    let existing_token = get_config(&repo_path, "jj-vine.gitlab.token");
-
-    let (detected_host, detected_project, detected_target_project) = if let Some(d) = detected {
-        if d.forge_type == ForgeType::GitLab {
-            let target = fork_detection.and_then(|f| f.target_project.clone());
-            (Some(d.host.clone()), Some(d.project.clone()), target)
-        } else {
-            (None, None, None)
-        }
-    } else {
-        (None, None, None)
-    };
-
-    let default_host = existing_host.or(detected_host);
-    let default_project = existing_project.or(detected_project);
-
-    let gitlab_host = if let Some(host) = default_host {
-        Input::<String>::new()
-            .with_prompt(format!(
-                "{} {}",
-                "GitLab instance URL (e.g. https://gitlab.example.com)".bold(),
-                "jj-vine.gitlab.host".dimmed()
-            ))
-            .default(host)
-            .interact_text()?
-    } else {
-        Input::<String>::new()
-            .with_prompt(format!(
-                "{} {}",
-                "GitLab instance URL (e.g. https://gitlab.example.com)".bold(),
-                "jj-vine.gitlab.host".dimmed()
-            ))
-            .interact_text()?
-    };
-
-    let gitlab_project = if let Some(project) = default_project {
-        Input::<String>::new()
-            .with_prompt(format!(
-                "{} {}",
-                "GitLab project ID (e.g. group/project)".bold(),
-                "jj-vine.gitlab.project".dimmed()
-            ))
-            .default(project)
-            .interact_text()?
-    } else {
-        Input::<String>::new()
-            .with_prompt(format!(
-                "{} {}",
-                "GitLab project ID (e.g. group/project)".bold(),
-                "jj-vine.gitlab.project".dimmed()
-            ))
-            .interact_text()?
-    };
-
-    let gitlab_target_project = Input::<String>::new()
-        .with_prompt(format!(
-            "{} {}",
-            "Target project for MRs (upstream, leave blank for same as source project)".bold(),
-            "jj-vine.gitlab.targetProject".dimmed()
-        ))
-        .default(
-            detected_target_project
-                .or(existing_target_project)
-                .unwrap_or(gitlab_project.clone()),
-        )
-        .interact_text()?;
-
-    let gitlab_token = if let Some(token) = existing_token {
-        println!(
-            "Using existing Personal Access Token. Run `jj config set --repo jj-vine.gitlab.token <token>` to update it."
-        );
-        token
-    } else {
-        println!();
-        println!("{}", "Personal Access Token required scopes:".yellow());
-        println!(
-            "  {} {}",
-            "•".yellow(),
-            "api (for creating/updating merge requests)".dimmed()
-        );
-        println!();
-        println!(
-            "{} {}",
-            "⚠".yellow(),
-            "Note: GitLab does not offer more granular scopes for MR operations.".dimmed()
-        );
-        println!(
-            "  {}",
-            "The 'api' scope grants full read/write API access.".dimmed()
-        );
-        println!(
-            "  {}",
-            format!(
-                "Create token at: {}/-/user_settings/personal_access_tokens",
-                gitlab_host
-            )
-            .dimmed()
-        );
-        println!();
-
-        Password::new()
-            .with_prompt(format!(
-                "{} {}",
-                "GitLab Personal Access Token".bold(),
-                "jj-vine.gitlab.token".dimmed()
-            ))
-            .interact()?
-    };
-
-    set_config(&repo_path, "jj-vine.gitlab.host", &gitlab_host)?;
-    set_config(&repo_path, "jj-vine.gitlab.project", &gitlab_project)?;
-    set_config(
-        &repo_path,
-        "jj-vine.gitlab.targetProject",
-        &gitlab_target_project,
-    )?;
-    set_config(&repo_path, "jj-vine.gitlab.token", &gitlab_token)?;
-
-    Ok(())
-}
-
-/// Initialize GitHub-specific configuration
-async fn init_github(
-    repo_path: impl Into<PathBuf>,
-    detected: Option<&DetectedForge>,
-    fork_detection: Option<&ForkDetection>,
-) -> Result<()> {
-    let repo_path = repo_path.into();
-    let existing_host = get_config(&repo_path, "jj-vine.github.host");
-    let existing_project = get_config(&repo_path, "jj-vine.github.project");
-    let existing_target_project = get_config(&repo_path, "jj-vine.github.targetProject");
-    let existing_token = get_config(&repo_path, "jj-vine.github.token");
-
-    let (detected_host, detected_project, detected_target_project) = if let Some(d) = detected {
-        if d.forge_type == ForgeType::GitHub {
-            let target = fork_detection.and_then(|f| f.target_project.clone());
-            (Some(d.host.clone()), Some(d.project.clone()), target)
-        } else {
-            (None, None, None)
-        }
-    } else {
-        (None, None, None)
-    };
-
-    let default_host = existing_host
-        .or(detected_host)
-        .unwrap_or_else(|| "https://api.github.com".to_string());
-    let default_project = existing_project.or(detected_project);
-
-    let github_host = Input::<String>::new()
-        .with_prompt(format!(
-            "{} {}",
-            "GitHub API URL (e.g. https://api.github.com)".bold(),
-            "jj-vine.github.host".dimmed()
-        ))
-        .default(default_host)
-        .interact_text()?;
-
-    let github_project = if let Some(project) = default_project {
-        Input::<String>::new()
-            .with_prompt(format!(
-                "{} {}",
-                "GitHub repository (owner/repo)".bold(),
-                "jj-vine.github.project".dimmed()
-            ))
-            .default(project)
-            .interact_text()?
-    } else {
-        Input::<String>::new()
-            .with_prompt(format!(
-                "{} {}",
-                "GitHub repository (owner/repo)".bold(),
-                "jj-vine.github.project".dimmed()
-            ))
-            .interact_text()?
-    };
-
-    let github_target_project = Input::<String>::new()
-        .with_prompt(format!(
-            "{} {}",
-            "Target repository for PRs (upstream, leave blank for same as source repository)"
-                .bold(),
-            "jj-vine.github.targetProject".dimmed()
-        ))
-        .default(
-            detected_target_project
-                .or(existing_target_project)
-                .unwrap_or(github_project.clone()),
-        )
-        .interact_text()?;
-
-    let github_token = if let Some(token) = existing_token {
-        println!(
-            "Using existing Personal Access Token. Run `jj config set --repo jj-vine.github.token <token>` to update it."
-        );
-        token
-    } else {
-        println!();
-        println!("{}", "Personal Access Token required scopes:".yellow());
-        println!(
-            "  {} {}",
-            "•".yellow(),
-            "repo (for creating/updating pull requests)".dimmed()
-        );
-        println!();
-        println!(
-            "  {}",
-            "Create token at: https://github.com/settings/tokens/new".dimmed()
-        );
-        println!();
-
-        Password::new()
-            .with_prompt(format!(
-                "{} {}",
-                "GitHub Personal Access Token".bold(),
-                "jj-vine.github.token".dimmed()
-            ))
-            .interact()?
-    };
-
-    set_config(&repo_path, "jj-vine.github.host", &github_host)?;
-    set_config(&repo_path, "jj-vine.github.project", &github_project)?;
-    set_config(
-        &repo_path,
-        "jj-vine.github.targetProject",
-        &github_target_project,
-    )?;
-    set_config(&repo_path, "jj-vine.github.token", &github_token)?;
-
-    Ok(())
-}
-
-/// Initialize Forgejo/Codeburg/Gitea-specific configuration
-async fn init_forgejo(
-    repo_path: impl Into<PathBuf>,
-    detected: Option<&DetectedForge>,
-    fork_detection: Option<&ForkDetection>,
-) -> Result<()> {
-    let repo_path = repo_path.into();
-    let existing_host = get_config(&repo_path, "jj-vine.forgejo.host");
-    let existing_project = get_config(&repo_path, "jj-vine.forgejo.project");
-    let existing_target_project = get_config(&repo_path, "jj-vine.forgejo.targetProject");
-    let existing_token = get_config(&repo_path, "jj-vine.forgejo.token");
-
-    let (detected_host, detected_project, detected_target_project) = if let Some(d) = detected {
-        if d.forge_type == ForgeType::Forgejo {
-            let target = fork_detection.and_then(|f| f.target_project.clone());
-            (Some(d.host.clone()), Some(d.project.clone()), target)
-        } else {
-            (None, None, None)
-        }
-    } else {
-        (None, None, None)
-    };
-
-    let default_host = existing_host
-        .or(detected_host)
-        .unwrap_or_else(|| "https://codeberg.org".to_string());
-    let default_project = existing_project.or(detected_project);
-
-    let forgejo_host = Input::<String>::new()
-        .with_prompt(format!(
-            "{} {}",
-            "Forgejo/Codeburg/Gitea instance URL (e.g. https://codeberg.org)".bold(),
-            "jj-vine.forgejo.host".dimmed()
-        ))
-        .default(default_host)
-        .interact_text()?;
-
-    let forgejo_project = if let Some(project) = default_project {
-        Input::<String>::new()
-            .with_prompt(format!(
-                "{} {}",
-                "Forgejo/Codeburg/Gitea repository (owner/repo)".bold(),
-                "jj-vine.forgejo.project".dimmed()
-            ))
-            .default(project)
-            .interact_text()?
-    } else {
-        Input::<String>::new()
-            .with_prompt(format!(
-                "{} {}",
-                "Forgejo/Codeburg/Gitea repository (owner/repo)".bold(),
-                "jj-vine.forgejo.project".dimmed()
-            ))
-            .interact_text()?
-    };
-
-    let forgejo_target_project = Input::<String>::new()
-        .with_prompt(format!(
-            "{} {}",
-            "Target repository for PRs (upstream, leave blank for same as source repository)"
-                .bold(),
-            "jj-vine.forgejo.targetProject".dimmed()
-        ))
-        .default(
-            detected_target_project
-                .or(existing_target_project)
-                .unwrap_or(forgejo_project.clone()),
-        )
-        .interact_text()?;
-
-    let forgejo_token = if let Some(token) = existing_token {
-        println!(
-            "Using existing Personal Access Token. Run `jj config set --repo jj-vine.forgejo.token <token>` to update it."
-        );
-        token
-    } else {
-        println!();
-        println!("{}", "Personal Access Token required scopes:".yellow());
-        println!(
-            "  {} {}",
-            "•".yellow(),
-            "repo (for creating/updating pull requests)".dimmed()
-        );
-        println!();
-        println!(
-            "  {}",
-            format!(
-                "Create token at: {}/user/settings/applications",
-                forgejo_host
-            )
-            .dimmed(),
-        );
-        println!();
-
-        Password::new()
-            .with_prompt(format!(
-                "{} {}",
-                "Forgejo/Codeburg/Gitea Personal Access Token".bold(),
-                "jj-vine.forgejo.token".dimmed()
-            ))
-            .interact()?
-    };
-
-    set_config(&repo_path, "jj-vine.forgejo.host", &forgejo_host)?;
-    set_config(&repo_path, "jj-vine.forgejo.project", &forgejo_project)?;
-    set_config(
-        &repo_path,
-        "jj-vine.forgejo.targetProject",
-        &forgejo_target_project,
-    )?;
-    set_config(&repo_path, "jj-vine.forgejo.token", &forgejo_token)?;
-
-    Ok(())
 }
 
 /// Get a configuration value using jj config get
@@ -685,18 +342,34 @@ fn parse_forge_url(url: &str) -> Option<DetectedForge> {
             }
         };
 
-        let project = rest.trim_end_matches(".git");
         let forge_type = ForgeType::detect_from_host(host)?;
+
+        let (project, repository_name) = match forge_type {
+            ForgeType::AzureDevOps => {
+                if let Some((_, org, project, repo)) =
+                    rest.trim_end_matches(".git").split('/').collect_tuple()
+                {
+                    (format!("{}/{}", org, project), Some(repo.to_string()))
+                } else {
+                    (rest.trim_end_matches(".git").to_string(), None)
+                }
+            }
+            _ => (rest.trim_end_matches(".git").to_string(), None),
+        };
+
         let api_host = match forge_type {
             ForgeType::GitHub if host == "github.com" => "https://api.github.com".to_string(),
             ForgeType::GitHub => format!("https://{}/api/v3", host),
             ForgeType::GitLab => format!("https://{}", host),
             ForgeType::Forgejo => format!("https://{}", host),
+            ForgeType::AzureDevOps => format!("https://{}", host),
         };
+
         return Some(DetectedForge {
             forge_type,
             host: api_host,
             project: project.to_string(),
+            repository_name,
         });
     }
 
@@ -707,7 +380,6 @@ fn parse_forge_url(url: &str) -> Option<DetectedForge> {
             .or_else(|| url.strip_prefix("http://"))?;
 
         let (host, path) = without_protocol.split_once('/')?;
-        let project = path.strip_suffix(".git").unwrap_or(path);
 
         let protocol = if url.starts_with("https://") {
             "https"
@@ -716,17 +388,33 @@ fn parse_forge_url(url: &str) -> Option<DetectedForge> {
         };
 
         let forge_type = ForgeType::detect_from_host(host)?;
+
+        let (project, repository_name) = match forge_type {
+            ForgeType::AzureDevOps => {
+                if let Some((_, org, project, repo)) =
+                    path.trim_end_matches(".git").split('/').collect_tuple()
+                {
+                    (format!("{}/{}", org, project), Some(repo.to_string()))
+                } else {
+                    (path.trim_end_matches(".git").to_string(), None)
+                }
+            }
+            _ => (path.trim_end_matches(".git").to_string(), None),
+        };
+
         let api_host = match forge_type {
             ForgeType::GitHub if host == "github.com" => "https://api.github.com".to_string(),
             ForgeType::GitHub => format!("{}://{}/api/v3", protocol, host),
             ForgeType::GitLab => format!("{}://{}", protocol, host),
             ForgeType::Forgejo => format!("{}://{}", protocol, host),
+            ForgeType::AzureDevOps => format!("{}://{}", protocol, host),
         };
 
         return Some(DetectedForge {
             forge_type,
             host: api_host,
             project: project.to_string(),
+            repository_name,
         });
     }
 

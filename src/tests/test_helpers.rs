@@ -8,7 +8,12 @@ use snafu::ResultExt;
 use tempfile::TempDir;
 
 #[cfg(not(feature = "no-e2e-tests"))]
-use crate::forge::{forgejo::ForgejoForge, github::GitHubForge, gitlab::GitLabForge};
+use crate::forge::{
+    azure::AzureDevOpsForge,
+    forgejo::ForgejoForge,
+    github::GitHubForge,
+    gitlab::GitLabForge,
+};
 use crate::{
     cli::Cli,
     error::{ClapSnafu, Result},
@@ -142,9 +147,9 @@ impl TestRepo<GitLabForge> {
             .exec(["config", "set", "--repo", "jj-vine.gitlab.token", &token])
             .unwrap();
 
-        if let Some(ref bundle) = ca_bundle {
+        if let Some(bundle) = ca_bundle {
             repo.jj
-                .exec(["config", "set", "--repo", "jj-vine.caBundle", bundle])
+                .exec(["config", "set", "--repo", "jj-vine.caBundle", &bundle])
                 .unwrap();
         }
 
@@ -230,9 +235,9 @@ impl TestRepo<GitHubForge> {
             .exec(["config", "set", "--repo", "jj-vine.github.token", &token])
             .unwrap();
 
-        if let Some(ref bundle) = ca_bundle {
+        if let Some(bundle) = ca_bundle {
             repo.jj
-                .exec(["config", "set", "--repo", "jj-vine.caBundle", bundle])
+                .exec(["config", "set", "--repo", "jj-vine.caBundle", &bundle])
                 .unwrap();
         }
 
@@ -338,9 +343,9 @@ impl TestRepo<ForgejoForge> {
             .exec(["config", "set", "--repo", "jj-vine.forgejo.token", &token])
             .unwrap();
 
-        if let Some(ref bundle) = ca_bundle {
+        if let Some(bundle) = ca_bundle {
             repo.jj
-                .exec(["config", "set", "--repo", "jj-vine.caBundle", bundle])
+                .exec(["config", "set", "--repo", "jj-vine.caBundle", &bundle])
                 .unwrap();
         }
 
@@ -373,6 +378,115 @@ impl TestRepo<ForgejoForge> {
             .unwrap();
 
         // Fetch and track main so tests don't have to
+        repo.jj.exec(["git", "fetch"]).unwrap();
+        repo.jj.exec(["bookmark", "track", "main@origin"]).unwrap();
+
+        repo
+    }
+}
+
+#[cfg(not(feature = "no-e2e-tests"))]
+impl TestRepo<AzureDevOpsForge> {
+    pub fn with_azure_remote() -> Self {
+        dotenv::dotenv().ok();
+
+        let host = std::env::var("AZURE_HOST").expect("AZURE_HOST required");
+        let vssps_host = std::env::var("AZURE_VSSPS_HOST").expect("AZURE_VSSPS_HOST required");
+        let ssh_host = std::env::var("AZURE_SSH_HOST").expect("AZURE_SSH_HOST required");
+        let project_id = std::env::var("AZURE_PROJECT").expect("AZURE_PROJECT required");
+        let repo_name = std::env::var("AZURE_REPO_NAME").expect("AZURE_REPO_NAME required");
+        let token = std::env::var("AZURE_TOKEN").expect("AZURE_TOKEN required");
+        let ca_bundle = std::env::var("AZURE_CA_BUNDLE").ok();
+        let accept_non_compliant = std::env::var("AZURE_TLS_ACCEPT_NON_COMPLIANT_CERTS")
+            .ok()
+            .and_then(|v| v.parse::<bool>().ok())
+            .unwrap_or(false);
+
+        let (dir, path) = make_repo();
+
+        let (org, project) = project_id.split_once('/').unwrap();
+
+        let forge = AzureDevOpsForge::builder()
+            .base_url(host.clone())
+            .vssps_base_url(vssps_host.clone())
+            .source_project_id(project_id.clone())
+            .target_project_id(project_id.clone())
+            .source_repository_name(repo_name.clone())
+            .target_repository_name(repo_name.clone())
+            .token(token.clone())
+            .maybe_ca_bundle(ca_bundle.clone())
+            .accept_non_compliant_certs(accept_non_compliant)
+            .build()
+            .expect("Failed to create Azure DevOps client");
+
+        let repo = Self {
+            dir,
+            jj: Jujutsu::new(&path).expect("Failed to create Jujutsu"),
+            path,
+            forge,
+        };
+
+        repo.jj
+            .exec(["config", "set", "--repo", "jj-vine.forge", "azure"])
+            .unwrap();
+        repo.jj
+            .exec(["config", "set", "--repo", "jj-vine.azure.host", &host])
+            .unwrap();
+        repo.jj
+            .exec([
+                "config",
+                "set",
+                "--repo",
+                "jj-vine.azure.vsspsHost",
+                &vssps_host,
+            ])
+            .unwrap();
+        repo.jj
+            .exec([
+                "config",
+                "set",
+                "--repo",
+                "jj-vine.azure.project",
+                &project_id,
+            ])
+            .unwrap();
+        repo.jj
+            .exec(["config", "set", "--repo", "jj-vine.azure.token", &token])
+            .unwrap();
+        repo.jj
+            .exec([
+                "config",
+                "set",
+                "--repo",
+                "jj-vine.azure.sourceRepositoryName",
+                &repo_name,
+            ])
+            .unwrap();
+
+        if let Some(bundle) = ca_bundle {
+            repo.jj
+                .exec(["config", "set", "--repo", "jj-vine.caBundle", &bundle])
+                .unwrap();
+        }
+
+        if accept_non_compliant {
+            repo.jj
+                .exec([
+                    "config",
+                    "set",
+                    "--repo",
+                    "jj-vine.tlsAcceptNonCompliantCerts",
+                    "true",
+                ])
+                .unwrap();
+        }
+
+        let remote_url = format!("git@{}:v3/{}/{}/{}", ssh_host, org, project, repo_name);
+
+        repo.jj
+            .exec(["git", "remote", "add", "origin", &remote_url])
+            .unwrap();
+
         repo.jj.exec(["git", "fetch"]).unwrap();
         repo.jj.exec(["bookmark", "track", "main@origin"]).unwrap();
 

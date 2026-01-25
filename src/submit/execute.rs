@@ -80,7 +80,7 @@ pub struct ExecutionActionContext<'a, 'b> {
 }
 
 /// Type of MR update
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MRUpdateType {
     /// MR was unchanged
     Unchanged,

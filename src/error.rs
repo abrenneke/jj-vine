@@ -81,6 +81,15 @@ pub enum Error {
         location: Box<Location>,
     },
 
+    #[snafu(display("Azure DevOps API error: {message}"))]
+    AzureDevOpsApi {
+        message: String,
+        backtrace: Box<Backtrace>,
+
+        #[snafu(implicit)]
+        location: Box<Location>,
+    },
+
     #[snafu(display("CLI error: {source}\nArguments: {arguments:?}\n{source}"))]
     Clap {
         arguments: Vec<String>,
@@ -207,6 +216,7 @@ impl Error {
             Error::Other { backtrace, .. } => Some(backtrace),
             Error::InvalidComponent { backtrace, .. } => Some(backtrace),
             Error::Aggregate { backtrace, .. } => Some(backtrace),
+            Error::AzureDevOpsApi { backtrace, .. } => Some(backtrace),
         }
     }
 
@@ -229,6 +239,7 @@ impl Error {
             Error::Other { location, .. } => Some(location),
             Error::InvalidComponent { location, .. } => Some(location),
             Error::Aggregate { location, .. } => Some(location),
+            Error::AzureDevOpsApi { location, .. } => Some(location),
         }
     }
 }
