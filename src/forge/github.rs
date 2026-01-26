@@ -244,7 +244,6 @@ struct GraphQLResponse<T> {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct GraphQLError {
     message: String,
-    path: Vec<String>,
 }
 
 impl GitHubForge {
@@ -885,7 +884,10 @@ query GetDiscussions($owner: String!, $name: String!, $pr_number: Int!) {
                 serde_json::json!({
                     "owner": owner,
                     "name": name,
-                    "pr_number": pr_number,
+                    "pr_number": pr_number.parse::<i32>().map_err(|e| GitHubApiSnafu {
+                        message: format!("Failed to parse PR number: {}", e),
+                    }
+                    .build())?,
                 }),
             )
             .await?;

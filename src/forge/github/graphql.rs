@@ -6,14 +6,14 @@ use crate::forge::ForgeUser;
 #[serde(rename_all = "camelCase")]
 pub struct RelayConnection<T> {
     pub nodes: Vec<T>,
-    pub page_info: RelayPageInfo,
+    pub page_info: Option<RelayPageInfo>,
 }
 
 impl<T> Default for RelayConnection<T> {
     fn default() -> Self {
         Self {
             nodes: Vec::new(),
-            page_info: RelayPageInfo::default(),
+            page_info: None,
         }
     }
 }
