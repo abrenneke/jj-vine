@@ -36,7 +36,10 @@ mod e2e {
 
         let result = repo.try_run(["submit", "--tracked"]).await;
 
-        assert_contains!(result.unwrap_err().to_string(), "No bookmarks in revset");
+        assert_contains!(
+            result.unwrap_err().to_string(),
+            "No bookmarks in revset (mine() & tracked_remote_bookmarks()) ~ trunk()"
+        );
 
         Ok(())
     }
@@ -63,7 +66,7 @@ mod e2e {
         repo.jj.exec(["bookmark", "track", "main"])?;
         repo.jj.exec(["new", "main"])?;
         repo.create_change("test.txt", "content", "Feature commit")
-            .create_bookmark("feature-push-fail");
+            .create_tracked_bookmark("feature-push-fail");
 
         std::fs::remove_dir_all(&upstream.path)?;
 

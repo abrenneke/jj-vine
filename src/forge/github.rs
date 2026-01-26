@@ -737,6 +737,15 @@ impl Forge for GitHubForge {
             },
         ))
     }
+
+    async fn sync_dependent_merge_requests(
+        &self,
+        _merge_request_iid: &str,
+        _dependent_merge_request_iids: &[&str],
+    ) -> Result<bool> {
+        // Only supported for GitLab
+        Ok(false)
+    }
 }
 
 impl FormatMergeRequest for GitHubForge {

@@ -222,6 +222,12 @@ pub struct GitLabConfig {
     /// GitLab Personal Access Token.
     #[serde(default)]
     pub token: String,
+
+    /// If true, jj-vine will create dependencies between merge requests,
+    /// requiring that all parent merge requests are merged before the child
+    /// merge request can be merged.
+    #[serde(default = "default_true")]
+    pub create_merge_request_dependencies: bool,
 }
 
 impl GitLabConfig {
@@ -741,8 +747,6 @@ mod tests {
 
         let config = Config::load(&repo_path).expect("Failed to load config");
 
-        dbg!(&config);
-
         assert!(config.description.enabled);
         assert!(matches!(
             config.description.format.single,
@@ -1116,6 +1120,7 @@ mod tests {
             project: "myuser/myrepo".to_string(),
             target_project: "".to_string(),
             token: "token".to_string(),
+            create_merge_request_dependencies: true,
         };
 
         assert_eq!(config.target_project(), "myuser/myrepo");
@@ -1130,6 +1135,7 @@ mod tests {
             project: "myuser/fork".to_string(),
             target_project: "upstream/repo".to_string(),
             token: "token".to_string(),
+            create_merge_request_dependencies: true,
         };
 
         assert_eq!(config.target_project(), "upstream/repo");
@@ -1144,6 +1150,7 @@ mod tests {
             project: "myuser/repo".to_string(),
             target_project: "myuser/repo".to_string(),
             token: "token".to_string(),
+            create_merge_request_dependencies: true,
         };
 
         assert_eq!(config.target_project(), "myuser/repo");

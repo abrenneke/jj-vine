@@ -205,7 +205,6 @@ mod e2e {
 
         let output = repo.run(["submit", "--tracked", "--dry-run"]).await;
 
-        // Verify that c targets main, not b
         assert_contains!(output, &format!("Would create {} -> main", a));
         assert_contains!(output, &format!("Would create {} -> {}", b, a));
         assert_contains!(output, &format!("Would create {} -> main", c));

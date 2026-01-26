@@ -124,6 +124,7 @@ impl TestRepo<GitLabForge> {
                 &token,
                 ca_bundle.as_ref(),
                 accept_non_compliant,
+                true,
             )
             .expect("Failed to create GitLab client"),
         };
@@ -502,9 +503,18 @@ where
         &self.forge
     }
 
+    pub fn new_on(&self, rev: &'_ str) -> &Self {
+        self.exec(["new", rev])
+    }
+
+    pub fn exec<'a>(&self, args: impl AsRef<[&'a str]>) -> &Self {
+        self.jj.exec(args).unwrap();
+        self
+    }
+
     /// Create a bookmark at current revision, chainable.
     /// If a remote is configured, also tracks the bookmark.
-    pub fn create_bookmark(&self, name: &str) -> &Self {
+    pub fn create_tracked_bookmark(&self, name: &str) -> &Self {
         self.jj.exec(["bookmark", "create", name]).unwrap();
         self.jj
             .exec(["bookmark", "track", &format!("{}@origin", name)])
@@ -514,8 +524,17 @@ where
 
     /// Create a bookmark and push it to origin, chainable
     pub fn create_and_push_bookmark(&self, name: &str) -> &Self {
-        self.create_bookmark(name);
+        self.create_tracked_bookmark(name);
         self.push_bookmark(name)
+    }
+
+    pub fn create_change_and_bookmark(&self, bookmark_name: &str) -> &Self {
+        self.create_change(
+            &format!("{}.txt", bookmark_name),
+            &format!("content for {}", bookmark_name),
+            &format!("Commit for {} bookmark", bookmark_name),
+        )
+        .create_tracked_bookmark(bookmark_name)
     }
 
     /// Create a commit with a bookmark, then start new working copy
@@ -527,7 +546,7 @@ where
         bookmark: &str,
     ) -> &Self {
         self.create_change(file, content, msg);
-        self.create_bookmark(bookmark);
+        self.create_tracked_bookmark(bookmark);
         self.jj.exec(["new"]).unwrap();
         self
     }

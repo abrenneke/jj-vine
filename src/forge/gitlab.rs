@@ -1,12 +1,12 @@
-use std::path::Path;
+use std::{collections::HashSet, path::Path};
 
-use futures::try_join;
+use futures::{StreamExt, stream::FuturesUnordered, try_join};
 use reqwest::{Method, StatusCode};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::{
     description::FormatMergeRequest,
-    error::{ConfigSnafu, GitLabApiSnafu, Result},
+    error::{ConfigSnafu, Error, GitLabApiSnafu, Result, make_whatever},
     forge::{
         ApprovalSatisfaction,
         ApprovalStatus,
@@ -27,6 +27,9 @@ pub struct GitLabForge {
     target_project_id: String,
     token: String,
     client: reqwest::Client,
+
+    /// Whether to create & sync merge request dependencies.
+    create_merge_request_dependencies: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -46,16 +49,6 @@ impl From<GitLabUser> for ForgeUser {
 
 impl GitLabForge {
     /// Create a new GitLab client
-    ///
-    /// # Arguments
-    /// * `base_url` - GitLab instance URL (e.g., <https://gitlab.example.com>)
-    /// * `source_project_id` - Source project ID where branches are pushed
-    ///   (e.g., "user/fork")
-    /// * `target_project_id` - Target project ID where MRs are created (e.g.,
-    ///   "group/project")
-    /// * `token` - Personal Access Token
-    /// * `ca_bundle` - Optional path to CA bundle for TLS verification
-    /// * `accept_non_compliant_certs` - Accept non-compliant TLS certificates
     pub fn new(
         base_url: impl Into<String>,
         source_project_id: impl Into<String>,
@@ -63,6 +56,7 @@ impl GitLabForge {
         token: impl Into<String>,
         ca_bundle: Option<impl AsRef<Path>>,
         accept_non_compliant_certs: bool,
+        create_merge_request_dependencies: bool,
     ) -> Result<Self> {
         let mut client_builder = reqwest::Client::builder();
 
@@ -109,6 +103,7 @@ impl GitLabForge {
             target_project_id: target_project_id.into(),
             token: token.into(),
             client,
+            create_merge_request_dependencies,
         })
     }
 
@@ -124,7 +119,10 @@ impl GitLabForge {
     ) -> Result<T> {
         let mut req = self
             .client
-            .request(method, format!("{}{}", self.base_url, path.as_ref()))
+            .request(
+                method.clone(),
+                format!("{}{}", self.base_url, path.as_ref()),
+            )
             .header("Authorization", format!("Bearer {}", &self.token));
 
         if let Some(payload) = payload.as_ref() {
@@ -136,17 +134,18 @@ impl GitLabForge {
         if !response.status().is_success() {
             let status = response.status();
             let text = response.text().await?;
-            return Err(GitLabApiSnafu {
-                message: format!("Failed to get: {} - {}", status, text),
+            return GitLabApiSnafu {
+                message: format!("Failed to {}: {} - {}", method, status, text),
             }
-            .build());
+            .fail();
         }
 
         let body = response.text().await?;
         let data: T = serde_json::from_str(&body).map_err(|e| {
             GitLabApiSnafu {
                 message: format!(
-                    "Failed to parse GET response to {}: {}, response: {}",
+                    "Failed to parse {} response to {}: {}, response: {}",
+                    method,
                     path.as_ref(),
                     e,
                     body
@@ -155,6 +154,17 @@ impl GitLabForge {
             .build()
         })?;
         Ok(data)
+    }
+}
+
+struct NoContent;
+
+impl<'de> Deserialize<'de> for NoContent {
+    fn deserialize<D>(_deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        Ok(NoContent)
     }
 }
 
@@ -239,7 +249,6 @@ impl Forge for GitLabForge {
             "squash": squash,
         });
 
-        // For fork workflows, specify the source project ID
         if self.source_project_id != self.target_project_id {
             payload["source_project_id"] = serde_json::json!(self.source_project_id);
         }
@@ -462,6 +471,75 @@ impl Forge for GitLabForge {
                 acc
             }))
     }
+
+    async fn sync_dependent_merge_requests(
+        &self,
+        merge_request_iid: &str,
+        dependent_merge_request_iids: &[&str],
+    ) -> Result<bool> {
+        if !self.create_merge_request_dependencies {
+            return Ok(false);
+        }
+
+        let needed_deps: HashSet<_> = dependent_merge_request_iids
+            .iter()
+            .map(|s| -> Result<u64> {
+                s.parse::<u64>().map_err::<Error, _>(|_| {
+                    make_whatever!(
+                        "Failed to parse dependent merge request IID as number: {}",
+                        s
+                    )
+                })
+            })
+            .collect::<Result<HashSet<_>>>()?;
+
+        // Now we need to get the ID for all needed deps... not the IID :/
+        let needed_deps: HashSet<u64> = needed_deps
+            .into_iter()
+            .map(|dep| async move {
+                let mr = self.get_merge_request(&dep.to_string()).await?;
+                Ok(match mr {
+                    ForgeMergeRequest::GitLab(mr) => mr.id,
+                    _ => unreachable!(),
+                })
+            })
+            .collect::<FuturesUnordered<_>>()
+            .collect::<Vec<Result<_>>>()
+            .await
+            .into_iter()
+            .collect::<Result<_>>()?;
+
+        let current_deps = self
+            .get_merge_request_dependencies(merge_request_iid)
+            .await?;
+        let current_deps_set: HashSet<_> = current_deps
+            .iter()
+            .map(|dep| dep.blocking_merge_request.id)
+            .collect();
+
+        let unneeded_deps: HashSet<_> = current_deps_set.difference(&needed_deps).collect();
+        current_deps
+            .iter()
+            .filter(|dep| unneeded_deps.contains(&dep.blocking_merge_request.id))
+            .map(|dep| self.delete_merge_request_dependency(merge_request_iid, dep.id))
+            .collect::<FuturesUnordered<_>>()
+            .collect::<Vec<Result<_>>>()
+            .await
+            .into_iter()
+            .collect::<Result<Vec<_>>>()?;
+
+        let new_deps: HashSet<_> = needed_deps.difference(&current_deps_set).collect();
+        new_deps
+            .iter()
+            .map(|id| self.create_merge_request_dependency(merge_request_iid, **id))
+            .collect::<FuturesUnordered<_>>()
+            .collect::<Vec<Result<_>>>()
+            .await
+            .into_iter()
+            .collect::<Result<Vec<_>>>()?;
+
+        Ok(!(unneeded_deps.is_empty() && new_deps.is_empty()))
+    }
 }
 
 impl GitLabForge {
@@ -474,6 +552,59 @@ impl GitLabForge {
                 merge_request_iid
             ),
             None::<()>,
+        )
+        .await
+    }
+
+    pub async fn get_merge_request_dependencies(
+        &self,
+        merge_request_iid: &str,
+    ) -> Result<Vec<MergeRequestDependency>> {
+        self.request(
+            Method::GET,
+            format!(
+                "/api/v4/projects/{}/merge_requests/{}/blocks",
+                self.encoded_target_project_id(),
+                merge_request_iid
+            ),
+            None::<()>,
+        )
+        .await
+    }
+
+    async fn delete_merge_request_dependency(
+        &self,
+        merge_request_iid: &str,
+        dependency_id: u64,
+    ) -> Result<NoContent> {
+        self.request(
+            Method::DELETE,
+            format!(
+                "/api/v4/projects/{}/merge_requests/{}/blocks/{}",
+                self.encoded_target_project_id(),
+                merge_request_iid,
+                dependency_id
+            ),
+            None::<()>,
+        )
+        .await
+    }
+
+    async fn create_merge_request_dependency(
+        &self,
+        merge_request_iid: &str,
+        blocking_merge_request_global_id: u64,
+    ) -> Result<MergeRequestDependency> {
+        self.request(
+            Method::POST,
+            format!(
+                "/api/v4/projects/{}/merge_requests/{}/blocks",
+                self.encoded_target_project_id(),
+                merge_request_iid
+            ),
+            Some(serde_json::json!({
+                "blocking_merge_request_id": blocking_merge_request_global_id
+            })),
         )
         .await
     }
@@ -703,6 +834,15 @@ struct DiscussionNote {
     suggestions: Vec<NoteSuggestion>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MergeRequestDependency {
+    pub id: u64,
+
+    pub blocking_merge_request: MergeRequest,
+
+    pub project_id: Option<u64>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -716,6 +856,7 @@ mod tests {
             "token123".to_string(),
             None::<&str>,
             false,
+            true,
         )
         .expect("Failed to create client");
 
@@ -734,6 +875,7 @@ mod tests {
             "token123".to_string(),
             None::<&str>,
             false,
+            true,
         )
         .expect("Failed to create client");
 
@@ -807,6 +949,7 @@ uYyBeUf6LmQswHqXfxOmAoy1HbXDtNvmClznsb0=
             "token123".to_string(),
             Some(path.as_str()),
             false,
+            true,
         )
         .expect("Failed to create client with multi-cert bundle");
     }

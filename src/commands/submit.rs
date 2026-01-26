@@ -124,10 +124,10 @@ pub async fn submit(config: &SubmitCommandConfig, cli_config: &CliConfig<'_>) ->
     let jj = Jujutsu::new(&cli_config.repository)?;
 
     let revset = config.revset_options.to_get_bookmarks_options().to_revset();
-    let changes = jj.log(revset)?;
+    let changes = jj.log(&revset)?;
     let bookmarks: Vec<_> = Bookmark::from_changes(&changes).into_iter().collect();
 
-    ensure_whatever!(!bookmarks.is_empty(), "No bookmarks in revset");
+    ensure_whatever!(!bookmarks.is_empty(), "No bookmarks in revset {}", revset);
 
     let output = cli_config.output;
     let repo_config = Config::load(&cli_config.repository)?;
@@ -196,7 +196,7 @@ pub async fn submit(config: &SubmitCommandConfig, cli_config: &CliConfig<'_>) ->
             .collect();
 
         // If an MR was just created, don't also report that it was updated
-        for (index, update) in updates.clone().into_iter().enumerate() {
+        for (index, update) in updates.clone().into_iter().enumerate().rev() {
             if let MRUpdateType::DescriptionUpdated = update.update_type
                 && updates
                     .iter()
@@ -209,6 +209,8 @@ pub async fn submit(config: &SubmitCommandConfig, cli_config: &CliConfig<'_>) ->
                 updates.remove(index);
             }
         }
+
+        updates.dedup_by_key(|u| u.mr.iid());
 
         for MRUpdate {
             mr,
@@ -227,7 +229,8 @@ pub async fn submit(config: &SubmitCommandConfig, cli_config: &CliConfig<'_>) ->
                 }
                 MRUpdateType::Repointed { .. }
                 | MRUpdateType::Both { .. }
-                | MRUpdateType::DescriptionUpdated => {
+                | MRUpdateType::DescriptionUpdated
+                | MRUpdateType::SyncedDependentMergeRequests => {
                     table.push(vec![
                         bookmark.magenta().cell(),
                         mr.title().wrap(60).cell(),

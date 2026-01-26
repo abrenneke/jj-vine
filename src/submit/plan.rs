@@ -37,6 +37,12 @@ pub enum Action<'a> {
         bookmark: String,
         bookmark_graph: BookmarkGraph<'a>,
     },
+
+    /// Sync dependent merge requests (after all MRs created)
+    SyncDependentMergeRequests {
+        bookmark: String,
+        bookmark_graph: BookmarkGraph<'a>,
+    },
 }
 
 impl<'a> Action<'a> {
@@ -46,6 +52,9 @@ impl<'a> Action<'a> {
             Action::CreateMR { .. } => "Creating MRs".to_string(),
             Action::UpdateMRBase { .. } => "Updating MR bases".to_string(),
             Action::UpdateMRDescription { .. } => "Updating MR descriptions".to_string(),
+            Action::SyncDependentMergeRequests { .. } => {
+                "Syncing dependent merge requests".to_string()
+            }
         }
     }
 
@@ -66,6 +75,10 @@ impl<'a> Action<'a> {
             Action::UpdateMRDescription { bookmark, .. } => {
                 format!("Updating MR description for {}", bookmark.magenta())
             }
+            Action::SyncDependentMergeRequests { bookmark, .. } => format!(
+                "Syncing dependent merge requests for {}",
+                bookmark.magenta()
+            ),
         }
     }
 
@@ -75,6 +88,9 @@ impl<'a> Action<'a> {
             Action::CreateMR { bookmark, .. } => format!("{}", bookmark.magenta()),
             Action::UpdateMRBase { bookmark, .. } => format!("{}", bookmark.magenta()),
             Action::UpdateMRDescription { bookmark, .. } => format!("{}", bookmark.magenta()),
+            Action::SyncDependentMergeRequests { bookmark, .. } => {
+                format!("{}", bookmark.magenta())
+            }
         }
     }
 }
@@ -171,11 +187,35 @@ pub async fn plan<'a>(
                 Some(BookmarkRef::Trunk) | None => default_branch,
             };
 
-            let push_dependency = push_action_ids
-                .get(bookmark.name())
-                .copied()
-                .map(|id| vec![id])
-                .unwrap_or_default();
+            let mut dependencies = Vec::new();
+
+            // MR updates depend on the source & target bookmarks being pushed
+            dependencies.extend(
+                push_action_ids
+                    .get(bookmark.name())
+                    .copied()
+                    .map(|id| vec![id])
+                    .unwrap_or_default(),
+            );
+
+            // MR updates depend on the parent MRs being created
+            dependencies.extend(
+                bookmark
+                    .parents
+                    .iter()
+                    .filter_map(|p| match p {
+                        BookmarkRef::Bookmark(b) => Some(batches.iter().flat_map(|batch| {
+                            batch.iter().filter_map(|action| match &action.action {
+                                Action::CreateMR { bookmark, .. } if bookmark == b.name() => {
+                                    Some(action.id)
+                                }
+                                _ => None,
+                            })
+                        })),
+                        BookmarkRef::Trunk => None,
+                    })
+                    .flatten(),
+            );
 
             match existing_mrs.get(bookmark.name()) {
                 Some(existing_mr) => {
@@ -190,7 +230,7 @@ pub async fn plan<'a>(
                                 mr_iid: existing_mr.iid().to_string(),
                                 new_target_branch: target_branch.to_string(),
                             },
-                            dependencies: push_dependency,
+                            dependencies,
                         }]);
                     }
                 }
@@ -207,7 +247,7 @@ pub async fn plan<'a>(
                             title,
                             description: String::new(),
                         },
-                        dependencies: push_dependency,
+                        dependencies,
                     }]);
                 }
             }
@@ -247,6 +287,31 @@ pub async fn plan<'a>(
         }
     }
 
+    let sync_dependent_merge_requests_batch = graph
+        .components()
+        .iter()
+        .flat_map(|component| {
+            component.all_bookmarks().into_iter().filter(|bookmark| {
+                bookmark
+                    .parents
+                    .iter()
+                    .any(|p| matches!(p, BookmarkRef::Bookmark { .. }))
+            })
+        })
+        .map(|bookmark| PlannedAction {
+            id: get_id(),
+            action: Action::SyncDependentMergeRequests {
+                bookmark: bookmark.name().to_string(),
+                bookmark_graph: graph.clone(),
+            },
+            dependencies: vec![],
+        })
+        .collect::<Vec<_>>();
+
+    if !sync_dependent_merge_requests_batch.is_empty() {
+        batches.push(sync_dependent_merge_requests_batch);
+    }
+
     Ok(SubmissionPlan {
         actions: batches,
         dry_run,
@@ -265,6 +330,8 @@ fn get_mr_title(jj: &Jujutsu, bookmark: &str, base: &str) -> Result<String> {
 
 #[cfg(test)]
 mod tests {
+    use tempfile::TempDir;
+
     use super::*;
 
     #[test]
@@ -316,17 +383,6 @@ mod tests {
     }
 
     #[test]
-    fn test_action_create_mr_with_description() {
-        let action = Action::CreateMR {
-            bookmark: "test".to_string(),
-            target_branch: "main".to_string(),
-            title: "Test".to_string(),
-            description: "Stack info".to_string(),
-        };
-        assert!(matches!(action, Action::CreateMR { .. }));
-    }
-
-    #[test]
     fn test_submission_plan_struct() {
         let plan = SubmissionPlan {
             actions: vec![
@@ -360,257 +416,117 @@ mod tests {
     }
 
     #[test]
-    fn test_get_mr_title_single_commit() {
-        use std::{fs, process::Command as StdCommand};
-
-        use tempfile::TempDir;
-
-        use crate::jj::Jujutsu;
-
-        // Create test repo
-        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    fn test_get_mr_title_single_commit() -> Result<()> {
+        let temp_dir = TempDir::new()?;
         let repo_path = temp_dir.path().to_path_buf();
 
-        // Initialize jj repo
-        StdCommand::new("jj")
-            .current_dir(&repo_path)
-            .args(["git", "init", "--colocate"])
-            .output()
-            .expect("Failed to init jj repo");
+        let jj = Jujutsu::new(&repo_path)?;
 
-        // Create initial commit on main
-        fs::write(repo_path.join("README.md"), "# Test\n").expect("Failed to write README");
-        StdCommand::new("jj")
-            .current_dir(&repo_path)
-            .args(["describe", "-m", "Initial commit"])
-            .output()
-            .expect("Failed to describe");
-        StdCommand::new("jj")
-            .current_dir(&repo_path)
-            .args(["bookmark", "create", "main"])
-            .output()
-            .expect("Failed to create main bookmark");
+        jj.exec(["git", "init"])?;
 
-        // Create a new change with specific description
-        StdCommand::new("jj")
-            .current_dir(&repo_path)
-            .args(["new"])
-            .output()
-            .expect("Failed to create new change");
-        fs::write(repo_path.join("feature.txt"), "feature content\n")
-            .expect("Failed to write feature file");
-        StdCommand::new("jj")
-            .current_dir(&repo_path)
-            .args(["describe", "-m", "Add awesome feature"])
-            .output()
-            .expect("Failed to describe feature");
-        StdCommand::new("jj")
-            .current_dir(&repo_path)
-            .args(["bookmark", "create", "feature"])
-            .output()
-            .expect("Failed to create feature bookmark");
+        std::fs::write(repo_path.join("README.md"), "# Test\n")?;
 
-        let jj = Jujutsu::new(repo_path).unwrap();
+        jj.exec(["describe", "-m", "Initial commit"])?;
+        jj.exec(["bookmark", "create", "main"])?;
 
-        // Test: Single commit should use commit description
-        let title = get_mr_title(&jj, "feature", "main").unwrap();
-        assert_eq!(title, "Add awesome feature");
+        jj.exec(["new"])?;
+        std::fs::write(repo_path.join("feature.txt"), "feature content\n")?;
+        jj.exec(["describe", "-m", "Add awesome feature"])?;
+        jj.exec(["bookmark", "create", "feature"])?;
+
+        assert_eq!(
+            get_mr_title(&jj, "feature", "main")?,
+            "Add awesome feature".to_string()
+        );
+
+        Ok(())
     }
 
     #[test]
-    fn test_get_mr_title_multiple_commits() {
-        use std::{fs, process::Command as StdCommand};
-
-        use tempfile::TempDir;
-
-        use crate::jj::Jujutsu;
-
-        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    fn test_get_mr_title_multiple_commits() -> Result<()> {
+        let temp_dir = TempDir::new()?;
         let repo_path = temp_dir.path().to_path_buf();
 
-        StdCommand::new("jj")
-            .current_dir(&repo_path)
-            .args(["git", "init", "--colocate"])
-            .output()
-            .expect("Failed to init jj repo");
+        let jj = Jujutsu::new(&repo_path)?;
 
-        fs::write(repo_path.join("README.md"), "# Test\n").expect("Failed to write README");
-        StdCommand::new("jj")
-            .current_dir(&repo_path)
-            .args(["describe", "-m", "Initial commit"])
-            .output()
-            .expect("Failed to describe");
-        StdCommand::new("jj")
-            .current_dir(&repo_path)
-            .args(["bookmark", "create", "main"])
-            .output()
-            .expect("Failed to create main bookmark");
+        jj.exec(["git", "init"])?;
 
-        // Create first commit
-        StdCommand::new("jj")
-            .current_dir(&repo_path)
-            .args(["new"])
-            .output()
-            .expect("Failed to create new change");
-        fs::write(repo_path.join("file1.txt"), "content 1\n").expect("Failed to write file1");
-        StdCommand::new("jj")
-            .current_dir(&repo_path)
-            .args(["describe", "-m", "First commit"])
-            .output()
-            .expect("Failed to describe");
+        std::fs::write(repo_path.join("README.md"), "# Test\n")?;
 
-        // Create second commit
-        StdCommand::new("jj")
-            .current_dir(&repo_path)
-            .args(["new"])
-            .output()
-            .expect("Failed to create new change");
-        fs::write(repo_path.join("file2.txt"), "content 2\n").expect("Failed to write file2");
-        StdCommand::new("jj")
-            .current_dir(&repo_path)
-            .args(["describe", "-m", "Second commit"])
-            .output()
-            .expect("Failed to describe");
-        StdCommand::new("jj")
-            .current_dir(&repo_path)
-            .args(["bookmark", "create", "multi-commit-feature"])
-            .output()
-            .expect("Failed to create bookmark");
+        jj.exec(["describe", "-m", "Initial commit"])?;
+        jj.exec(["bookmark", "create", "main"])?;
 
-        let jj = Jujutsu::new(repo_path).unwrap();
+        jj.exec(["new"])?;
+        std::fs::write(repo_path.join("file1.txt"), "content 1\n")?;
+        jj.exec(["describe", "-m", "First commit"])?;
 
-        // Test: Multiple commits should use bookmark name
-        let title = get_mr_title(&jj, "multi-commit-feature", "main").unwrap();
-        assert_eq!(title, "multi-commit-feature");
+        jj.exec(["new"])?;
+        std::fs::write(repo_path.join("file2.txt"), "content 2\n")?;
+        jj.exec(["describe", "-m", "Second commit"])?;
+        jj.exec(["bookmark", "create", "multi-commit-feature"])?;
+
+        assert_eq!(
+            get_mr_title(&jj, "multi-commit-feature", "main")?,
+            "multi-commit-feature"
+        );
+
+        Ok(())
     }
 
     #[test]
-    fn test_get_mr_title_empty_description() {
-        use std::{fs, process::Command as StdCommand};
-
-        use tempfile::TempDir;
-
-        use crate::jj::Jujutsu;
-
-        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    fn test_get_mr_title_empty_description() -> Result<()> {
+        let temp_dir = TempDir::new()?;
         let repo_path = temp_dir.path().to_path_buf();
 
-        StdCommand::new("jj")
-            .current_dir(&repo_path)
-            .args(["git", "init", "--colocate"])
-            .output()
-            .expect("Failed to init jj repo");
+        let jj = Jujutsu::new(&repo_path)?;
 
-        fs::write(repo_path.join("README.md"), "# Test\n").expect("Failed to write README");
-        StdCommand::new("jj")
-            .current_dir(&repo_path)
-            .args(["describe", "-m", "Initial commit"])
-            .output()
-            .expect("Failed to describe");
-        StdCommand::new("jj")
-            .current_dir(&repo_path)
-            .args(["bookmark", "create", "main"])
-            .output()
-            .expect("Failed to create main bookmark");
+        jj.exec(["git", "init"])?;
 
-        // Create change with empty description
-        StdCommand::new("jj")
-            .current_dir(&repo_path)
-            .args(["new"])
-            .output()
-            .expect("Failed to create new change");
-        fs::write(repo_path.join("file.txt"), "content\n").expect("Failed to write file");
-        StdCommand::new("jj")
-            .current_dir(&repo_path)
-            .args(["describe", "-m", ""])
-            .output()
-            .expect("Failed to describe with empty message");
-        StdCommand::new("jj")
-            .current_dir(&repo_path)
-            .args(["bookmark", "create", "empty-desc"])
-            .output()
-            .expect("Failed to create bookmark");
+        std::fs::write(repo_path.join("README.md"), "# Test\n")?;
 
-        let jj = Jujutsu::new(repo_path).unwrap();
+        jj.exec(["describe", "-m", "Initial commit"])?;
+        jj.exec(["bookmark", "create", "main"])?;
 
-        // Test: Empty description should fall back to bookmark name
-        let title = get_mr_title(&jj, "empty-desc", "main").unwrap();
-        assert_eq!(title, "empty-desc");
+        jj.exec(["new"])?;
+        std::fs::write(repo_path.join("file.txt"), "content\n")?;
+        jj.exec(["describe", "-m", ""])?;
+        jj.exec(["bookmark", "create", "empty-desc"])?;
+
+        assert_eq!(get_mr_title(&jj, "empty-desc", "main")?, "empty-desc");
+
+        Ok(())
     }
 
     #[test]
-    fn test_get_mr_title_stacked_bookmarks() {
-        use std::{fs, process::Command as StdCommand};
-
-        use tempfile::TempDir;
-
-        use crate::jj::Jujutsu;
-
-        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    fn test_get_mr_title_stacked_bookmarks() -> Result<()> {
+        let temp_dir = TempDir::new()?;
         let repo_path = temp_dir.path().to_path_buf();
 
-        StdCommand::new("jj")
-            .current_dir(&repo_path)
-            .args(["git", "init", "--colocate"])
-            .output()
-            .expect("Failed to init jj repo");
+        let jj = Jujutsu::new(&repo_path)?;
 
-        fs::write(repo_path.join("README.md"), "# Test\n").expect("Failed to write README");
-        StdCommand::new("jj")
-            .current_dir(&repo_path)
-            .args(["describe", "-m", "Initial commit"])
-            .output()
-            .expect("Failed to describe");
-        StdCommand::new("jj")
-            .current_dir(&repo_path)
-            .args(["bookmark", "create", "main"])
-            .output()
-            .expect("Failed to create main bookmark");
+        jj.exec(["git", "init", "--colocate"])?;
 
-        // Create first bookmark with single commit
-        StdCommand::new("jj")
-            .current_dir(&repo_path)
-            .args(["new"])
-            .output()
-            .expect("Failed to create new change");
-        fs::write(repo_path.join("auth.txt"), "auth code\n").expect("Failed to write file");
-        StdCommand::new("jj")
-            .current_dir(&repo_path)
-            .args(["describe", "-m", "Add authentication"])
-            .output()
-            .expect("Failed to describe");
-        StdCommand::new("jj")
-            .current_dir(&repo_path)
-            .args(["bookmark", "create", "feature-a"])
-            .output()
-            .expect("Failed to create bookmark");
+        std::fs::write(repo_path.join("README.md"), "# Test\n")?;
+        jj.exec(["describe", "-m", "Initial commit"])?;
+        jj.exec(["bookmark", "create", "main"])?;
 
-        // Create second bookmark with single commit (stacked on first)
-        StdCommand::new("jj")
-            .current_dir(&repo_path)
-            .args(["new"])
-            .output()
-            .expect("Failed to create new change");
-        fs::write(repo_path.join("logging.txt"), "logging code\n").expect("Failed to write file");
-        StdCommand::new("jj")
-            .current_dir(&repo_path)
-            .args(["describe", "-m", "Add logging"])
-            .output()
-            .expect("Failed to describe");
-        StdCommand::new("jj")
-            .current_dir(&repo_path)
-            .args(["bookmark", "create", "feature-b"])
-            .output()
-            .expect("Failed to create bookmark");
+        jj.exec(["new"])?;
+        std::fs::write(repo_path.join("auth.txt"), "auth code\n")?;
+        jj.exec(["describe", "-m", "Add authentication"])?;
+        jj.exec(["bookmark", "create", "feature-a"])?;
 
-        let jj = Jujutsu::new(repo_path).unwrap();
+        jj.exec(["new"])?;
+        std::fs::write(repo_path.join("logging.txt"), "logging code\n")?;
+        jj.exec(["describe", "-m", "Add logging"])?;
+        jj.exec(["bookmark", "create", "feature-b"])?;
 
-        // Test: First bookmark relative to main
-        let title_a = get_mr_title(&jj, "feature-a", "main").unwrap();
-        assert_eq!(title_a, "Add authentication");
+        assert_eq!(
+            get_mr_title(&jj, "feature-a", "main")?,
+            "Add authentication"
+        );
 
-        // Test: Second bookmark relative to first bookmark
-        let title_b = get_mr_title(&jj, "feature-b", "feature-a").unwrap();
-        assert_eq!(title_b, "Add logging");
+        assert_eq!(get_mr_title(&jj, "feature-b", "feature-a")?, "Add logging");
+
+        Ok(())
     }
 }

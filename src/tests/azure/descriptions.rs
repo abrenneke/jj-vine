@@ -65,8 +65,8 @@ async fn test_pr_description_links_to_dependent_prs() -> Result<()> {
         .await?
         .expect("PR B should exist");
 
-    assert!(pr_a.description().contains(&format!("#{}", pr_b.iid())));
-    assert!(pr_b.description().contains(&format!("#{}", pr_a.iid())));
+    assert!(pr_a.description().contains(&format!("!{}", pr_b.iid())));
+    assert!(pr_b.description().contains(&format!("!{}", pr_a.iid())));
 
     Ok(())
 }

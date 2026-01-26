@@ -389,8 +389,6 @@ impl Forge for AzureDevOpsForge {
     async fn create_merge_request(
         &self,
         ForgeCreateMergeRequestOptions {
-            // Azure DevOps has no concept of "assignees", only "reviewers".
-            assignee_usernames: _assignee_usernames,
             description,
             open_as_draft,
             remove_source_branch,
@@ -399,6 +397,8 @@ impl Forge for AzureDevOpsForge {
             squash,
             target_branch,
             title,
+            // Azure DevOps has no concept of "assignees", only "reviewers".
+            assignee_usernames: _assignee_usernames,
         }: ForgeCreateMergeRequestOptions,
     ) -> Result<ForgeMergeRequest> {
         let body = CreatePullRequestBody {
@@ -517,8 +517,6 @@ impl Forge for AzureDevOpsForge {
                 None::<()>,
             )
             .await?;
-
-        dbg!(&pr);
 
         Ok(ForgeMergeRequest::AzureDevOps(Box::new(pr)))
     }
@@ -641,6 +639,15 @@ impl Forge for AzureDevOpsForge {
 
     fn project_id(&self) -> &str {
         &self.target_project_id
+    }
+
+    async fn sync_dependent_merge_requests(
+        &self,
+        _merge_request_iid: &str,
+        _dependent_merge_request_iids: &[&str],
+    ) -> Result<bool> {
+        // Only supported for GitLab
+        Ok(false)
     }
 }
 

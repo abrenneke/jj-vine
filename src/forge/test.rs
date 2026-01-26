@@ -227,6 +227,15 @@ impl Forge for TestForge {
             .ok_or(Error::new("Merge request not found"))?;
         Ok(mr.num_open_discussions.clone())
     }
+
+    async fn sync_dependent_merge_requests(
+        &self,
+        _merge_request_iid: &str,
+        _dependent_merge_request_iids: &[&str],
+    ) -> Result<bool> {
+        // Only supported for GitLab
+        Ok(false)
+    }
 }
 
 impl Default for TestForge {

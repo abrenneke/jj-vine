@@ -451,6 +451,15 @@ pub trait Forge: Send + Sync + FormatMergeRequest {
 
     /// Get the number of open discussions for a merge request.
     async fn num_open_discussions(&self, merge_request_iid: &str) -> Result<DiscussionCount>;
+
+    /// Sync dependent merge requests for a merge request.
+    /// Only currently supported for GitLab. No-op for other forges.
+    /// Returns true if any changes were made.
+    async fn sync_dependent_merge_requests(
+        &self,
+        merge_request_iid: &str,
+        dependent_merge_request_iids: &[&str],
+    ) -> Result<bool>;
 }
 
 #[enum_dispatch(Forge, FormatMergeRequest)]
@@ -484,6 +493,7 @@ impl ForgeImpl {
                     config.gitlab.token.clone(),
                     config.ca_bundle.clone(),
                     config.tls_accept_non_compliant_certs,
+                    config.gitlab.create_merge_request_dependencies,
                 )
                 .map(|forge| forge.into())
             }

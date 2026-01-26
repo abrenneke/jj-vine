@@ -1,3 +1,5 @@
+use assertables::assert_contains;
+
 use crate::{
     error::Result,
     forge::{Forge, ForgeCreateMergeRequestOptions, ForgeMergeRequestState, gitlab::GitLabForge},
@@ -176,6 +178,7 @@ async fn test_invalid_token_errors_clearly() -> Result<()> {
         "invalid-token-12345".to_string(),
         ca_bundle,
         accept_non_compliant,
+        true,
     )?;
 
     let result = client
@@ -214,6 +217,7 @@ async fn test_nonexistent_project_errors_clearly() -> Result<()> {
         token,
         ca_bundle,
         accept_non_compliant,
+        true,
     )?;
 
     let result = client
@@ -228,6 +232,59 @@ async fn test_nonexistent_project_errors_clearly() -> Result<()> {
         .await;
 
     assert!(result.unwrap_err().to_string().contains("404"));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_create_merge_request_dependencies() -> Result<()> {
+    let repo = TestRepo::with_gitlab_remote();
+
+    let a = unique_branch("dependency-a");
+    let b = unique_branch("dependency-b");
+    let c = unique_branch("dependency-c");
+
+    // main -> A -> C
+    // main -> B -> C
+
+    repo.new_on("main")
+        .create_change_and_bookmark(&a)
+        .new_on("main")
+        .create_change_and_bookmark(&b)
+        .exec(["new", &a, &b])
+        .create_change_and_bookmark(&c);
+
+    repo.run(["submit", &c]).await;
+
+    let mr_a = repo
+        .forge()
+        .find_merge_request_by_source_branch(&a)
+        .await?
+        .expect("MR A should exist");
+
+    let mr_b = repo
+        .forge()
+        .find_merge_request_by_source_branch(&b)
+        .await?
+        .expect("MR B should exist");
+
+    let mr_c = repo
+        .forge()
+        .find_merge_request_by_source_branch(&c)
+        .await?
+        .expect("MR C should exist");
+
+    let deps: Vec<_> = repo
+        .forge()
+        .get_merge_request_dependencies(&mr_c.iid())
+        .await?
+        .iter()
+        .map(|dep| dep.blocking_merge_request.iid)
+        .collect();
+
+    assert_eq!(deps.len(), 2);
+    assert_contains!(deps, &mr_a.iid().parse::<u64>().unwrap());
+    assert_contains!(deps, &mr_b.iid().parse::<u64>().unwrap());
 
     Ok(())
 }

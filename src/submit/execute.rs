@@ -1,11 +1,14 @@
 mod create_mr;
 mod push;
+mod sync_dependent_merge_requests;
 mod update_mr_base;
 mod update_mr_description;
 
+use std::collections::HashMap;
+
 use enum_dispatch::enum_dispatch;
 use futures::{StreamExt, stream::FuturesUnordered};
-use itertools::Itertools;
+use itertools::{Either, Itertools};
 use tracing::debug;
 
 use crate::{
@@ -18,6 +21,7 @@ use crate::{
         execute::{
             create_mr::CreateMRAction,
             push::PushAction,
+            sync_dependent_merge_requests::SyncDependentMergeRequestsAction,
             update_mr_base::UpdateMRBaseAction,
             update_mr_description::UpdateMRDescriptionAction,
         },
@@ -48,6 +52,7 @@ pub struct MRUpdate {
 #[derive(Debug, Clone)]
 pub enum ActionResultData {
     Pushed { bookmark: String, pushed: bool },
+    MRCreated(Box<MRUpdate>),
     MRUpdated(Box<MRUpdate>),
     DryRun,
 }
@@ -69,6 +74,7 @@ pub enum ExecuteActionImpl<'a> {
     CreateMR(CreateMRAction),
     UpdateMRBase(UpdateMRBaseAction),
     UpdateMRDescription(UpdateMRDescriptionAction<'a>),
+    SyncDependentMergeRequests(SyncDependentMergeRequestsAction<'a>),
 }
 
 pub struct ExecutionActionContext<'a, 'b> {
@@ -102,13 +108,10 @@ pub enum MRUpdateType {
         old_target: String,
         new_target: String,
     },
+    SyncedDependentMergeRequests,
 }
 
 /// Execute a submission plan
-///
-/// Phase 3 of the three-phase submission process:
-/// - Push bookmarks to remote
-/// - Create or update merge requests
 pub async fn execute(
     plan: &SubmissionPlan<'_>,
     jj: &Jujutsu,
@@ -133,29 +136,31 @@ pub async fn execute(
         let handles = FuturesUnordered::new();
 
         for action in batch {
-            let failed_deps = action
+            let (_ok_deps, err_deps): (HashMap<_, _>, Vec<_>) = action
                 .dependencies
                 .iter()
                 .map(|id| {
                     current_results
                         .iter()
                         .find(|result| result.id == *id)
-                        .unwrap()
+                        .unwrap_or_else(|| panic!("Dependency {} not found", id))
                 })
-                .filter(|result| result.data.is_err())
-                .collect::<Vec<_>>();
+                .partition_map(|dep| match &dep.data {
+                    Ok(data) => Either::Left((dep.id, data)),
+                    Err(error) => Either::Right((dep.id, error)),
+                });
 
-            if !failed_deps.is_empty() {
+            if !err_deps.is_empty() {
                 debug!(
                     "Skipping action {} because dependencies failed: {}",
                     action.id,
-                    failed_deps.iter().map(|result| result.id).join(", ")
+                    err_deps.iter().map(|(id, _)| id).join(", ")
                 );
                 current_results.push(ActionResult {
                     id: action.id,
                     data: Err(Error::new(format!(
                         "Dependencies failed: {}",
-                        failed_deps.iter().map(|result| result.id).join(", ")
+                        err_deps.iter().map(|(id, _)| id).join(", ")
                     ))),
                 });
                 continue;
@@ -192,6 +197,13 @@ pub async fn execute(
                     bookmark_graph,
                 } => {
                     UpdateMRDescriptionAction::new(bookmark.clone(), bookmark_graph.clone()).into()
+                }
+                Action::SyncDependentMergeRequests {
+                    bookmark,
+                    bookmark_graph,
+                } => {
+                    SyncDependentMergeRequestsAction::new(bookmark.clone(), bookmark_graph.clone())
+                        .into()
                 }
             };
 
@@ -232,7 +244,8 @@ pub async fn execute(
                     bookmarks_pushed.push(bookmark);
                 }
             }
-            Ok(ActionResultData::MRUpdated(mr_update)) => {
+            Ok(ActionResultData::MRCreated(mr_update))
+            | Ok(ActionResultData::MRUpdated(mr_update)) => {
                 merge_requests.push(*mr_update);
             }
             Ok(ActionResultData::DryRun) => {}

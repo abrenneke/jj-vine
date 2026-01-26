@@ -19,7 +19,7 @@ mod e2e {
         let b = unique_branch("tracked-b");
         repo.jj.exec(["new"])?;
         repo.create_change("b.txt", "b", "Commit B")
-            .create_bookmark(&b);
+            .create_tracked_bookmark(&b);
 
         let output = repo.run(["submit", "--tracked", "--dry-run"]).await;
 

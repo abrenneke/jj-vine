@@ -54,8 +54,6 @@ mod e2e {
         assert_contains!(output, &b_msg);
         assert_contains!(output, &c_msg);
 
-        dbg!(&output);
-
         assert_lt!(output.find(&a_msg).unwrap(), output.find(&b_msg).unwrap());
         assert_lt!(output.find(&b_msg).unwrap(), output.find(&c_msg).unwrap());
 
