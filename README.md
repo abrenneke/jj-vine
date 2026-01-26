@@ -258,6 +258,7 @@ Required when `jj-vine.forge` is set to `gitlab`.
 | `gitlab.project` | Project ID where branches are pushed (`group/project` or numeric ID like `12345`) | String | Yes | - |
 | `gitlab.token` | Personal Access Token with `api` scope | String | Yes | - |
 | `gitlab.target_project` | Target project ID for merge requests (e.g., `upstream/project`). Use if you are using a fork. | String | No | (same as `gitlab.project`) |
+| `gitlab.create_merge_request_dependencies` | Whether to create dependencies between merge requests, requiring that all parent merge requests are merged before the child merge request can be merged. | Boolean | No | true |
 
 #### GitHub
 
