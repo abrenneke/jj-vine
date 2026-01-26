@@ -17,12 +17,14 @@ use crate::{
         DiscussionCount,
         Forge,
         ForgeCreateMergeRequestOptions,
+        ForgeImpl,
         ForgeMergeRequest,
         ForgeUser,
         MergeRequestStatus,
     },
 };
 
+#[derive(Debug, Clone)]
 /// GitHub REST API client
 pub struct GitHubForge {
     base_url: String,

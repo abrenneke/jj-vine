@@ -14,12 +14,14 @@ use crate::{
         DiscussionCount,
         Forge,
         ForgeCreateMergeRequestOptions,
+        ForgeImpl,
         ForgeMergeRequest,
         ForgeUser,
         MergeRequestStatus,
     },
 };
 
+#[derive(Debug, Clone)]
 /// Forgejo/Gitea REST API client
 pub struct ForgejoForge {
     base_url: String,

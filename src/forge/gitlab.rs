@@ -14,12 +14,14 @@ use crate::{
         DiscussionCount,
         Forge,
         ForgeCreateMergeRequestOptions,
+        ForgeImpl,
         ForgeMergeRequest,
         ForgeUser,
         MergeRequestStatus,
     },
 };
 
+#[derive(Debug, Clone)]
 /// GitLab REST API client
 pub struct GitLabForge {
     base_url: String,

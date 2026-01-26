@@ -158,15 +158,6 @@ async fn test_submit_retargets_after_middle_bookmark_deleted() -> Result<()> {
 async fn test_invalid_token_errors_clearly() -> Result<()> {
     dotenv::dotenv().ok();
 
-    let host =
-        std::env::var("GITHUB_HOST").unwrap_or_else(|_| "https://api.github.com".to_string());
-    let project = std::env::var("GITHUB_PROJECT").expect("GITHUB_PROJECT required");
-    let ca_bundle = std::env::var("GITHUB_CA_BUNDLE").ok();
-    let accept_non_compliant = std::env::var("GITHUB_TLS_ACCEPT_NON_COMPLIANT_CERTS")
-        .ok()
-        .and_then(|v| v.parse::<bool>().ok())
-        .unwrap_or(false);
-
     let client = GitHubForge::new(
         host,
         project.clone(),

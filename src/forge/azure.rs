@@ -16,6 +16,7 @@ use crate::{
         DiscussionCount,
         Forge,
         ForgeCreateMergeRequestOptions,
+        ForgeImpl,
         ForgeMergeRequest,
         ForgeUser,
         MergeRequestStatus,
@@ -23,6 +24,7 @@ use crate::{
 };
 
 #[allow(dead_code)]
+#[derive(Debug, Clone)]
 pub struct AzureDevOpsForge {
     /// The base URL of the Azure DevOps instance, e.g. <https://dev.azure.com>.
     base_url: String,

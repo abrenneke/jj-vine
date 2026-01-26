@@ -17,7 +17,7 @@ use crate::forge::{
 use crate::{
     cli::Cli,
     error::{ClapSnafu, Result},
-    forge::Forge,
+    forge::{Forge, ForgeImpl},
     jj::Jujutsu,
 };
 
@@ -501,6 +501,13 @@ where
 {
     pub fn forge(&self) -> &T {
         &self.forge
+    }
+
+    pub fn forge_impl(&self) -> ForgeImpl
+    where
+        T: Into<ForgeImpl> + Clone,
+    {
+        self.forge.clone().into()
     }
 
     pub fn new_on(&self, rev: &'_ str) -> &Self {

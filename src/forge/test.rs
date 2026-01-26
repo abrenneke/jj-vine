@@ -11,6 +11,7 @@ use crate::{
         DiscussionCount,
         Forge,
         ForgeCreateMergeRequestOptions,
+        ForgeImpl,
         ForgeMergeRequest,
         ForgeMergeRequestState,
         ForgeUser,
@@ -29,7 +30,24 @@ pub struct TestForge {
     state: RwLock<TestForgeState>,
 }
 
-#[derive(Debug)]
+impl Clone for TestForge {
+    fn clone(&self) -> Self {
+        Self {
+            project_id: self.project_id.clone(),
+            source_project_id: self.source_project_id.clone(),
+            target_project_id: self.target_project_id.clone(),
+            base_url: self.base_url.clone(),
+            users: self.users.clone(),
+            current_user: self.current_user.clone(),
+            state: RwLock::new(TestForgeState {
+                next_merge_request_id: self.state.read().unwrap().next_merge_request_id,
+                merge_requests: self.state.read().unwrap().merge_requests.clone(),
+            }),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 struct TestForgeState {
     next_merge_request_id: u64,
     merge_requests: HashMap<String, MergeRequest>,
