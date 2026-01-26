@@ -502,16 +502,29 @@ impl Forge for GitHubForge {
         }: ForgeCreateMergeRequestOptions,
     ) -> Result<ForgeMergeRequest> {
         // For fork workflows, head needs to be "owner:branch"
+        let (source_owner, source_repository) = self.source_project_id.split_once('/').unwrap();
+
         let head = if self.source_project_id != self.target_project_id {
-            let source_owner = self.source_project_id.split('/').next().unwrap();
             format!("{}:{}", source_owner, source_branch)
         } else {
             source_branch.clone()
         };
 
+        // Required when source_owner and target_owner are the same, but
+        // source_repository and target_repository are different. No harm in
+        // always sending this.
+        let head_repo = if self.source_project_id != self.target_project_id {
+            source_repository
+        } else {
+            let (_target_owner, target_repository) =
+                self.target_project_id.split_once('/').unwrap();
+            target_repository
+        };
+
         let mut payload = serde_json::json!({
             "title": title,
             "head": head,
+            "head_repo": head_repo,
             "base": target_branch,
             "draft": open_as_draft,
         });
