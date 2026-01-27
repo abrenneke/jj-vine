@@ -19,7 +19,9 @@ Supports the following code forges:
 - [Installation](#installation)
 
   - [Cargo Binstall](#cargo-binstall)
+  - [Mise](#mise)
   - [Pre-built Binaries](#pre-built-binaries)
+  - [Attestations](#attestations)
   - [Alias Setup](#alias-setup)
 - [Quick Start](#quick-start)
 - [Commands](#commands)
@@ -104,9 +106,19 @@ The preferred way to install `jj-vine` is to use [`cargo-binstall`](https://gith
 cargo binstall jj-vine
 ```
 
+### Mise
+
+If you use [mise](https://mise.jdx.dev/), you can install with:
+
+```bash
+mise use -g cargo:jj-vine
+```
+
 ### Pre-built Binaries
 
 Pre-built binaries are available for Linux, macOS, and Windows (ARM64 and x86_64 for all). You can download directly from the [releases page](https://codeberg.org/abrenneke/jj-vine/releases).
+
+### Attestations
 
 Binaries are built with GitHub attestations. You may [verify the provenance of a binary](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations#verifying-artifact-attestations-with-the-github-cli) by running:
 
