@@ -269,8 +269,8 @@ Required when `jj-vine.forge` is set to `gitlab`.
 | `gitlab.host` | GitLab instance URL (e.g., `https://gitlab.example.com`) | String | Yes | - |
 | `gitlab.project` | Project ID where branches are pushed (`group/project` or numeric ID like `12345`) | String | Yes | - |
 | `gitlab.token` | Personal Access Token with `api` scope | String | Yes | - |
-| `gitlab.target_project` | Target project ID for merge requests (e.g., `upstream/project`). Use if you are using a fork. | String | No | (same as `gitlab.project`) |
-| `gitlab.create_merge_request_dependencies` | Whether to create dependencies between merge requests, requiring that all parent merge requests are merged before the child merge request can be merged. | Boolean | No | true |
+| `gitlab.targetProject` | Target project ID for merge requests (e.g., `upstream/project`). Use if you are using a fork. | String | No | (same as `gitlab.project`) |
+| `gitlab.createMergeRequestDependencies` | Whether to create dependencies between merge requests, requiring that all parent merge requests are merged before the child merge request can be merged. | Boolean | No | true |
 
 #### GitHub
 
@@ -281,7 +281,7 @@ Required when `jj-vine.forge` is set to `github`.
 | `github.host` | GitHub API URL (defaults to `https://api.github.com` for GitHub.com, or `https://github.example.com/api/v3` for Enterprise) | String | Yes | - |
 | `github.project` | Repository where branches are pushed in `owner/repo` format | String | Yes | - |
 | `github.token` | Personal Access Token with `repo` scope | String | Yes | - |
-| `github.target_project` | Target repository for pull requests (e.g., `upstream-owner/repo`). Use if you are using a fork. | String | No | (same as `github.project`) |
+| `github.targetProject` | Target repository for pull requests (e.g., `upstream-owner/repo`). Use if you are using a fork. | String | No | (same as `github.project`) |
 
 #### Forgejo/Codeberg/Gitea
 
@@ -292,8 +292,8 @@ Required when `jj-vine.forge` is set to `forgejo`.
 | `forgejo.host` | Forgejo/Codeberg/Gitea instance URL (e.g., `https://codeberg.org`) | String | Yes | - |
 | `forgejo.project` | Repository where branches are pushed in `owner/repo` format | String | Yes | - |
 | `forgejo.token` | API access token with `repo` scope | String | Yes | - |
-| `forgejo.target_project` | Target repository for pull requests (e.g., `upstream-owner/repo`). Use if you are using a fork. | String | No | (same as `forgejo.project`) |
-| `forgejo.wip_prefix` | Prefix for WIP/draft pull requests. What counts as a draft pull request is configurable per-repository on Forgejo. | String | No | "WIP: " |
+| `forgejo.targetProject` | Target repository for pull requests (e.g., `upstream-owner/repo`). Use if you are using a fork. | String | No | (same as `forgejo.project`) |
+| `forgejo.wipPrefix` | Prefix for WIP/draft pull requests. What counts as a draft pull request is configurable per-repository on Forgejo. | String | No | "WIP: " |
 
 #### Azure DevOps
 
@@ -304,8 +304,8 @@ Required when `jj-vine.forge` is set to `azure`.
 | `azure.host` | Azure DevOps instance URL (e.g., `https://dev.azure.com`) | String | Yes | - |
 | `azure.vsspsHost` | Azure DevOps Security (VSSP) host (e.g., `https://vssps.dev.azure.com`). Used to look up other users for automatic review requests. | String | No | - |
 | `azure.project` | Organization and project where branches are pushed, formatted as `organization/project` | String | Yes | - |
-| `azure.sourceRepositoryName` | Name of the repository in the project where branches are pushed | String | Required if `azure.source_repository_id` is not set | - |
-| `azure.sourceRepositoryId` | ID of the repository in the project where branches are pushed | String | Required if `azure.source_repository_name` is not set | - |
+| `azure.sourceRepositoryName` | Name of the repository in the project where branches are pushed | String | Required if `azure.sourceRepositoryId` is not set | - |
+| `azure.sourceRepositoryId` | ID of the repository in the project where branches are pushed | String | Required if `azure.sourceRepositoryName` is not set | - |
 | `azure.token` | Personal Access Token | String | Yes | - |
 | `azure.targetProject` | Target organization & project for pull requests (e.g., `upstream-organization/project`). Use if you are using a fork. | String | No | (same as `azure.project`) |
 | `azure.targetRepositoryName` | Name of the repository in the target project for pull requests | String | Required if `azure.targetRepositoryId` is not set and `azure.targetProject` is different from `azure.project` | - |
