@@ -55,31 +55,32 @@ Supports the following code forges:
 
 ## Overview
 
-As `jj` is so flexible, it can sometimes be tedious to manage pull requests for a `jj` repository. Additionally, many people like the "stacked pull request" workflow, where a tool can manage your stack of pull requests for you, including modifying the base branch, description, and other settings. `jj-vine` aims to smooth out the process of managing pull requests for a `jj` repository.
+As `jj` is so flexible, it can sometimes be tedious to manage pull/merge requests for a `jj` repository. Additionally, many people like the "stacked pull/merge request" workflow, where a tool can manage your stack of pull/merge requests for you, including modifying the base branch, description, and other settings. `jj-vine` aims to smooth out the process of managing pull/merge requests for a `jj` repository.
 
-There are many tools these days that aim to solve this problem, most notably [`jj-spr`](https://github.com/LucioFranco/jj-spr) and [`jj-stack`](https://github.com/keanemind/jj-stack). `jj-vine` has its own preferred workflow and design choices, and is not a direct replacement for these tools. `jj-vine` supports multiple code forges: GitLab, GitHub, Forgejo, and Azure DevOps (including self-hosted instances).
+There are several tools these days that aim to solve this problem, most notably [`jj-spr`](https://github.com/LucioFranco/jj-spr) and [`jj-stack`](https://github.com/keanemind/jj-stack). `jj-vine` has its own design choices, and may not be a direct replacement for these tools. Take a look at the differences & features below to see if `jj-vine` is a good fit for you.
 
 Major differences:
 
-- `jj-vine` is bookmark-based, rather than change-based. It expects you to create your bookmarks before submitting them, and usually expects you to push them (e.g. `jj git push -c @`) as well. This means that you can have multiple commits in each pull request.
+- `jj-vine` is bookmark-based, rather than change-based. It expects you to create your bookmarks before submitting them, and (usually) expects you to push them (e.g. `jj git push -c @`) as well. This means that you can have multiple commits in each pull/merge request.
 - `jj-spr` aims to more be a full workflow rather than a lightweight tool. `jj-vine` is less opinionated.
 - `jj-vine` is primarily based around the `submit --tracked` command. This submits *all* (your) tracked bookmarks at once. Other tools often require you to submit each bookmark individually. The idea is to simply "sync your current state to the code forge".
+- Bookmarks are not automatically forwarded. You'll need to use `jj bookmark set` to update the target of a bookmark.
 
 ## Main Features
 
 - **Stacked pull/merge request creation**
 
-    Automatically creates pull/merge requests with correct base branches based on bookmark dependencies.
-- **Stack visualization**
+    Automatically creates pull/merge requests with correct base branches based on bookmark dependencies. Works great for single branches as well.
+- **[Stack visualization](#description-generation--stack-visualization)**
 
     Adds a navigable stack diagram to pull/merge request descriptions with links to related pull/merge requests. Can be customized and disabled.
 - **Unopinionated**
 
-    `jj-vine` is not opinionated about how you should structure your commits, bookmarks, and pull/merge requests. It can work with what you have. It also works great with auto-generated bookmarks.
-- **Complex branching**
+    `jj-vine` is not opinionated about how you should structure your commits, bookmarks, and pull/merge requests. It can work with what you have. It also works great with auto-generated bookmarks (`jj git push -c <rev>`).
+- **[Complex branching](#complex-graph-of-bookmarks)**
 
     Not only does `jj-vine` support trees of bookmarks, but it fully supports complex (DAG) graphs of changes just like `jj` itself does. While actual forge support for PRs/MRs with multiple parents may be limited, `jj-vine` can still visualize and manage them.
-- **Status**
+- **[Status](#status)**
 
     Can easily report the status of your bookmarks and their pull/merge requests.
 - **Automatic syncing**
@@ -93,7 +94,7 @@ Major differences:
     Once a pull/merge request is merged, rebases the stack on top of the trunk
 - **Landing**
 
-    Merge a pull request and automatically rebase dependent pull/merge requests on top of the trunk
+    Merge a pull/merge request and automatically rebase dependent pull/merge requests on top of the trunk
 
 ## Installation
 
@@ -139,10 +140,10 @@ jj config set --user aliases.vine '["util", "exec", "--", "jj-vine"]'
 
 ## Quick Start
 
-1. Run `jj vine init` to set up your code forge configuration for your repository. This is stored in `.jj/repo/config.toml`. You may also move any configuration settings to the global config file `~/.config/jj/config.toml`.
+1. Run `jj-vine init` to set up your code forge configuration for your repository. This is stored in `.jj/repo/config.toml`. You may also move any configuration settings to the global config file `~/.config/jj/config.toml`.
 
     ```bash
-    jj vine init
+    jj-vine init
     ```
 
 2. Push up some bookmarks (auto-generated bookmarks work great!)
@@ -162,10 +163,10 @@ jj config set --user aliases.vine '["util", "exec", "--", "jj-vine"]'
 3. Submit all tracked bookmarks at once:
 
     ```bash
-    jj vine submit --tracked
+    jj-vine submit --tracked
     ```
 
-    This creates two pull requests:
+    This creates two pull/merge requests:
 
     - `feature-a` targeting `main`
     - `feature-b` targeting `feature-a`
@@ -174,19 +175,19 @@ jj config set --user aliases.vine '["util", "exec", "--", "jj-vine"]'
 
 ### `submit`
 
-Submit a bookmark and its dependencies as pull requests.
+Submit a bookmark and its dependencies as pull/merge requests.
 
 ```bash
 # Submit a single bookmark or revset (and its dependencies!)
-jj vine submit <revset/bookmark>
-jj vine submit -r <revset/bookmark>
+jj-vine submit <revset/bookmark>
+jj-vine submit -r <revset/bookmark>
 
 # Submit all tracked bookmarks. Roughly equivalent to `(mine() & tracked_remote_bookmarks()) ~ trunk()`, but has additional stipulations. See `jj-vine submit --help` for more details.
 # This is the recommended command to use!
-jj vine submit --tracked
+jj-vine submit --tracked
 
 # Preview without making changes
-jj vine submit <options> --dry-run
+jj-vine submit <options> --dry-run
 ```
 
 See all options and additional help with `jj-vine submit --help`.
@@ -196,7 +197,7 @@ See all options and additional help with `jj-vine submit --help`.
 Interactive setup wizard to configure jj-vine for your repository.
 
 ```bash
-jj vine init
+jj-vine init
 ```
 
 ### `status`
@@ -205,13 +206,13 @@ Show the status of tracked bookmarks and their pull/merge requests.
 
 ```bash
 # Show the status of all my bookmarks
-jj vine status
+jj-vine status
 
 # Show the status of all tracked bookmarks
-jj vine status --tracked
+jj-vine status --tracked
 
 # Show the status of a specific revset that includes bookmarks
-jj vine status -r <revset>
+jj-vine status -r <revset>
 ```
 
 The output will look roughly like this (but with colors):
