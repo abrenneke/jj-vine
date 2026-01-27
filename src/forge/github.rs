@@ -214,7 +214,7 @@ enum CheckRunConclusion {
     Failure,
     Neutral,
     Cancelled,
-    Skipper,
+    Skipped,
     TimedOut,
     ActionRequired,
 }
