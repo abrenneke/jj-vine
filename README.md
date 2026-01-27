@@ -355,11 +355,11 @@ The following sections show examples of the different formats.
 This PR is part of a stack containing 5 PRs:
 
 1. `main`
-2. [#1](.) "Feature A"
+2. [#1](#) "Feature A"
 3. **"Feature B" ← this PR**
-4. [#3](.) "Feature C"
-5. [#4](.) "Feature D"
-6. [#5](.) "Feature E"
+4. [#3](#) "Feature C"
+5. [#4](#) "Feature D"
+6. [#5](#) "Feature E"
 
 #### Tree Bookmarks
 
@@ -368,14 +368,14 @@ This PR is part of a stack containing 5 PRs:
 This PR is part of a tree containing 8 PRs:
 
 1. `main`
-2. [#1](.) "Feature A" → `main`
-3. [#4](.) "Feature D" → #1
-4. [#2](.) "Feature B" → #1
-5. **"Feature E" → #2 ← this PR**
-6. [#3](.) "Feature C" → #2
-7. [#7](.) "Feature G" → #3
-8. [#8](.) "Feature H" → #7
-9. [#6](.) "Feature F" → #3
+2. [#1](#) "Feature A" → `main`
+3. [#4](#) "Feature D" → [#1](#)
+4. [#2](#) "Feature B" → [#1](#)
+5. **"Feature E" → [#2](#) ← this PR**
+6. [#3](#) "Feature C" → [#2](#)
+7. [#7](#) "Feature G" → [#3](#)
+8. [#8](#) "Feature H" → [#7](#)
+9. [#6](#) "Feature F" → [#3](#)
 
 #### Complex Graph of Bookmarks
 
@@ -384,16 +384,16 @@ This PR is part of a tree containing 8 PRs:
 This PR is part of a complex set of PRs containing 10 PRs:
 
 1. `main`
-2. [#9](.) "Feature I" → `main`
-3. [#10](.) "Feature J" → #9
-4. [#1](.) "Feature A" → `main`
-5. [#2](.) "Feature B" → #1
-6. **"Feature E" → #2, #10 ← this PR**
-7. [#4](.) "Feature D" → #1, #2
-8. [#3](.) "Feature C" → #2
-9. [#7](.) "Feature G" → #3, #5, #10
-10. [#8](.) "Feature H" → #7
-11. [#6](.) "Feature F" → #3, #9
+2. [#9](#) "Feature I" → `main`
+3. [#10](#) "Feature J" → [#9](#)
+4. [#1](#) "Feature A" → `main`
+5. [#2](#) "Feature B" → [#1](#)
+6. **"Feature E" → [#2](#), [#10](#) ← this PR**
+7. [#4](#) "Feature D" → [#1](#), [#2](#)
+8. [#3](#) "Feature C" → [#2](#)
+9. [#7](#) "Feature G" → [#3](#), [#5](#), [#10](#)
+10. [#8](#) "Feature H" → [#7](#)
+11. [#6](#) "Feature F" → [#3](#), [#9](#)
 
 ### Tree Format
 
@@ -405,15 +405,15 @@ This PR is part of a stack containing 5 PRs:
 
 - `main`
 
-    - [#1](.) "Feature A"
+    - [#1](#) "Feature A"
 
         - **"Feature B" ← this MR**
 
-            - [#3](.) "Feature C"
+            - [#3](#) "Feature C"
 
-                - [#4](.) "Feature D"
+                - [#4](#) "Feature D"
 
-                    - [#5](.) "Feature E"
+                    - [#5](#) "Feature E"
 
 #### Tree of Bookmarks
 
@@ -423,21 +423,21 @@ This PR is part of a tree containing 8 PRs:
 
 - `main`
 
-    - [#1](.) "Feature A"
+    - [#1](#) "Feature A"
 
-        1. [#2](.) "Feature B"
+        1. [#2](#) "Feature B"
 
-            1. [#3](.) "Feature C"
+            1. [#3](#) "Feature C"
 
-                1. [#7](.) "Feature G"
+                1. [#7](#) "Feature G"
 
-                    - [#8](.) "Feature H"
+                    - [#8](#) "Feature H"
 
-                2. [#6](.) "Feature F"
+                2. [#6](#) "Feature F"
 
             2. **"Feature E" ← this PR**
 
-        2. [#4](.) "Feature D"
+        2. [#4](#) "Feature D"
 
 #### Complex Graph of Bookmarks
 
@@ -447,43 +447,43 @@ This PR is part of a complex set of PRs containing 10 PRs:
 
 - `main`
 
-    1. [#9](.) "Feature I"
+    1. [#9](#) "Feature I"
 
-        1. [#10](.) "Feature J"
+        1. [#10](#) "Feature J"
 
-            1. [#7](.) "Feature G" (→ [#3](.), [#5](.) also)
+            1. [#7](#) "Feature G" (→ [#3](#), [#5](#) also)
 
-                - [#8](.) "Feature H"
+                - [#8](#) "Feature H"
 
-            2. **"Feature E" (→ [#2](.) also) ← this PR**
+            2. **"Feature E" (→ [#2](#) also) ← this PR**
 
-                - [#7](.) "Feature G" (→ [#3](.), [#10](.) also)
+                - [#7](#) "Feature G" (→ [#3](#), [#10](#) also)
 
-                    - [#8](.) "Feature H"
+                    - [#8](#) "Feature H"
 
-        2. [#6](.) "Feature F" (→ [#3](.) also)
+        2. [#6](#) "Feature F" (→ [#3](#) also)
 
-    2. [#1](.) "Feature A"
+    2. [#1](#) "Feature A"
 
-        1. [#2](.) "Feature B"
+        1. [#2](#) "Feature B"
 
-            1. **"Feature E" (→ [#10](.) also) ← this PR**
+            1. **"Feature E" (→ [#10](#) also) ← this PR**
 
-                - [#7](.) "Feature G" (→ [#3](.), [#10](.) also)
+                - [#7](#) "Feature G" (→ [#3](#), [#10](#) also)
 
-                    - [#8](.) "Feature H"
+                    - [#8](#) "Feature H"
 
-            2. [#3](.) "Feature C"
+            2. [#3](#) "Feature C"
 
-                1. [#7](.) "Feature G" (→ [#5](.), [#10](.) also)
+                1. [#7](#) "Feature G" (→ [#5](#), [#10](#) also)
 
-                    - [#8](.) "Feature H"
+                    - [#8](#) "Feature H"
 
-                2. [#6](.) "Feature F" (→ [#9](.) also)
+                2. [#6](#) "Feature F" (→ [#9](#) also)
 
-            3. [#4](.) "Feature D" (→ [#1](.) also)
+            3. [#4](#) "Feature D" (→ [#1](#) also)
 
-        2. [#4](.) "Feature D" (→ [#2](.) also)
+        2. [#4](#) "Feature D" (→ [#2](#) also)
 
 ## Credits
 
