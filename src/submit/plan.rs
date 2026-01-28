@@ -1,10 +1,12 @@
 use std::collections::HashMap;
 
+use itertools::Itertools;
 use owo_colors::OwoColorize;
 
 use crate::{
     bookmark::{BookmarkGraph, BookmarkRef},
     config::Config,
+    description::generate_initial_description,
     error::Result,
     forge::{Forge, ForgeImpl},
     jj::Jujutsu,
@@ -239,13 +241,27 @@ pub async fn plan<'a>(
                     let action_id = get_id();
                     mr_action_ids.push(action_id);
 
+                    let revset = ["trunk()"]
+                        .into_iter()
+                        .chain(bookmark.parents.iter().filter_map(|p| match p {
+                            BookmarkRef::Bookmark(b) => Some(b.name()),
+                            BookmarkRef::Trunk => None,
+                        }))
+                        .map(|p| format!("({}..{})", p, bookmark.name()))
+                        .join(" & ");
+
+                    let branch_commits = jj.log(revset)?;
+
+                    let description =
+                        generate_initial_description(&config.description, &branch_commits);
+
                     batches.push(vec![PlannedAction {
                         id: action_id,
                         action: Action::CreateMR {
                             bookmark: bookmark.name().to_string(),
                             target_branch: target_branch.to_string(),
                             title,
-                            description: String::new(),
+                            description,
                         },
                         dependencies,
                     }]);
@@ -321,9 +337,13 @@ pub async fn plan<'a>(
 fn get_mr_title(jj: &Jujutsu, bookmark: &str, base: &str) -> Result<String> {
     let changes = jj.log(format!("::{}  ~ ::{}", bookmark, base))?;
     match &changes[..] {
-        [change] if !change.description_first_line.is_empty() => {
-            Ok(change.description_first_line.to_string())
-        }
+        [change] if !change.description.is_empty() => Ok(change
+            .description
+            .lines()
+            .next()
+            .unwrap_or_default()
+            .trim()
+            .to_string()),
         _ => Ok(bookmark.to_string()),
     }
 }

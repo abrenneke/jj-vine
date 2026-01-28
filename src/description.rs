@@ -8,8 +8,10 @@ use itertools::Itertools;
 
 use crate::{
     bookmark::{BookmarkRef, ChangeComponent},
-    config::{DescriptionConfig, DescriptionFormat},
+    config::{DescriptionConfig, DescriptionFormat, InitialDescriptionMode},
     forge::{ForgeImpl, ForgeMergeRequest},
+    jj::Change,
+    utils::toposort,
 };
 
 #[enum_dispatch]
@@ -606,6 +608,98 @@ pub fn generate_stack_description(
         }
         component if component.is_tree() => formatter(config.format.tree).format_tree(&context),
         _ => formatter(config.format.complex).format_graph(&context),
+    }
+}
+
+/// Generates the initial description for a branch based on the commits in the
+/// branch and the configuration.
+pub fn generate_initial_description(
+    config: &DescriptionConfig,
+    branch_commits: impl AsRef<[Change]>,
+) -> String {
+    if !config.enabled {
+        return String::new();
+    }
+
+    let mut branch_commits = toposort(
+        branch_commits.as_ref(),
+        |c| c.commit_id.clone(),
+        |c| c.parent_commit_ids.clone(),
+    );
+
+    // We want the head commit first, not any leaf
+    branch_commits.reverse();
+
+    match &branch_commits[..] {
+        [] => String::new(),
+        [single_commit] => match config.initial_single_revision {
+            InitialDescriptionMode::None => String::new(),
+            InitialDescriptionMode::NotFirstLine => single_commit
+                .description
+                .lines()
+                .skip(1)
+                .join("\n")
+                .trim()
+                .to_string(),
+            InitialDescriptionMode::FullMessage => single_commit.description.clone(),
+            InitialDescriptionMode::CommitListFirstLine => format!(
+                "- `{}` {}",
+                single_commit.commit_id.chars().take(8).collect::<String>(),
+                single_commit
+                    .description
+                    .lines()
+                    .next()
+                    .unwrap_or_default()
+                    .trim()
+            ),
+            InitialDescriptionMode::CommitListFull => format!(
+                "- `{}` {}",
+                single_commit.commit_id.chars().take(8).collect::<String>(),
+                single_commit
+                    .description
+                    .trim()
+                    .lines()
+                    .map(|l| format!("{l}\\"))
+                    .join("\n")
+                    .trim_end_matches('\\')
+            ),
+        },
+        [head_commit, ..] => match config.initial_multiple_revisions {
+            InitialDescriptionMode::None => String::new(),
+            InitialDescriptionMode::NotFirstLine => head_commit
+                .description
+                .lines()
+                .skip(1)
+                .join("\n")
+                .trim()
+                .to_string(),
+            InitialDescriptionMode::FullMessage => head_commit.description.clone(),
+            InitialDescriptionMode::CommitListFirstLine => branch_commits
+                .iter()
+                .map(|c| {
+                    format!(
+                        "- `{}` {}",
+                        c.commit_id.chars().take(8).collect::<String>(),
+                        c.description.lines().next().unwrap_or_default().trim()
+                    )
+                })
+                .join("\n"),
+            InitialDescriptionMode::CommitListFull => branch_commits
+                .iter()
+                .map(|c| {
+                    format!(
+                        "- `{}` {}",
+                        c.commit_id.chars().take(8).collect::<String>(),
+                        c.description
+                            .trim()
+                            .lines()
+                            .map(|l| format!("{l}\\"))
+                            .join("\n")
+                            .trim_end_matches('\\')
+                    )
+                })
+                .join("\n"),
+        },
     }
 }
 
@@ -1408,6 +1502,193 @@ mod tests {
         assert_str_eq!(
             insert_stack_into_description("New stack", ""),
             format!("{START_MARKER}\nNew stack\n{END_MARKER}")
+        );
+    }
+
+    #[test]
+    fn test_generate_initial_description_none() {
+        assert_str_eq!(
+            generate_initial_description(&DescriptionConfig::default(), &[]),
+            ""
+        );
+    }
+
+    fn mock_commit(commit_id: &str, parents: impl AsRef<[&'static str]>) -> Change {
+        Change {
+            commit_id: commit_id.to_string(),
+            parent_commit_ids: parents.as_ref().iter().map(|p| p.to_string()).collect(),
+            change_id: format!("change_{}", commit_id),
+            description: "Message\n\nBody".to_string(),
+            bookmarks: vec![],
+        }
+    }
+
+    #[test]
+    fn test_generate_initial_description_single_revision_none() {
+        assert_str_eq!(
+            generate_initial_description(
+                &DescriptionConfig {
+                    initial_single_revision: InitialDescriptionMode::None,
+                    ..DescriptionConfig::default()
+                },
+                &[mock_commit("commit-1", []),]
+            ),
+            ""
+        );
+    }
+
+    #[test]
+    fn test_generate_initial_description_single_revision_not_first_line() {
+        assert_str_eq!(
+            generate_initial_description(
+                &DescriptionConfig {
+                    initial_single_revision: InitialDescriptionMode::NotFirstLine,
+                    ..DescriptionConfig::default()
+                },
+                &[mock_commit("commit-1", []),]
+            ),
+            "Body"
+        );
+    }
+
+    #[test]
+    fn test_generate_initial_description_single_revision_full_message() {
+        assert_str_eq!(
+            generate_initial_description(
+                &DescriptionConfig {
+                    initial_single_revision: InitialDescriptionMode::FullMessage,
+                    ..DescriptionConfig::default()
+                },
+                &[mock_commit("commit-1", []),]
+            ),
+            "Message\n\nBody"
+        );
+    }
+
+    #[test]
+    fn test_generate_initial_description_single_revision_commit_list_first_line() {
+        assert_str_eq!(
+            generate_initial_description(
+                &DescriptionConfig {
+                    initial_single_revision: InitialDescriptionMode::CommitListFirstLine,
+                    ..DescriptionConfig::default()
+                },
+                &[mock_commit("commit-1", []),]
+            ),
+            "- `commit-1` Message"
+        );
+    }
+
+    #[test]
+    fn test_generate_initial_description_single_revision_commit_list_full() {
+        assert_str_eq!(
+            generate_initial_description(
+                &DescriptionConfig {
+                    initial_single_revision: InitialDescriptionMode::CommitListFull,
+                    ..DescriptionConfig::default()
+                },
+                &[mock_commit("commit-1", []),]
+            ),
+            "- `commit-1` Message\\\n\\\nBody"
+        );
+    }
+
+    #[test]
+    fn test_generate_initial_description_multiple_revisions_none() {
+        assert_str_eq!(
+            generate_initial_description(
+                &DescriptionConfig {
+                    initial_multiple_revisions: InitialDescriptionMode::None,
+                    ..DescriptionConfig::default()
+                },
+                &[
+                    mock_commit("commit-1", []),
+                    mock_commit("commit-2", ["commit-1"]),
+                ]
+            ),
+            ""
+        );
+    }
+
+    #[test]
+    fn test_generate_initial_description_multiple_revisions_not_first_line() {
+        assert_str_eq!(
+            generate_initial_description(
+                &DescriptionConfig {
+                    initial_multiple_revisions: InitialDescriptionMode::NotFirstLine,
+                    ..DescriptionConfig::default()
+                },
+                &[
+                    mock_commit("commit-1", []),
+                    mock_commit("commit-2", ["commit-1"]),
+                ]
+            ),
+            "Body"
+        );
+    }
+
+    #[test]
+    fn test_generate_initial_description_multiple_revisions_full_message() {
+        assert_str_eq!(
+            generate_initial_description(
+                &DescriptionConfig {
+                    initial_multiple_revisions: InitialDescriptionMode::FullMessage,
+                    ..DescriptionConfig::default()
+                },
+                &[
+                    mock_commit("commit-1", []),
+                    mock_commit("commit-2", ["commit-1"]),
+                ]
+            ),
+            "Message\n\nBody"
+        );
+    }
+
+    #[test]
+    fn test_generate_initial_description_multiple_revisions_commit_list_first_line() {
+        assert_str_eq!(
+            generate_initial_description(
+                &DescriptionConfig {
+                    initial_multiple_revisions: InitialDescriptionMode::CommitListFirstLine,
+                    ..DescriptionConfig::default()
+                },
+                &[
+                    mock_commit("commit-1", []),
+                    mock_commit("commit-2", ["commit-1"]),
+                ]
+            ),
+            "- `commit-2` Message\n- `commit-1` Message"
+        );
+    }
+
+    #[test]
+    fn test_generate_initial_description_multiple_revisions_commit_list_full() {
+        assert_str_eq!(
+            generate_initial_description(
+                &DescriptionConfig {
+                    initial_multiple_revisions: InitialDescriptionMode::CommitListFull,
+                    ..DescriptionConfig::default()
+                },
+                &[
+                    mock_commit("commit-1", []),
+                    mock_commit("commit-2", ["commit-1"]),
+                ]
+            ),
+            "- `commit-2` Message\\\n\\\nBody\n- `commit-1` Message\\\n\\\nBody"
+        );
+    }
+
+    #[test]
+    fn test_generate_initial_description_disabled() {
+        assert_str_eq!(
+            generate_initial_description(
+                &DescriptionConfig {
+                    enabled: false,
+                    ..DescriptionConfig::default()
+                },
+                &[mock_commit("commit-1", []),]
+            ),
+            ""
         );
     }
 }

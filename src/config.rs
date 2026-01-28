@@ -223,9 +223,9 @@ pub struct GitLabConfig {
     #[serde(default)]
     pub token: String,
 
-    /// If true, jj-vine will create dependencies between merge requests,
-    /// requiring that all parent merge requests are merged before the child
-    /// merge request can be merged.
+    /// If true, jj-vine will create dependencies between pull/merge requests,
+    /// requiring that all parent pull/merge requests are merged before the
+    /// child pull/merge request can be merged.
     #[serde(default = "default_true")]
     pub create_merge_request_dependencies: bool,
 }
@@ -321,7 +321,7 @@ pub struct ForgejoConfig {
     #[serde(default)]
     pub token: String,
 
-    /// Prefix for WIP merge requests.
+    /// Prefix for WIP pull/merge requests.
     #[serde(default = "default_wip_prefix")]
     pub wip_prefix: String,
 }
@@ -404,13 +404,37 @@ impl AzureDevOpsConfig {
     }
 }
 
+fn default_initial_single_revision() -> InitialDescriptionMode {
+    InitialDescriptionMode::NotFirstLine
+}
+
+fn default_initial_multiple_revisions() -> InitialDescriptionMode {
+    InitialDescriptionMode::CommitListFull
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DescriptionConfig {
     /// Whether to enable or disable description generation entirely.
     pub enabled: bool,
 
-    /// How to render the description for different types of merge request
+    /// How to handle the initial description for newly created pull/merge
+    /// request when there is only one revision in the pull/merge request (which
+    /// means that the title of the PR/MR uses the first line of the commit
+    /// message). If changes are made later, the description will not be updated
+    /// automatically
+    #[serde(default = "default_initial_single_revision")]
+    pub initial_single_revision: InitialDescriptionMode,
+
+    /// How to handle the initial description for newly created pull/merge
+    /// requests, when there are multiple revisions in the pull/merge request
+    /// (which means that the title of the PR/MR uses the bookmark name).
+    /// If changes are made later, the description will not be updated
+    /// automatically.
+    #[serde(default = "default_initial_multiple_revisions")]
+    pub initial_multiple_revisions: InitialDescriptionMode,
+
+    /// How to render the description for different types of pull/merge request
     /// stacks.
     #[serde(default)]
     pub format: DescriptionFormatsConfig,
@@ -421,15 +445,39 @@ impl Default for DescriptionConfig {
         Self {
             enabled: true,
             format: Default::default(),
+            initial_single_revision: InitialDescriptionMode::NotFirstLine,
+            initial_multiple_revisions: InitialDescriptionMode::CommitListFull,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum InitialDescriptionMode {
+    /// Do not render a description.
+    None,
+
+    /// Render the message of the head commit in the branch, but
+    /// not the first line (because that is already used for the title).
+    NotFirstLine,
+
+    /// Render the full message of the head commit in the branch.
+    FullMessage,
+
+    /// Render a list of all commits in the branch, with their
+    /// hashes and the first line of each commit message.
+    CommitListFirstLine,
+
+    /// Render a list of all commits in the branch, with their
+    /// hashes and full commit messages.
+    CommitListFull,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DescriptionFormatsConfig {
-    /// How to render a single merge request, without any parents or children
-    /// besides the trunk. Defaults to not rendering a description.
+    /// How to render a single pull/merge request, without any parents or
+    /// children besides the trunk. Defaults to not rendering a description.
     pub single: DescriptionFormat,
 
     /// How to render a linear stack of MRs.
@@ -441,7 +489,7 @@ pub struct DescriptionFormatsConfig {
     pub tree: DescriptionFormat,
 
     /// How to render a complex graph of MRs, where two MRs merge into a common
-    /// parent, or any merge request has multiple parents.
+    /// parent, or any pull/merge request has multiple parents.
     /// Defaults to a linear numbered list.
     pub complex: DescriptionFormat,
 }

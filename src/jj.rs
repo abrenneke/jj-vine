@@ -118,8 +118,8 @@ pub struct Change {
     /// Jujutsu change ID
     pub change_id: String,
 
-    /// The first line of the change description
-    pub description_first_line: String,
+    /// The change description
+    pub description: String,
 
     /// The IDs of the parent commits
     pub parent_commit_ids: Vec<String>,
@@ -255,7 +255,7 @@ impl Change {
         Self {
             commit_id: format!("commit_{}", change_id),
             change_id: change_id.to_string(),
-            description_first_line: format!("description_{}", change_id),
+            description: format!("description_{}", change_id),
             parent_commit_ids: vec![],
             bookmarks: vec![],
         }
@@ -266,7 +266,7 @@ impl Change {
         Self {
             commit_id: format!("commit_{}", bookmark),
             change_id: format!("change_{}", bookmark),
-            description_first_line: format!("description_{}", bookmark),
+            description: format!("description_{}", bookmark),
             parent_commit_ids: vec![],
             bookmarks: vec![bookmark.parse::<BookmarkInfo>().unwrap()],
         }
@@ -439,12 +439,7 @@ impl Jujutsu {
                     Ok(Change {
                         commit_id: self_commit.commit_id,
                         change_id: self_commit.change_id,
-                        description_first_line: self_commit
-                            .description
-                            .lines()
-                            .next()
-                            .unwrap_or_default()
-                            .to_string(),
+                        description: self_commit.description,
                         parent_commit_ids: self_commit.parents,
                         bookmarks: local_bookmarks
                             .into_iter()
@@ -572,28 +567,28 @@ impl Jujutsu {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-struct JJCommit {
-    commit_id: String,
-    parents: Vec<String>,
-    change_id: String,
-    description: String,
-    author: JJAuthor,
-    committer: JJAuthor,
+pub struct JJCommit {
+    pub commit_id: String,
+    pub parents: Vec<String>,
+    pub change_id: String,
+    pub description: String,
+    pub author: JJAuthor,
+    pub committer: JJAuthor,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-struct JJAuthor {
-    name: String,
-    email: String,
-    timestamp: String,
+pub struct JJAuthor {
+    pub name: String,
+    pub email: String,
+    pub timestamp: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-struct JJBookmark {
-    name: String,
-    remote: Option<String>,
-    target: Vec<Option<String>>,
-    tracking_target: Option<Vec<Option<String>>>,
+pub struct JJBookmark {
+    pub name: String,
+    pub remote: Option<String>,
+    pub target: Vec<Option<String>>,
+    pub tracking_target: Option<Vec<Option<String>>>,
 }
 
 #[cfg(test)]
@@ -638,7 +633,7 @@ mod tests {
         let change = jj.log("@")?.only().unwrap();
         assert!(!change.commit_id.is_empty());
         assert!(!change.change_id.is_empty());
-        assert!(!change.description_first_line.is_empty());
+        assert!(!change.description.is_empty());
         assert!(!change.parent_commit_ids.is_empty());
 
         Ok(())
@@ -704,12 +699,12 @@ mod tests {
         for change in &changes {
             assert!(!change.commit_id.is_empty());
             assert!(!change.change_id.is_empty());
-            assert!(!change.description_first_line.is_empty());
+            assert!(!change.description.is_empty());
             assert!(!change.parent_commit_ids.is_empty());
         }
 
-        assert_eq!(changes[0].description_first_line, "Second commit");
-        assert_eq!(changes[1].description_first_line, "First commit");
+        assert_eq!(changes[0].description, "Second commit\n");
+        assert_eq!(changes[1].description, "First commit\n");
 
         Ok(())
     }
