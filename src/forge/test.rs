@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::RwLock};
+use std::{borrow::Cow, collections::HashMap, sync::RwLock};
 
 use bon::bon;
 
@@ -6,6 +6,7 @@ use crate::{
     description::FormatMergeRequest,
     error::{Error, Result},
     forge::{
+        AnyForgeMergeRequest,
         ApprovalStatus,
         CheckStatus,
         DiscussionCount,
@@ -24,9 +25,25 @@ pub struct TestForge {
     source_project_id: String,
     target_project_id: String,
     base_url: String,
-    users: HashMap<String, ForgeUser>,
-    current_user: ForgeUser,
+    users: HashMap<String, TestForgeUser>,
+    current_user: TestForgeUser,
     state: RwLock<TestForgeState>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TestForgeUser {
+    pub id: String,
+    pub username: String,
+}
+
+impl ForgeUser for TestForgeUser {
+    fn id(&self) -> Option<Cow<'_, str>> {
+        Some(Cow::Borrowed(&self.id))
+    }
+
+    fn username(&self) -> Option<Cow<'_, str>> {
+        Some(Cow::Borrowed(&self.username))
+    }
 }
 
 #[derive(Debug)]
@@ -44,8 +61,8 @@ impl TestForge {
         #[builder(default)] target_project_id: String,
         #[builder(default)] base_url: String,
 
-        current_user: Option<ForgeUser>,
-        #[builder(default)] users: HashMap<String, ForgeUser>,
+        current_user: Option<TestForgeUser>,
+        #[builder(default)] users: HashMap<String, TestForgeUser>,
         #[builder(default)] merge_requests: HashMap<String, MergeRequest>,
     ) -> Self {
         Self {
@@ -54,9 +71,9 @@ impl TestForge {
             target_project_id,
             base_url,
             users,
-            current_user: current_user.unwrap_or_else(|| ForgeUser {
-                id: None,
-                username: Some("test".to_string()),
+            current_user: current_user.unwrap_or_else(|| TestForgeUser {
+                id: "test".to_string(),
+                username: "test".to_string(),
             }),
             state: RwLock::new(TestForgeState {
                 next_merge_request_id: 1,
@@ -73,18 +90,22 @@ impl TestForge {
             .insert(mr.id.clone(), mr);
     }
 
-    pub fn merge_request_lookup(&self) -> HashMap<String, ForgeMergeRequest> {
+    pub fn merge_request_lookup(&self) -> HashMap<String, AnyForgeMergeRequest> {
         self.state
             .read()
             .unwrap()
             .merge_requests
             .iter()
-            .map(|(k, v)| (k.clone(), ForgeMergeRequest::Test(v.clone())))
+            .map(|(k, v)| (k.clone(), AnyForgeMergeRequest::new(v.clone())))
             .collect()
     }
 }
 
 impl Forge for TestForge {
+    type User = TestForgeUser;
+
+    type MergeRequest = MergeRequest;
+
     fn project_id(&self) -> &str {
         &self.project_id
     }
@@ -101,18 +122,18 @@ impl Forge for TestForge {
         &self.base_url
     }
 
-    async fn current_user(&self) -> Result<ForgeUser> {
+    async fn current_user(&self) -> Result<Self::User> {
         Ok(self.current_user.clone())
     }
 
-    async fn user_by_username(&self, username: &str) -> Result<Option<ForgeUser>> {
+    async fn user_by_username(&self, username: &str) -> Result<Option<Self::User>> {
         Ok(self.users.get(username).cloned())
     }
 
     async fn find_merge_request_by_source_branch(
         &self,
         branch: &str,
-    ) -> Result<Option<ForgeMergeRequest>> {
+    ) -> Result<Option<Self::MergeRequest>> {
         Ok(self
             .state
             .read()
@@ -120,13 +141,13 @@ impl Forge for TestForge {
             .merge_requests
             .values()
             .find(|mr| mr.source_branch == branch)
-            .map(|mr| ForgeMergeRequest::Test(mr.clone())))
+            .cloned())
     }
 
     async fn create_merge_request(
         &self,
         options: ForgeCreateMergeRequestOptions,
-    ) -> Result<ForgeMergeRequest> {
+    ) -> Result<Self::MergeRequest> {
         let mr = MergeRequest::builder()
             .id(self
                 .state
@@ -145,72 +166,75 @@ impl Forge for TestForge {
             .unwrap()
             .merge_requests
             .insert(mr.id.clone(), mr.clone());
-        Ok(ForgeMergeRequest::Test(mr))
+        Ok(mr)
     }
 
     async fn update_merge_request_base(
         &self,
-        merge_request_iid: &str,
+        merge_request_iid: Cow<'_, str>,
         new_base: &str,
-    ) -> Result<ForgeMergeRequest> {
+    ) -> Result<Self::MergeRequest> {
         let mut state = self.state.write().unwrap();
         let mr = state
             .merge_requests
-            .get_mut(merge_request_iid)
+            .get_mut(merge_request_iid.as_ref())
             .ok_or(Error::new("Merge request not found"))?;
         mr.target_branch = new_base.to_string();
-        Ok(ForgeMergeRequest::Test(mr.clone()))
+        Ok(mr.clone())
     }
 
     async fn update_merge_request_description(
         &self,
-        merge_request_iid: &str,
+        merge_request_iid: Cow<'_, str>,
         new_description: &str,
-    ) -> Result<ForgeMergeRequest> {
+    ) -> Result<Self::MergeRequest> {
         let mut state = self.state.write().unwrap();
         let mr = state
             .merge_requests
-            .get_mut(merge_request_iid)
+            .get_mut(merge_request_iid.as_ref())
             .ok_or(Error::new("Merge request not found"))?;
         mr.description = Some(new_description.to_string());
-        Ok(ForgeMergeRequest::Test(mr.clone()))
+        Ok(mr.clone())
     }
 
-    async fn get_merge_request(&self, merge_request_iid: &str) -> Result<ForgeMergeRequest> {
+    async fn get_merge_request(
+        &self,
+        merge_request_iid: Cow<'_, str>,
+    ) -> Result<Self::MergeRequest> {
         let state = self.state.read().unwrap();
         let mr = state
             .merge_requests
-            .get(merge_request_iid)
+            .get(merge_request_iid.as_ref())
             .ok_or(Error::new("Merge request not found"))?;
-        Ok(ForgeMergeRequest::Test(mr.clone()))
+        Ok(mr.clone())
     }
 
-    async fn get_approval_status(&self, merge_request_iid: &str) -> Result<ApprovalStatus> {
+    async fn get_approval_status(&self, merge_request_iid: Cow<'_, str>) -> Result<ApprovalStatus> {
         let state = self.state.read().unwrap();
         let mr = state
             .merge_requests
-            .get(merge_request_iid)
+            .get(merge_request_iid.as_ref())
             .ok_or(Error::new("Merge request not found"))?;
         Ok(mr.approval_status.clone())
     }
 
-    async fn get_check_status(&self, merge_request_iid: &str) -> Result<CheckStatus> {
+    async fn get_check_status(&self, merge_request_iid: Cow<'_, str>) -> Result<CheckStatus> {
         let state = self.state.read().unwrap();
         let mr = state
             .merge_requests
-            .get(merge_request_iid)
+            .get(merge_request_iid.as_ref())
             .ok_or(Error::new("Merge request not found"))?;
         Ok(mr.check_status.clone())
     }
 
     async fn get_merge_request_status(
         &self,
-        merge_request_iid: &str,
+        merge_request_iid: Cow<'_, str>,
     ) -> Result<MergeRequestStatus> {
         let state = self.state.read().unwrap();
         let mr = state
             .merge_requests
-            .get(merge_request_iid)
+            .get(merge_request_iid.as_ref())
             .ok_or(Error::new("Merge request not found"))?;
         Ok(MergeRequestStatus {
             iid: mr.id.clone(),
@@ -219,19 +243,22 @@ impl Forge for TestForge {
         })
     }
 
-    async fn num_open_discussions(&self, merge_request_iid: &str) -> Result<DiscussionCount> {
+    async fn num_open_discussions(
+        &self,
+        merge_request_iid: Cow<'_, str>,
+    ) -> Result<DiscussionCount> {
         let state = self.state.read().unwrap();
         let mr = state
             .merge_requests
-            .get(merge_request_iid)
+            .get(merge_request_iid.as_ref())
             .ok_or(Error::new("Merge request not found"))?;
         Ok(mr.num_open_discussions.clone())
     }
 
     async fn sync_dependent_merge_requests(
         &self,
-        _merge_request_iid: &str,
-        _dependent_merge_request_iids: &[&str],
+        _merge_request_iid: Cow<'_, str>,
+        _dependent_merge_request_iids: &[Cow<'_, str>],
     ) -> Result<bool> {
         // Only supported for GitLab
         Ok(false)
@@ -245,7 +272,9 @@ impl Default for TestForge {
 }
 
 impl FormatMergeRequest for TestForge {
-    fn format_merge_request_id(&self, mr_iid: &str) -> String {
+    type Id = String;
+
+    fn format_merge_request_id(&self, mr_iid: Cow<'_, str>) -> String {
         format!("#{}", mr_iid)
     }
 
@@ -272,10 +301,10 @@ pub struct MergeRequest {
     pub author_username: String,
 
     #[builder(default)]
-    pub assignees: Vec<ForgeUser>,
+    pub assignees: Vec<TestForgeUser>,
 
     #[builder(default)]
-    pub reviewers: Vec<ForgeUser>,
+    pub reviewers: Vec<TestForgeUser>,
 
     #[builder(default)]
     pub url: String,
@@ -294,4 +323,67 @@ pub struct MergeRequest {
 
     #[builder(default)]
     pub num_open_discussions: DiscussionCount,
+}
+
+impl ForgeMergeRequest for MergeRequest {
+    type User = TestForgeUser;
+
+    type Id = String;
+
+    fn iid(&self) -> Cow<'_, str> {
+        Cow::Borrowed(&self.id)
+    }
+
+    fn title(&self) -> &str {
+        &self.title
+    }
+
+    fn description(&self) -> &str {
+        self.description.as_deref().unwrap_or_default()
+    }
+
+    fn source_branch(&self) -> &str {
+        &self.source_branch
+    }
+
+    fn target_branch(&self) -> &str {
+        &self.target_branch
+    }
+
+    fn state(&self) -> ForgeMergeRequestState {
+        self.state
+    }
+
+    fn url(&self) -> Cow<'_, str> {
+        Cow::Borrowed(&self.url)
+    }
+
+    fn edit_url(&self) -> Cow<'_, str> {
+        Cow::Borrowed(&self.url)
+    }
+
+    fn author_username(&self) -> &str {
+        &self.author_username
+    }
+
+    fn created_at(&self) -> jiff::Timestamp {
+        self.created_at
+    }
+
+    fn assignees(&self) -> Vec<Self::User> {
+        self.assignees.clone()
+    }
+
+    fn reviewers(&self) -> Vec<Self::User> {
+        self.reviewers.clone()
+    }
+
+    fn clone_boxed(
+        &self,
+    ) -> Box<dyn ForgeMergeRequest<User = Self::User, Id = Self::Id> + Send + Sync>
+    where
+        Self: Sync + Send,
+    {
+        Box::new(self.clone())
+    }
 }

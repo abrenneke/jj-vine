@@ -1,4 +1,4 @@
-use std::{collections::HashSet, path::Path};
+use std::{borrow::Cow, collections::HashSet, path::Path};
 
 use futures::{StreamExt, stream::FuturesUnordered, try_join};
 use reqwest::{Method, StatusCode};
@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::{
     description::FormatMergeRequest,
-    error::{ConfigSnafu, Error, GitLabApiSnafu, Result, make_whatever},
+    error::{ConfigSnafu, GitLabApiSnafu, Result},
     forge::{
         ApprovalSatisfaction,
         ApprovalStatus,
@@ -15,6 +15,7 @@ use crate::{
         Forge,
         ForgeCreateMergeRequestOptions,
         ForgeMergeRequest,
+        ForgeMergeRequestState,
         ForgeUser,
         MergeRequestStatus,
     },
@@ -38,12 +39,13 @@ pub struct GitLabUser {
     pub username: String,
 }
 
-impl From<GitLabUser> for ForgeUser {
-    fn from(user: GitLabUser) -> Self {
-        ForgeUser {
-            id: Some(user.id.to_string()),
-            username: Some(user.username),
-        }
+impl ForgeUser for GitLabUser {
+    fn id(&self) -> Option<Cow<'_, str>> {
+        Some(Cow::Owned(self.id.to_string()))
+    }
+
+    fn username(&self) -> Option<Cow<'_, str>> {
+        Some(Cow::Borrowed(&self.username))
     }
 }
 
@@ -169,6 +171,10 @@ impl<'de> Deserialize<'de> for NoContent {
 }
 
 impl Forge for GitLabForge {
+    type User = GitLabUser;
+
+    type MergeRequest = MergeRequest;
+
     fn project_id(&self) -> &str {
         &self.target_project_id
     }
@@ -186,15 +192,15 @@ impl Forge for GitLabForge {
     }
 
     /// Get the current authenticated user
-    async fn current_user(&self) -> Result<ForgeUser> {
+    async fn current_user(&self) -> Result<Self::User> {
         let user: GitLabUser = self
             .request(Method::GET, "/api/v4/user", None::<()>)
             .await?;
-        Ok(user.into())
+        Ok(user)
     }
 
     /// Get user by username
-    async fn user_by_username(&self, username: &str) -> Result<Option<ForgeUser>> {
+    async fn user_by_username(&self, username: &str) -> Result<Option<Self::User>> {
         let users: Vec<GitLabUser> = self
             .request(
                 Method::GET,
@@ -202,7 +208,7 @@ impl Forge for GitLabForge {
                 None::<()>,
             )
             .await?;
-        Ok(users.into_iter().next().map(ForgeUser::from))
+        Ok(users.into_iter().next())
     }
 
     /// Find merge request by source branch name. Returns the first MR found
@@ -210,7 +216,7 @@ impl Forge for GitLabForge {
     async fn find_merge_request_by_source_branch(
         &self,
         branch: &str,
-    ) -> Result<Option<ForgeMergeRequest>> {
+    ) -> Result<Option<Self::MergeRequest>> {
         let mrs: Vec<MergeRequest> = self
             .request(
                 Method::GET,
@@ -222,7 +228,7 @@ impl Forge for GitLabForge {
                 None::<()>,
             )
             .await?;
-        Ok(mrs.into_iter().next().map(ForgeMergeRequest::GitLab))
+        Ok(mrs.into_iter().next())
     }
 
     /// Create a new merge request
@@ -239,7 +245,7 @@ impl Forge for GitLabForge {
             target_branch,
             title,
         }: ForgeCreateMergeRequestOptions,
-    ) -> Result<ForgeMergeRequest> {
+    ) -> Result<Self::MergeRequest> {
         let mut payload = serde_json::json!({
             "source_branch": source_branch,
             "target_branch": target_branch,
@@ -276,15 +282,15 @@ impl Forge for GitLabForge {
             )
             .await?;
 
-        Ok(ForgeMergeRequest::GitLab(mr))
+        Ok(mr)
     }
 
     /// Update the target branch (base) of an existing merge request
     async fn update_merge_request_base(
         &self,
-        merge_request_iid: &str,
+        merge_request_iid: Self::Id,
         new_target_branch: &str,
-    ) -> Result<ForgeMergeRequest> {
+    ) -> Result<Self::MergeRequest> {
         let mr: MergeRequest = self
             .request(
                 Method::PUT,
@@ -299,15 +305,15 @@ impl Forge for GitLabForge {
             )
             .await?;
 
-        Ok(ForgeMergeRequest::GitLab(mr))
+        Ok(mr)
     }
 
     /// Update the description of an existing merge request
     async fn update_merge_request_description(
         &self,
-        merge_request_iid: &str,
+        merge_request_iid: Self::Id,
         new_description: &str,
-    ) -> Result<ForgeMergeRequest> {
+    ) -> Result<Self::MergeRequest> {
         let mr: MergeRequest = self
             .request(
                 Method::PUT,
@@ -322,11 +328,11 @@ impl Forge for GitLabForge {
             )
             .await?;
 
-        Ok(ForgeMergeRequest::GitLab(mr))
+        Ok(mr)
     }
 
     /// Get a specific merge request by IID
-    async fn get_merge_request(&self, merge_request_iid: &str) -> Result<ForgeMergeRequest> {
+    async fn get_merge_request(&self, merge_request_iid: Self::Id) -> Result<Self::MergeRequest> {
         let mr: MergeRequest = self
             .request(
                 Method::GET,
@@ -339,11 +345,11 @@ impl Forge for GitLabForge {
             )
             .await?;
 
-        Ok(ForgeMergeRequest::GitLab(mr))
+        Ok(mr)
     }
 
     /// Get approval status for a merge request
-    async fn get_approval_status(&self, merge_request_iid: &str) -> Result<ApprovalStatus> {
+    async fn get_approval_status(&self, merge_request_iid: Self::Id) -> Result<ApprovalStatus> {
         let approvals: Result<MergeRequestApprovals, _> = self
             .request(
                 Method::GET,
@@ -381,9 +387,11 @@ impl Forge for GitLabForge {
     }
 
     /// Get CI/pipeline check status for a merge request
-    async fn get_check_status(&self, merge_request_iid: &str) -> Result<CheckStatus> {
-        let mr = self.get_merge_request(merge_request_iid).await?;
-        let source_branch = mr.source_branch();
+    async fn get_check_status(&self, merge_request_iid: Self::Id) -> Result<CheckStatus> {
+        let source_branch = self
+            .get_merge_request(merge_request_iid)
+            .await?
+            .source_branch;
 
         // So for whatever reason for us, `/pipelines/latest` just... doesn't work?
         // `/pipelines` will return something in the array, but not `/latest` (403) 🤷
@@ -395,7 +403,7 @@ impl Forge for GitLabForge {
                     "{}/api/v4/projects/{}/pipelines?ref={}",
                     self.base_url,
                     self.encoded_target_project_id(),
-                    urlencoding::encode(source_branch)
+                    urlencoding::encode(&source_branch)
                 ),
             )
             .header("Authorization", format!("Bearer {}", &self.token))
@@ -430,7 +438,7 @@ impl Forge for GitLabForge {
 
     async fn get_merge_request_status(
         &self,
-        merge_request_iid: &str,
+        merge_request_iid: Self::Id,
     ) -> Result<MergeRequestStatus> {
         let (approval_status, check_status) = try_join!(
             self.get_approval_status(merge_request_iid),
@@ -444,7 +452,7 @@ impl Forge for GitLabForge {
         })
     }
 
-    async fn num_open_discussions(&self, merge_request_iid: &str) -> Result<DiscussionCount> {
+    async fn num_open_discussions(&self, merge_request_iid: Self::Id) -> Result<DiscussionCount> {
         let discussions = self.get_discussions(merge_request_iid).await?;
         Ok(discussions
             .iter()
@@ -474,35 +482,19 @@ impl Forge for GitLabForge {
 
     async fn sync_dependent_merge_requests(
         &self,
-        merge_request_iid: &str,
-        dependent_merge_request_iids: &[&str],
+        merge_request_iid: Self::Id,
+        dependent_merge_request_iids: &[Self::Id],
     ) -> Result<bool> {
         if !self.create_merge_request_dependencies {
             return Ok(false);
         }
 
-        let needed_deps: HashSet<_> = dependent_merge_request_iids
-            .iter()
-            .map(|s| -> Result<u64> {
-                s.parse::<u64>().map_err::<Error, _>(|_| {
-                    make_whatever!(
-                        "Failed to parse dependent merge request IID as number: {}",
-                        s
-                    )
-                })
-            })
-            .collect::<Result<HashSet<_>>>()?;
+        let needed_deps: HashSet<u64> = dependent_merge_request_iids.iter().copied().collect();
 
         // Now we need to get the ID for all needed deps... not the IID :/
         let needed_deps: HashSet<u64> = needed_deps
             .into_iter()
-            .map(|dep| async move {
-                let mr = self.get_merge_request(&dep.to_string()).await?;
-                Ok(match mr {
-                    ForgeMergeRequest::GitLab(mr) => mr.id,
-                    _ => unreachable!(),
-                })
-            })
+            .map(|dep| async move { Ok(self.get_merge_request(dep).await?.id) })
             .collect::<FuturesUnordered<_>>()
             .collect::<Vec<Result<_>>>()
             .await
@@ -543,7 +535,7 @@ impl Forge for GitLabForge {
 }
 
 impl GitLabForge {
-    async fn get_discussions(&self, merge_request_iid: &str) -> Result<Vec<Discussion>> {
+    async fn get_discussions(&self, merge_request_iid: u64) -> Result<Vec<Discussion>> {
         self.request(
             Method::GET,
             format!(
@@ -558,7 +550,7 @@ impl GitLabForge {
 
     pub async fn get_merge_request_dependencies(
         &self,
-        merge_request_iid: &str,
+        merge_request_iid: u64,
     ) -> Result<Vec<MergeRequestDependency>> {
         self.request(
             Method::GET,
@@ -574,7 +566,7 @@ impl GitLabForge {
 
     async fn delete_merge_request_dependency(
         &self,
-        merge_request_iid: &str,
+        merge_request_iid: u64,
         dependency_id: u64,
     ) -> Result<NoContent> {
         self.request(
@@ -592,7 +584,7 @@ impl GitLabForge {
 
     async fn create_merge_request_dependency(
         &self,
-        merge_request_iid: &str,
+        merge_request_iid: u64,
         blocking_merge_request_global_id: u64,
     ) -> Result<MergeRequestDependency> {
         self.request(
@@ -611,7 +603,9 @@ impl GitLabForge {
 }
 
 impl FormatMergeRequest for GitLabForge {
-    fn format_merge_request_id(&self, mr_iid: &str) -> String {
+    type Id = u64;
+
+    fn format_merge_request_id(&self, mr_iid: Self::Id) -> String {
         format!("!{}", mr_iid)
     }
 
@@ -658,6 +652,79 @@ pub struct MergeRequest {
 
     /// Reviewers of the MR
     pub reviewers: Vec<GitLabUser>,
+}
+
+impl ForgeMergeRequest for MergeRequest {
+    type User = GitLabUser;
+
+    type Id = u64;
+
+    fn iid(&self) -> Self::Id {
+        self.iid
+    }
+
+    fn title(&self) -> &str {
+        &self.title
+    }
+
+    fn description(&self) -> &str {
+        self.description.as_deref().unwrap_or_default()
+    }
+
+    fn source_branch(&self) -> &str {
+        &self.source_branch
+    }
+
+    fn target_branch(&self) -> &str {
+        &self.target_branch
+    }
+
+    fn state(&self) -> ForgeMergeRequestState {
+        if self.state == "opened" {
+            ForgeMergeRequestState::Open
+        } else if self.state == "closed" {
+            ForgeMergeRequestState::Closed
+        } else if self.state == "merged" {
+            ForgeMergeRequestState::Merged
+        } else {
+            ForgeMergeRequestState::Open
+        }
+    }
+
+    fn url(&self) -> Cow<'_, str> {
+        Cow::Borrowed(&self.web_url)
+    }
+
+    fn edit_url(&self) -> Cow<'_, str> {
+        Cow::Owned(format!("{}/edit", self.web_url))
+    }
+
+    fn author_username(&self) -> &str {
+        &self.author.username
+    }
+
+    fn created_at(&self) -> jiff::Timestamp {
+        self.created_at
+            .parse()
+            .expect("Failed to parse creation date as ISO 8601")
+    }
+
+    fn assignees(&self) -> Vec<Self::User> {
+        self.assignees.clone()
+    }
+
+    fn reviewers(&self) -> Vec<Self::User> {
+        self.reviewers.clone()
+    }
+
+    fn clone_boxed(
+        &self,
+    ) -> Box<dyn ForgeMergeRequest<User = Self::User, Id = Self::Id> + Send + Sync>
+    where
+        Self: Sync + Send,
+    {
+        Box::new(self.clone())
+    }
 }
 
 /// GitLab MR approval information

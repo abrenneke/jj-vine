@@ -66,7 +66,7 @@ impl ExecuteAction for CreateMRAction {
 
         let assignee_ids = if ctx.config.assign_to_self {
             match ctx.forge.current_user().await {
-                Ok(user) => Some(vec![user.id]),
+                Ok(user) => Some(vec![user.id().map(|id| id.to_string())]),
                 Err(e) => {
                     let warning =
                         format!("Warning: Failed to get current user for assignment: {}", e);
@@ -81,8 +81,9 @@ impl ExecuteAction for CreateMRAction {
         let mut reviewer_usernames = Vec::new();
         for username in &ctx.config.default_reviewers {
             match ctx.forge.user_by_username(username).await {
-                Ok(Some(ForgeUser { id, username })) => {
-                    if let Some(identifier) = username.or(id) {
+                Ok(Some(user)) => {
+                    if let Some(identifier) = user.username().or(user.id()).map(|id| id.to_string())
+                    {
                         reviewer_usernames.push(identifier);
                     }
                 }
@@ -113,9 +114,15 @@ impl ExecuteAction for CreateMRAction {
                             .unwrap_or_default()
                             .into_iter()
                             .flatten()
+                            .map(|id| id.to_string())
                             .collect(),
                     )
-                    .reviewer_usernames(reviewer_usernames)
+                    .reviewer_usernames(
+                        reviewer_usernames
+                            .into_iter()
+                            .map(|username| username.to_string())
+                            .collect(),
+                    )
                     .open_as_draft(ctx.config.open_as_draft)
                     .build(),
             )
@@ -125,7 +132,7 @@ impl ExecuteAction for CreateMRAction {
                 ctx.output.log_completed(&format!(
                     "Created MR {}: {}",
                     format!("!{}", mr.iid()).cyan(),
-                    &mr.url(ctx.forge).dimmed()
+                    &mr.url().dimmed()
                 ));
                 Ok(ActionResultData::MRCreated(Box::new(MRUpdate {
                     mr,

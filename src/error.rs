@@ -315,6 +315,15 @@ impl From<dialoguer::Error> for Error {
     }
 }
 
+impl From<std::num::ParseIntError> for Error {
+    fn from(source: std::num::ParseIntError) -> Self {
+        ParseSnafu {
+            message: source.to_string(),
+        }
+        .build()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use snafu::ResultExt;

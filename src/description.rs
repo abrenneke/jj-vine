@@ -9,16 +9,18 @@ use itertools::Itertools;
 use crate::{
     bookmark::{BookmarkRef, ChangeComponent},
     config::{DescriptionConfig, DescriptionFormat, InitialDescriptionMode},
-    forge::{ForgeImpl, ForgeMergeRequest},
+    forge::{AnyForgeMergeRequest, BorrowId, ForgeImpl, ForgeMergeRequest},
     jj::Change,
     utils::toposort,
 };
 
 #[enum_dispatch]
 pub trait FormatMergeRequest {
+    type Id: BorrowId;
+
     /// Formats the ID of a merge request as a string for display in the
     /// description.
-    fn format_merge_request_id(&self, mr_iid: &str) -> String;
+    fn format_merge_request_id<'a>(&'a self, mr_iid: <Self::Id as BorrowId>::Id<'a>) -> String;
 
     /// Gets e.g. "MR" or "PR" for the merge request.
     fn mr_name(&self) -> &'static str;
@@ -291,7 +293,7 @@ impl LinearListFormatter {
                                         .expect("Parent bookmark should always have an MR");
                                     context
                                         .format_merge_request
-                                        .format_merge_request_id(&mr.iid())
+                                        .format_merge_request_id(mr.iid())
                                 }
                                 BookmarkRef::Trunk => format!("`{}`", context.base_branch),
                             })
@@ -319,7 +321,7 @@ impl LinearListFormatter {
                         r#"{list_indicator} {} "{}"{}"#,
                         context
                             .format_merge_request
-                            .format_merge_request_id(&mr.iid()),
+                            .format_merge_request_id(mr.iid()),
                         mr.title(),
                         into
                     )
@@ -471,7 +473,7 @@ impl TreeFormatter {
                                 .expect("Parent bookmark should always have an MR");
                             context
                                 .format_merge_request
-                                .format_merge_request_id(&mr.iid())
+                                .format_merge_request_id(mr.iid())
                         }
                         BookmarkRef::Trunk => format!("`{}`", context.base_branch),
                     })
@@ -501,7 +503,7 @@ impl TreeFormatter {
                         r#"{indent}{list_indicator} {} "{}"{}"#,
                         context
                             .format_merge_request
-                            .format_merge_request_id(&mr.iid()),
+                            .format_merge_request_id(mr.iid()),
                         mr.title(),
                         also
                     )
@@ -529,7 +531,7 @@ pub struct FormatContext<'a, 'forge, 'lookup> {
     pub this_bookmark: String,
 
     /// Lookup of merge requests by bookmark name
-    pub merge_request_lookup: &'lookup HashMap<String, ForgeMergeRequest>,
+    pub merge_request_lookup: &'lookup HashMap<String, AnyForgeMergeRequest>,
 
     /// Base branch name (e.g., "main", "master")
     pub base_branch: String,
@@ -580,7 +582,7 @@ pub fn insert_stack_into_description<'a>(
 pub fn generate_stack_description(
     bookmark: &str,
     component: &ChangeComponent,
-    existing_mrs: &HashMap<String, ForgeMergeRequest>,
+    existing_mrs: &HashMap<String, AnyForgeMergeRequest>,
     config: &DescriptionConfig,
     base_branch: &str,
     format_merge_request: &ForgeImpl,

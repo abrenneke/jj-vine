@@ -1,6 +1,6 @@
 mod graphql;
 
-use std::{collections::HashMap, path::Path};
+use std::{borrow::Cow, collections::HashMap, path::Path};
 
 use futures::{join, try_join};
 use itertools::Itertools;
@@ -18,6 +18,7 @@ use crate::{
         Forge,
         ForgeCreateMergeRequestOptions,
         ForgeMergeRequest,
+        ForgeMergeRequestState,
         ForgeUser,
         MergeRequestStatus,
     },
@@ -42,12 +43,13 @@ pub struct GitHubUser {
     pub login: String,
 }
 
-impl From<GitHubUser> for ForgeUser {
-    fn from(user: GitHubUser) -> Self {
-        ForgeUser {
-            id: Some(user.id.to_string()),
-            username: Some(user.login),
-        }
+impl ForgeUser for GitHubUser {
+    fn id(&self) -> Option<Cow<'_, str>> {
+        Some(Cow::Owned(self.id.to_string()))
+    }
+
+    fn username(&self) -> Option<Cow<'_, str>> {
+        Some(Cow::Borrowed(&self.login))
     }
 }
 
@@ -118,6 +120,77 @@ pub struct PullRequest {
     /// list)
     #[serde(default)]
     pub merged: bool,
+}
+
+impl ForgeMergeRequest for PullRequest {
+    type User = GitHubUser;
+
+    type Id = u64;
+
+    fn iid(&self) -> Self::Id {
+        self.number
+    }
+
+    fn title(&self) -> &str {
+        &self.title
+    }
+
+    fn description(&self) -> &str {
+        self.body.as_deref().unwrap_or_default()
+    }
+
+    fn source_branch(&self) -> &str {
+        &self.head.ref_name
+    }
+
+    fn target_branch(&self) -> &str {
+        &self.base.ref_name
+    }
+
+    fn state(&self) -> ForgeMergeRequestState {
+        if self.merged {
+            ForgeMergeRequestState::Merged
+        } else if self.state == "open" {
+            ForgeMergeRequestState::Open
+        } else {
+            ForgeMergeRequestState::Closed
+        }
+    }
+
+    fn url(&self) -> Cow<'_, str> {
+        Cow::Borrowed(&self.html_url)
+    }
+
+    fn edit_url(&self) -> Cow<'_, str> {
+        Cow::Borrowed(&self.html_url)
+    }
+
+    fn author_username(&self) -> &str {
+        &self.user.login
+    }
+
+    fn created_at(&self) -> jiff::Timestamp {
+        self.created_at
+            .parse()
+            .expect("Failed to parse creation date as ISO 8601")
+    }
+
+    fn assignees(&self) -> Vec<Self::User> {
+        self.assignees.clone()
+    }
+
+    fn reviewers(&self) -> Vec<Self::User> {
+        self.requested_reviewers.clone()
+    }
+
+    fn clone_boxed(
+        &self,
+    ) -> Box<dyn ForgeMergeRequest<User = Self::User, Id = Self::Id> + Send + Sync>
+    where
+        Self: Sync + Send,
+    {
+        Box::new(self.clone())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -418,6 +491,10 @@ impl GitHubForge {
 }
 
 impl Forge for GitHubForge {
+    type User = GitHubUser;
+
+    type MergeRequest = PullRequest;
+
     fn project_id(&self) -> &str {
         &self.target_project_id
     }
@@ -445,17 +522,17 @@ impl Forge for GitHubForge {
         format!("{}/{}", base_url, self.target_project_id)
     }
 
-    async fn current_user(&self) -> Result<ForgeUser> {
+    async fn current_user(&self) -> Result<Self::User> {
         let user: GitHubUser = self.request(Method::GET, "/user", None::<()>).await?;
-        Ok(user.into())
+        Ok(user)
     }
 
-    async fn user_by_username(&self, username: &str) -> Result<Option<ForgeUser>> {
+    async fn user_by_username(&self, username: &str) -> Result<Option<Self::User>> {
         match self
             .request::<GitHubUser>(Method::GET, format!("/users/{}", username), None::<()>)
             .await
         {
-            Ok(user) => Ok(Some(user.into())),
+            Ok(user) => Ok(Some(user)),
             Err(Error::GitHubApi { message, .. }) if message.contains("404") => Ok(None),
             Err(e) => Err(e),
         }
@@ -464,7 +541,7 @@ impl Forge for GitHubForge {
     async fn find_merge_request_by_source_branch(
         &self,
         branch: &str,
-    ) -> Result<Option<ForgeMergeRequest>> {
+    ) -> Result<Option<Self::MergeRequest>> {
         let source_owner = self.source_project_id.split('/').next().unwrap();
 
         let prs: Vec<PullRequest> = self
@@ -479,7 +556,7 @@ impl Forge for GitHubForge {
                 None::<()>,
             )
             .await?;
-        Ok(prs.into_iter().next().map(ForgeMergeRequest::GitHub))
+        Ok(prs.into_iter().next())
     }
 
     async fn create_merge_request(
@@ -500,7 +577,7 @@ impl Forge for GitHubForge {
             // In GitHub, squashing is handled at *merge time*. Default is a project setting only.
             squash: _squash,
         }: ForgeCreateMergeRequestOptions,
-    ) -> Result<ForgeMergeRequest> {
+    ) -> Result<Self::MergeRequest> {
         // For fork workflows, head needs to be "owner:branch"
         let (source_owner, source_repository) = self.source_project_id.split_once('/').unwrap();
 
@@ -550,14 +627,14 @@ impl Forge for GitHubForge {
                 .await?;
         }
 
-        Ok(ForgeMergeRequest::GitHub(pr))
+        Ok(pr)
     }
 
     async fn update_merge_request_base(
         &self,
-        pr_number: &str,
+        pr_number: Self::Id,
         new_base: &str,
-    ) -> Result<ForgeMergeRequest> {
+    ) -> Result<Self::MergeRequest> {
         let pr: PullRequest = self
             .request(
                 Method::PATCH,
@@ -568,14 +645,14 @@ impl Forge for GitHubForge {
             )
             .await?;
 
-        Ok(ForgeMergeRequest::GitHub(pr))
+        Ok(pr)
     }
 
     async fn update_merge_request_description(
         &self,
-        pr_number: &str,
+        pr_number: Self::Id,
         new_description: &str,
-    ) -> Result<ForgeMergeRequest> {
+    ) -> Result<Self::MergeRequest> {
         let pr: PullRequest = self
             .request(
                 Method::PATCH,
@@ -586,10 +663,10 @@ impl Forge for GitHubForge {
             )
             .await?;
 
-        Ok(ForgeMergeRequest::GitHub(pr))
+        Ok(pr)
     }
 
-    async fn get_merge_request(&self, pr_number: &str) -> Result<ForgeMergeRequest> {
+    async fn get_merge_request(&self, pr_number: Self::Id) -> Result<Self::MergeRequest> {
         let pr: PullRequest = self
             .request(
                 Method::GET,
@@ -598,12 +675,12 @@ impl Forge for GitHubForge {
             )
             .await?;
 
-        Ok(ForgeMergeRequest::GitHub(pr))
+        Ok(pr)
     }
 
-    async fn get_approval_status(&self, pr_number: &str) -> Result<ApprovalStatus> {
+    async fn get_approval_status(&self, pr_number: Self::Id) -> Result<ApprovalStatus> {
         let pr = self.get_merge_request(pr_number).await?;
-        let base_branch = pr.target_branch();
+        let base_branch = pr.base.ref_name;
 
         let (reviews, required_count): (Result<Vec<Review>, _>, _) = join!(
             self.request(
@@ -614,7 +691,7 @@ impl Forge for GitHubForge {
                 ),
                 None::<()>,
             ),
-            self.get_required_approvals(base_branch),
+            self.get_required_approvals(&base_branch),
         );
 
         let user_reviews: Result<HashMap<u64, ReviewState>, _> = reviews.map(|reviews| {
@@ -657,13 +734,8 @@ impl Forge for GitHubForge {
         })
     }
 
-    async fn get_check_status(&self, pr_number: &str) -> Result<CheckStatus> {
-        let pr = self.get_merge_request(pr_number).await?;
-
-        let head_sha = match pr {
-            ForgeMergeRequest::GitHub(pr) => pr.head.sha,
-            _ => unreachable!(),
-        };
+    async fn get_check_status(&self, pr_number: Self::Id) -> Result<CheckStatus> {
+        let head_sha = self.get_merge_request(pr_number).await?.head.sha;
 
         let response: CheckRunsResponse = self
             .request(
@@ -714,7 +786,7 @@ impl Forge for GitHubForge {
         }
     }
 
-    async fn get_merge_request_status(&self, pr_number: &str) -> Result<MergeRequestStatus> {
+    async fn get_merge_request_status(&self, pr_number: Self::Id) -> Result<MergeRequestStatus> {
         let (approval_status, check_status) = try_join!(
             self.get_approval_status(pr_number),
             self.get_check_status(pr_number),
@@ -727,7 +799,7 @@ impl Forge for GitHubForge {
         })
     }
 
-    async fn num_open_discussions(&self, pr_number: &str) -> Result<DiscussionCount> {
+    async fn num_open_discussions(&self, pr_number: Self::Id) -> Result<DiscussionCount> {
         let discussions = self.get_discussions(pr_number).await?;
         Ok(discussions.iter().fold(
             DiscussionCount {
@@ -752,8 +824,8 @@ impl Forge for GitHubForge {
 
     async fn sync_dependent_merge_requests(
         &self,
-        _merge_request_iid: &str,
-        _dependent_merge_request_iids: &[&str],
+        _merge_request_iid: Self::Id,
+        _dependent_merge_request_iids: &[Self::Id],
     ) -> Result<bool> {
         // Only supported for GitLab
         Ok(false)
@@ -761,7 +833,9 @@ impl Forge for GitHubForge {
 }
 
 impl FormatMergeRequest for GitHubForge {
-    fn format_merge_request_id(&self, mr_iid: &str) -> String {
+    type Id = u64;
+
+    fn format_merge_request_id(&self, mr_iid: Self::Id) -> String {
         format!("#{}", mr_iid)
     }
 
@@ -833,7 +907,7 @@ impl GitHubForge {
 
     async fn get_discussions(
         &self,
-        pr_number: &str,
+        pr_number: u64,
     ) -> Result<Vec<graphql::GetDiscussionsQueryComment>> {
         let (owner, name) = self.target_project_id.split("/").collect_tuple().unwrap();
 
@@ -897,10 +971,7 @@ query GetDiscussions($owner: String!, $name: String!, $pr_number: Int!) {
                 serde_json::json!({
                     "owner": owner,
                     "name": name,
-                    "pr_number": pr_number.parse::<i32>().map_err(|e| GitHubApiSnafu {
-                        message: format!("Failed to parse PR number: {}", e),
-                    }
-                    .build())?,
+                    "pr_number": pr_number,
                 }),
             )
             .await?;

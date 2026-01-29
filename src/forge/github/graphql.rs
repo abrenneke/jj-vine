@@ -1,7 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-use crate::forge::ForgeUser;
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RelayConnection<T> {
@@ -55,15 +53,6 @@ pub struct GetDiscussionsQueryReview {
 #[serde(rename_all = "camelCase")]
 pub struct GetDiscussionsQueryUser {
     pub login: String,
-}
-
-impl From<GetDiscussionsQueryUser> for ForgeUser {
-    fn from(user: GetDiscussionsQueryUser) -> Self {
-        ForgeUser {
-            id: None,
-            username: Some(user.login),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

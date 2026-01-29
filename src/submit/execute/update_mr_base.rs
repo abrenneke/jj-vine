@@ -55,7 +55,7 @@ impl ExecuteAction for UpdateMRBaseAction {
 
             match ctx
                 .forge
-                .update_merge_request_base(&self.mr_iid, &self.new_target_branch)
+                .update_merge_request_base((&self.mr_iid).into(), &self.new_target_branch)
                 .await
             {
                 Ok(mr) => {

@@ -70,10 +70,10 @@ impl<'a> ExecuteAction for SyncDependentMergeRequestsAction<'a> {
         let changed = ctx
             .forge
             .sync_dependent_merge_requests(
-                &mr.iid(),
+                mr.iid(),
                 dependent_merge_request_iids
                     .iter()
-                    .map(|s| s.as_str())
+                    .map(|s| s.into())
                     .collect::<Vec<_>>()
                     .as_slice(),
             )

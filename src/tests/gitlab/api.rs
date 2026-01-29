@@ -2,7 +2,7 @@ use assertables::assert_contains;
 
 use crate::{
     error::Result,
-    forge::{Forge, ForgeCreateMergeRequestOptions, ForgeMergeRequestState, gitlab::GitLabForge},
+    forge::{Forge, ForgeCreateMergeRequestOptions, gitlab::GitLabForge},
     tests::{TestRepo, unique_branch},
 };
 
@@ -23,9 +23,9 @@ async fn test_submit_creates_mr() -> Result<()> {
         .await?
         .unwrap_or_else(|| panic!("MR should exist"));
 
-    assert_eq!(mr.source_branch(), branch);
-    assert_eq!(mr.target_branch(), "main");
-    assert_eq!(mr.state(), ForgeMergeRequestState::Open);
+    assert_eq!(mr.source_branch, branch);
+    assert_eq!(mr.target_branch, "main");
+    assert_eq!(&mr.state, "opened");
 
     Ok(())
 }
@@ -57,7 +57,7 @@ async fn test_submit_creates_stacked_mrs() -> Result<()> {
         repo.forge()
             .find_merge_request_by_source_branch(&branch_a)
             .await?
-            .map(|mr| mr.target_branch().to_string()),
+            .map(|mr| mr.target_branch.to_string()),
         Some("main".to_string())
     );
 
@@ -65,7 +65,7 @@ async fn test_submit_creates_stacked_mrs() -> Result<()> {
         repo.forge()
             .find_merge_request_by_source_branch(&branch_b)
             .await?
-            .map(|mr| mr.target_branch().to_string()),
+            .map(|mr| mr.target_branch.to_string()),
         Some(branch_a)
     );
 
@@ -73,7 +73,7 @@ async fn test_submit_creates_stacked_mrs() -> Result<()> {
         repo.forge()
             .find_merge_request_by_source_branch(&branch_c)
             .await?
-            .map(|mr| mr.target_branch().to_string()),
+            .map(|mr| mr.target_branch.to_string()),
         Some(branch_b)
     );
 
@@ -105,7 +105,7 @@ async fn test_submit_is_idempotent() -> Result<()> {
         .await?
         .expect("MR should exist");
 
-    assert_eq!(mr1.iid(), mr2.iid());
+    assert_eq!(mr1.iid, mr2.iid);
 
     Ok(())
 }
@@ -137,8 +137,8 @@ async fn test_submit_retargets_after_middle_bookmark_deleted() -> Result<()> {
         .forge()
         .find_merge_request_by_source_branch(&branch_c)
         .await?
-        .expect("MR C should exist");
-    assert_eq!(mr_c.target_branch(), branch_b);
+        .unwrap();
+    assert_eq!(mr_c.target_branch, branch_b);
 
     repo.jj.exec(["bookmark", "delete", &branch_b])?;
 
@@ -148,13 +148,9 @@ async fn test_submit_retargets_after_middle_bookmark_deleted() -> Result<()> {
         .forge()
         .find_merge_request_by_source_branch(&branch_c)
         .await?
-        .expect("MR C should exist");
+        .unwrap();
 
-    assert_eq!(
-        mr_c_updated.target_branch(),
-        branch_a,
-        "MR C should now target A after B was deleted"
-    );
+    assert_eq!(mr_c_updated.target_branch, branch_a);
 
     Ok(())
 }
@@ -276,15 +272,15 @@ async fn test_create_merge_request_dependencies() -> Result<()> {
 
     let deps: Vec<_> = repo
         .forge()
-        .get_merge_request_dependencies(&mr_c.iid())
+        .get_merge_request_dependencies(mr_c.iid)
         .await?
         .iter()
         .map(|dep| dep.blocking_merge_request.iid)
         .collect();
 
     assert_eq!(deps.len(), 2);
-    assert_contains!(deps, &mr_a.iid().parse::<u64>().unwrap());
-    assert_contains!(deps, &mr_b.iid().parse::<u64>().unwrap());
+    assert_contains!(deps, &mr_a.iid);
+    assert_contains!(deps, &mr_b.iid);
 
     Ok(())
 }

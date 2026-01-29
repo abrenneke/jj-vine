@@ -14,7 +14,7 @@ use tracing::debug;
 use crate::{
     config::Config,
     error::{Error, Result},
-    forge::{ForgeImpl, ForgeMergeRequest},
+    forge::{AnyForgeMergeRequest, ForgeImpl},
     jj::Jujutsu,
     output::Output,
     submit::{
@@ -44,7 +44,7 @@ pub struct SubmissionResult {
 
 #[derive(Debug, Clone)]
 pub struct MRUpdate {
-    pub mr: ForgeMergeRequest,
+    pub mr: AnyForgeMergeRequest,
     pub bookmark: String,
     pub update_type: MRUpdateType,
 }

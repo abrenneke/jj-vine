@@ -113,7 +113,7 @@ impl<'a> ExecuteAction for UpdateMRDescriptionAction<'a> {
             } else {
                 match ctx
                     .forge
-                    .update_merge_request_description(current_mr.iid().as_ref(), &new_description)
+                    .update_merge_request_description(current_mr.iid(), &new_description)
                     .await
                 {
                     Ok(updated_mr) => {

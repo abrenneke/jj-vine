@@ -1,4 +1,4 @@
-use std::{collections::HashMap, path::Path};
+use std::{borrow::Cow, collections::HashMap, path::Path};
 
 use bon::bon;
 use futures::try_join;
@@ -17,6 +17,7 @@ use crate::{
         Forge,
         ForgeCreateMergeRequestOptions,
         ForgeMergeRequest,
+        ForgeMergeRequestState,
         ForgeUser,
         MergeRequestStatus,
     },
@@ -316,9 +317,21 @@ impl AzureDevOpsForge {
             })
             .await
     }
+
+    fn to_merge_request(&self, pull_request: GitPullRequest) -> AzureDevOpsMergeRequest {
+        AzureDevOpsMergeRequest {
+            target_project_id: self.target_project_id().to_string(),
+            base_url: self.base_url.to_string(),
+            pull_request,
+        }
+    }
 }
 
 impl Forge for AzureDevOpsForge {
+    type User = IdentityRef;
+
+    type MergeRequest = AzureDevOpsMergeRequest;
+
     fn source_project_id(&self) -> &str {
         &self.source_project_id
     }
@@ -331,7 +344,7 @@ impl Forge for AzureDevOpsForge {
         &self.base_url
     }
 
-    async fn current_user(&self) -> Result<ForgeUser> {
+    async fn current_user(&self) -> Result<Self::User> {
         let user: IdentityRef = self
             .request(
                 Method::GET,
@@ -340,10 +353,10 @@ impl Forge for AzureDevOpsForge {
                 None::<()>,
             )
             .await?;
-        Ok(user.into())
+        Ok(user)
     }
 
-    async fn user_by_username(&self, user_descriptor: &str) -> Result<Option<ForgeUser>> {
+    async fn user_by_username(&self, user_descriptor: &str) -> Result<Option<Self::User>> {
         if let Some(vssps_base_url) = &self.vssps_base_url {
             let user: IdentityRef = self
                 .request(
@@ -356,7 +369,7 @@ impl Forge for AzureDevOpsForge {
                     None::<()>,
                 )
                 .await?;
-            Ok(Some(user.into()))
+            Ok(Some(user))
         } else {
             Ok(None)
         }
@@ -365,7 +378,7 @@ impl Forge for AzureDevOpsForge {
     async fn find_merge_request_by_source_branch(
         &self,
         branch: &str,
-    ) -> Result<Option<ForgeMergeRequest>> {
+    ) -> Result<Option<Self::MergeRequest>> {
         let mrs: ListResponse<GitPullRequest> = self
             .request_git(
                 Method::GET,
@@ -383,7 +396,7 @@ impl Forge for AzureDevOpsForge {
             .value
             .into_iter()
             .next()
-            .map(|pr| ForgeMergeRequest::AzureDevOps(Box::new(pr))))
+            .map(|pr| self.to_merge_request(pr)))
     }
 
     async fn create_merge_request(
@@ -400,7 +413,7 @@ impl Forge for AzureDevOpsForge {
             // Azure DevOps has no concept of "assignees", only "reviewers".
             assignee_usernames: _assignee_usernames,
         }: ForgeCreateMergeRequestOptions,
-    ) -> Result<ForgeMergeRequest> {
+    ) -> Result<Self::MergeRequest> {
         let body = CreatePullRequestBody {
             completion_options: RequestGitPullRequestCompletionOptions {
                 delete_source_branch: if remove_source_branch {
@@ -449,14 +462,14 @@ impl Forge for AzureDevOpsForge {
             )
             .await?;
 
-        Ok(ForgeMergeRequest::AzureDevOps(Box::new(pr)))
+        Ok(self.to_merge_request(pr))
     }
 
     async fn update_merge_request_base(
         &self,
-        merge_request_iid: &str,
+        merge_request_iid: i32,
         new_base: &str,
-    ) -> Result<ForgeMergeRequest> {
+    ) -> Result<Self::MergeRequest> {
         let body = UpdatePullRequestBody {
             description: None,
             target_ref_name: Some(format!("refs/heads/{}", new_base)),
@@ -475,14 +488,14 @@ impl Forge for AzureDevOpsForge {
             )
             .await?;
 
-        Ok(ForgeMergeRequest::AzureDevOps(Box::new(pr)))
+        Ok(self.to_merge_request(pr))
     }
 
     async fn update_merge_request_description(
         &self,
-        merge_request_iid: &str,
+        merge_request_iid: i32,
         new_description: &str,
-    ) -> Result<ForgeMergeRequest> {
+    ) -> Result<Self::MergeRequest> {
         let body = UpdatePullRequestBody {
             description: Some(new_description.to_string()),
             target_ref_name: None,
@@ -501,10 +514,10 @@ impl Forge for AzureDevOpsForge {
             )
             .await?;
 
-        Ok(ForgeMergeRequest::AzureDevOps(Box::new(pr)))
+        Ok(self.to_merge_request(pr))
     }
 
-    async fn get_merge_request(&self, merge_request_iid: &str) -> Result<ForgeMergeRequest> {
+    async fn get_merge_request(&self, merge_request_iid: i32) -> Result<Self::MergeRequest> {
         let pr: GitPullRequest = self
             .request_git(
                 Method::GET,
@@ -518,10 +531,10 @@ impl Forge for AzureDevOpsForge {
             )
             .await?;
 
-        Ok(ForgeMergeRequest::AzureDevOps(Box::new(pr)))
+        Ok(self.to_merge_request(pr))
     }
 
-    async fn get_approval_status(&self, merge_request_iid: &str) -> Result<ApprovalStatus> {
+    async fn get_approval_status(&self, merge_request_iid: i32) -> Result<ApprovalStatus> {
         let pr: GitPullRequest = self
             .request_git(
                 Method::GET,
@@ -561,7 +574,7 @@ impl Forge for AzureDevOpsForge {
         })
     }
 
-    async fn get_check_status(&self, merge_request_iid: &str) -> Result<CheckStatus> {
+    async fn get_check_status(&self, merge_request_iid: i32) -> Result<CheckStatus> {
         let pr: GitPullRequest = self
             .request_git(
                 Method::GET,
@@ -585,10 +598,7 @@ impl Forge for AzureDevOpsForge {
         }
     }
 
-    async fn get_merge_request_status(
-        &self,
-        merge_request_iid: &str,
-    ) -> Result<MergeRequestStatus> {
+    async fn get_merge_request_status(&self, merge_request_iid: i32) -> Result<MergeRequestStatus> {
         let (approval_status, check_status) = try_join!(
             self.get_approval_status(merge_request_iid),
             self.get_check_status(merge_request_iid),
@@ -601,7 +611,7 @@ impl Forge for AzureDevOpsForge {
         })
     }
 
-    async fn num_open_discussions(&self, merge_request_iid: &str) -> Result<DiscussionCount> {
+    async fn num_open_discussions(&self, merge_request_iid: i32) -> Result<DiscussionCount> {
         let threads: ListResponse<GitPullRequestCommentThread> = self
             .request_git(
                 Method::GET,
@@ -643,8 +653,8 @@ impl Forge for AzureDevOpsForge {
 
     async fn sync_dependent_merge_requests(
         &self,
-        _merge_request_iid: &str,
-        _dependent_merge_request_iids: &[&str],
+        _merge_request_iid: i32,
+        _dependent_merge_request_iids: &[Self::Id],
     ) -> Result<bool> {
         // Only supported for GitLab
         Ok(false)
@@ -652,7 +662,9 @@ impl Forge for AzureDevOpsForge {
 }
 
 impl FormatMergeRequest for AzureDevOpsForge {
-    fn format_merge_request_id(&self, mr_iid: &str) -> String {
+    type Id = i32;
+
+    fn format_merge_request_id(&self, mr_iid: Self::Id) -> String {
         format!("!{}", mr_iid)
     }
 
@@ -742,15 +754,111 @@ pub struct GitPullRequest {
     pub url: String,
 }
 
-impl GitPullRequest {
-    pub fn web_url(&self, forge: &AzureDevOpsForge) -> String {
-        format!(
+#[derive(Debug, Clone)]
+pub struct AzureDevOpsMergeRequest {
+    target_project_id: String,
+
+    base_url: String,
+
+    pub pull_request: GitPullRequest,
+}
+
+impl std::ops::Deref for AzureDevOpsMergeRequest {
+    type Target = GitPullRequest;
+
+    fn deref(&self) -> &Self::Target {
+        &self.pull_request
+    }
+}
+
+impl ForgeMergeRequest for AzureDevOpsMergeRequest {
+    type User = IdentityRef;
+
+    type Id = i32;
+
+    fn iid(&self) -> Self::Id {
+        self.pull_request.pull_request_id
+    }
+
+    fn title(&self) -> &str {
+        &self.pull_request.title
+    }
+
+    fn description(&self) -> &str {
+        &self.pull_request.description
+    }
+
+    fn source_branch(&self) -> &str {
+        &self.pull_request.source_ref_name
+    }
+
+    fn target_branch(&self) -> &str {
+        &self.pull_request.target_ref_name
+    }
+
+    fn state(&self) -> ForgeMergeRequestState {
+        match self.pull_request.status {
+            PullRequestStatus::Abandoned => ForgeMergeRequestState::Closed,
+            PullRequestStatus::Completed => ForgeMergeRequestState::Merged,
+            PullRequestStatus::Active => ForgeMergeRequestState::Open,
+            PullRequestStatus::All => ForgeMergeRequestState::Open,
+            PullRequestStatus::NotSet => ForgeMergeRequestState::Open,
+        }
+    }
+
+    fn url(&self) -> Cow<'_, str> {
+        Cow::Owned(format!(
             "{}/{}/_git/{}/pullrequest/{}",
-            forge.base_url,
-            forge.target_project_id(),
-            self.repository.name,
-            self.pull_request_id,
-        )
+            self.base_url,
+            self.target_project_id,
+            self.pull_request.repository.name,
+            self.pull_request.pull_request_id,
+        ))
+    }
+
+    fn edit_url(&self) -> Cow<'_, str> {
+        Cow::Owned(format!(
+            "{}/{}/_git/{}/pullrequest/{}",
+            self.base_url,
+            self.target_project_id,
+            self.pull_request.repository.name,
+            self.pull_request.pull_request_id,
+        ))
+    }
+
+    fn author_username(&self) -> &str {
+        &self.pull_request.created_by.display_name
+    }
+
+    fn created_at(&self) -> jiff::Timestamp {
+        self.pull_request
+            .creation_date
+            .parse()
+            .expect("Failed to parse creation date as ISO 8601")
+    }
+
+    fn assignees(&self) -> Vec<IdentityRef> {
+        self.pull_request
+            .reviewers
+            .clone()
+            .into_iter()
+            .map(Into::into)
+            .collect()
+    }
+
+    fn reviewers(&self) -> Vec<IdentityRef> {
+        self.pull_request
+            .reviewers
+            .clone()
+            .into_iter()
+            .map(Into::into)
+            .collect()
+    }
+
+    fn clone_boxed(
+        &self,
+    ) -> Box<dyn ForgeMergeRequest<User = Self::User, Id = Self::Id> + Send + Sync> {
+        Box::new(self.clone())
     }
 }
 
@@ -783,11 +891,23 @@ pub struct IdentityRef {
     pub url: String,
 }
 
-impl From<IdentityRef> for ForgeUser {
-    fn from(user: IdentityRef) -> Self {
-        ForgeUser {
-            id: Some(user.descriptor),
-            username: None,
+impl ForgeUser for IdentityRef {
+    fn id(&self) -> Option<Cow<'_, str>> {
+        Some(Cow::Borrowed(&self.descriptor))
+    }
+
+    fn username(&self) -> Option<Cow<'_, str>> {
+        Some(Cow::Borrowed(&self.display_name))
+    }
+}
+
+impl From<IdentityRefWithVote> for IdentityRef {
+    fn from(value: IdentityRefWithVote) -> Self {
+        Self {
+            descriptor: value.descriptor,
+            display_name: value.display_name,
+            id: value.id,
+            url: value.url,
         }
     }
 }
@@ -900,12 +1020,13 @@ pub struct IdentityRefWithVote {
     pub voted_for: Vec<IdentityRefWithVote>,
 }
 
-impl From<IdentityRefWithVote> for ForgeUser {
-    fn from(user: IdentityRefWithVote) -> Self {
-        ForgeUser {
-            id: Some(user.descriptor),
-            username: None,
-        }
+impl ForgeUser for IdentityRefWithVote {
+    fn id(&self) -> Option<Cow<'_, str>> {
+        Some(Cow::Borrowed(&self.descriptor))
+    }
+
+    fn username(&self) -> Option<Cow<'_, str>> {
+        None
     }
 }
 
@@ -924,7 +1045,7 @@ pub enum Vote {
     Rejected = -10,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum PullRequestStatus {
     NotSet,

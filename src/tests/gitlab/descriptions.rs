@@ -1,3 +1,5 @@
+use assertables::assert_contains;
+
 use crate::{
     description::{END_MARKER, START_MARKER},
     error::Result,
@@ -31,8 +33,8 @@ async fn test_mr_description_includes_stack_info() -> Result<()> {
         .await?
         .expect("MR A should exist");
 
-    assert!(mr.description().contains(START_MARKER));
-    assert!(mr.description().contains(END_MARKER));
+    assert_contains!(mr.description.as_ref().unwrap(), START_MARKER);
+    assert_contains!(mr.description.as_ref().unwrap(), END_MARKER);
 
     Ok(())
 }
@@ -69,7 +71,10 @@ async fn test_mr_description_links_to_dependent_mrs() -> Result<()> {
         .await?
         .expect("MR B should exist");
 
-    assert!(mr_a.description().contains(&format!("!{}", mr_b.iid())));
+    assert_contains!(
+        mr_a.description.as_ref().unwrap(),
+        &format!("!{}", mr_b.iid)
+    );
 
     Ok(())
 }
@@ -97,9 +102,9 @@ async fn test_user_content_preserved_on_resubmit() -> Result<()> {
         .expect("MR A should exist");
 
     let user_content = "My important notes about this MR";
-    let new_desc = format!("{}\n\n{}", mr.description(), user_content);
+    let new_desc = format!("{}\n\n{}", mr.description.unwrap(), user_content);
     repo.forge()
-        .update_merge_request_description(mr.iid().as_ref(), &new_desc)
+        .update_merge_request_description(mr.iid, &new_desc)
         .await?;
 
     repo.jj.exec(["new"])?;
@@ -114,7 +119,7 @@ async fn test_user_content_preserved_on_resubmit() -> Result<()> {
         .await?
         .expect("MR A should exist");
 
-    assert!(mr_updated.description().contains(user_content));
+    assert_contains!(mr_updated.description.unwrap(), user_content);
 
     Ok(())
 }
@@ -143,7 +148,7 @@ async fn test_add_markers_to_description_without_markers() -> Result<()> {
 
     let user_description = "Custom description without markers";
     repo.forge()
-        .update_merge_request_description(mr.iid().as_ref(), user_description)
+        .update_merge_request_description(mr.iid, user_description)
         .await?;
 
     repo.jj.exec(["new"])?;
@@ -157,9 +162,9 @@ async fn test_add_markers_to_description_without_markers() -> Result<()> {
         .await?
         .expect("MR A should exist");
 
-    assert!(mr.description().contains(START_MARKER));
-    assert!(mr.description().contains(END_MARKER));
-    assert!(mr.description().contains(user_description));
+    assert_contains!(mr.description.as_ref().unwrap(), START_MARKER);
+    assert_contains!(mr.description.as_ref().unwrap(), END_MARKER);
+    assert_contains!(mr.description.as_ref().unwrap(), user_description);
 
     Ok(())
 }
@@ -198,7 +203,7 @@ async fn test_skip_update_when_description_unchanged() -> Result<()> {
         .await?
         .expect("MR A should exist");
 
-    assert_eq!(mr.description(), mr_after.description());
+    assert_eq!(mr.description, mr_after.description);
 
     Ok(())
 }

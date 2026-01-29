@@ -21,6 +21,7 @@ use crate::{
     description::FormatMergeRequest,
     error::{ConfigSnafu, Error, InvalidComponentSnafu, Result},
     forge::{
+        AnyForgeMergeRequest,
         ApprovalSatisfaction,
         CheckStatus,
         Forge,
@@ -99,7 +100,7 @@ impl StatusCommandRevsetOptions {
 enum BookmarkStatus {
     HasMergeRequest {
         bookmark: String,
-        merge_request: Box<ForgeMergeRequest>,
+        merge_request: AnyForgeMergeRequest,
         status: MergeRequestStatus,
     },
     NoMergeRequest {
@@ -146,16 +147,17 @@ pub async fn status(config: &StatusCommandConfig, cli_config: &CliConfig<'_>) ->
 
             let status = match mr_option {
                 Some(mr) => {
-                    let mr_status = forge
-                        .get_merge_request_status(mr.iid().as_ref())
-                        .await
-                        .map_err(|e| BookmarkStatusError {
-                            bookmark: bookmark.name().to_string(),
-                            error: e,
-                        })?;
+                    let mr_status =
+                        forge
+                            .get_merge_request_status(mr.iid())
+                            .await
+                            .map_err(|e| BookmarkStatusError {
+                                bookmark: bookmark.name().to_string(),
+                                error: e,
+                            })?;
                     BookmarkStatus::HasMergeRequest {
                         bookmark: bookmark.name().to_string(),
-                        merge_request: Box::new(mr),
+                        merge_request: mr,
                         status: mr_status,
                     }
                 }
@@ -278,8 +280,7 @@ async fn two_line_compact_status(
             merge_request,
             status,
         }) => {
-            let _substep =
-                output.start_substep(forge.format_merge_request_id(&merge_request.iid()));
+            let _substep = output.start_substep(forge.format_merge_request_id(merge_request.iid()));
 
             let data = StatusData::new(
                 forge,
@@ -407,7 +408,7 @@ macro_rules! component {
 struct StatusData<'a> {
     forge: &'a ForgeImpl,
     bookmark: String,
-    merge_request: Box<ForgeMergeRequest>,
+    merge_request: AnyForgeMergeRequest,
     status: MergeRequestStatus,
 }
 
@@ -415,7 +416,7 @@ impl<'a> StatusData<'a> {
     fn new(
         forge: &'a ForgeImpl,
         bookmark: String,
-        merge_request: Box<ForgeMergeRequest>,
+        merge_request: AnyForgeMergeRequest,
         status: MergeRequestStatus,
     ) -> Self {
         Self {
@@ -434,7 +435,7 @@ component!(BookmarkNameComponent, async |data: &StatusData<'_>| {
 component!(MergeRequestIIDComponent, async |data: &StatusData<'_>| {
     Ok(Some(
         data.forge
-            .format_merge_request_id(&data.merge_request.iid())
+            .format_merge_request_id(data.merge_request.iid())
             .cyan()
             .to_string(),
     ))
@@ -523,7 +524,7 @@ component!(CreatedAtComponent, async |data: &StatusData<'_>| {
 component!(MergeRequestURLComponent, async |data: &StatusData<'_>| {
     Ok(Some(
         data.merge_request
-            .url(data.forge)
+            .url()
             .truecolor(100, 100, 100)
             .to_string(),
     ))
@@ -537,7 +538,7 @@ component!(NumOpenDiscussionsComponent, async |data: &StatusData<
 > {
     let num_open_discussions = data
         .forge
-        .num_open_discussions(&data.merge_request.iid())
+        .num_open_discussions(data.merge_request.iid())
         .await?;
 
     match num_open_discussions.unresolved {
