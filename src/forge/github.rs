@@ -21,6 +21,7 @@ use crate::{
         ForgeMergeRequestState,
         ForgeUser,
         MergeRequestStatus,
+        UserId,
     },
 };
 
@@ -495,6 +496,8 @@ impl Forge for GitHubForge {
 
     type MergeRequest = PullRequest;
 
+    type UserId = UserId<u64>;
+
     fn project_id(&self) -> &str {
         &self.target_project_id
     }
@@ -562,9 +565,9 @@ impl Forge for GitHubForge {
     async fn create_merge_request(
         &self,
         ForgeCreateMergeRequestOptions {
-            assignee_usernames,
+            assignees,
             description,
-            reviewer_usernames,
+            reviewers,
             source_branch,
             target_branch,
             title,
@@ -576,7 +579,7 @@ impl Forge for GitHubForge {
 
             // In GitHub, squashing is handled at *merge time*. Default is a project setting only.
             squash: _squash,
-        }: ForgeCreateMergeRequestOptions,
+        }: ForgeCreateMergeRequestOptions<Self::UserId>,
     ) -> Result<Self::MergeRequest> {
         // For fork workflows, head needs to be "owner:branch"
         let (source_owner, source_repository) = self.source_project_id.split_once('/').unwrap();
@@ -618,13 +621,20 @@ impl Forge for GitHubForge {
             )
             .await?;
 
-        if !assignee_usernames.is_empty() {
-            self.add_assignees(pr.number, assignee_usernames).await?;
+        if !assignees.is_empty() {
+            self.add_assignees(
+                pr.number,
+                assignees.into_iter().map(|user| user.0).collect(),
+            )
+            .await?;
         }
 
-        if !reviewer_usernames.is_empty() {
-            self.request_reviewers(pr.number, reviewer_usernames)
-                .await?;
+        if !reviewers.is_empty() {
+            self.request_reviewers(
+                pr.number,
+                reviewers.into_iter().map(|user| user.0).collect(),
+            )
+            .await?;
         }
 
         Ok(pr)
@@ -845,7 +855,7 @@ impl FormatMergeRequest for GitHubForge {
 }
 
 impl GitHubForge {
-    async fn add_assignees(&self, pr_number: u64, assignee_usernames: Vec<String>) -> Result<()> {
+    async fn add_assignees(&self, pr_number: u64, assignees: Vec<u64>) -> Result<()> {
         self.request::<serde_json::Value>(
             Method::POST,
             format!(
@@ -853,18 +863,14 @@ impl GitHubForge {
                 self.target_project_id, pr_number
             ),
             Some(serde_json::json!({
-                "assignees": assignee_usernames,
+                "assignees": assignees,
             })),
         )
         .await?;
         Ok(())
     }
 
-    async fn request_reviewers(
-        &self,
-        pr_number: u64,
-        reviewer_usernames: Vec<String>,
-    ) -> Result<()> {
+    async fn request_reviewers(&self, pr_number: u64, reviewers: Vec<u64>) -> Result<()> {
         self.request::<serde_json::Value>(
             Method::POST,
             format!(
@@ -872,7 +878,7 @@ impl GitHubForge {
                 self.target_project_id, pr_number
             ),
             Some(serde_json::json!({
-                "reviewers": reviewer_usernames,
+                "reviewers": reviewers,
             })),
         )
         .await?;

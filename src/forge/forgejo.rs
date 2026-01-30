@@ -18,6 +18,7 @@ use crate::{
         ForgeMergeRequestState,
         ForgeUser,
         MergeRequestStatus,
+        UserId,
     },
 };
 
@@ -382,6 +383,8 @@ impl Forge for ForgejoForge {
 
     type MergeRequest = PullRequest;
 
+    type UserId = UserId<u64>;
+
     fn project_id(&self) -> &str {
         &self.target_project_id
     }
@@ -470,9 +473,9 @@ impl Forge for ForgejoForge {
     async fn create_merge_request(
         &self,
         ForgeCreateMergeRequestOptions {
-            assignee_usernames,
+            assignees,
             description,
-            reviewer_usernames,
+            reviewers,
             source_branch,
             target_branch,
             title,
@@ -483,7 +486,7 @@ impl Forge for ForgejoForge {
             // Forge supports this as a default repository setting, but not a per-pull-request
             // setting.
             squash: _squash,
-        }: ForgeCreateMergeRequestOptions,
+        }: ForgeCreateMergeRequestOptions<Self::UserId>,
     ) -> Result<Self::MergeRequest> {
         let head = if self.source_project_id != self.target_project_id {
             format!("{}:{}", self.source_owner, source_branch)
@@ -510,13 +513,20 @@ impl Forge for ForgejoForge {
             )
             .await?;
 
-        if !assignee_usernames.is_empty() {
-            self.add_assignees(pr.number, assignee_usernames).await?;
+        if !assignees.is_empty() {
+            self.add_assignees(
+                pr.number,
+                assignees.into_iter().map(|user| user.0).collect(),
+            )
+            .await?;
         }
 
-        if !reviewer_usernames.is_empty() {
-            self.request_reviewers(pr.number, reviewer_usernames)
-                .await?;
+        if !reviewers.is_empty() {
+            self.request_reviewers(
+                pr.number,
+                reviewers.into_iter().map(|user| user.0).collect(),
+            )
+            .await?;
         }
 
         Ok(pr)
@@ -735,7 +745,7 @@ impl Forge for ForgejoForge {
 }
 
 impl ForgejoForge {
-    async fn add_assignees(&self, pr_number: u64, assignee_usernames: Vec<String>) -> Result<()> {
+    async fn add_assignees(&self, pr_number: u64, assignees: Vec<u64>) -> Result<()> {
         self.request::<serde_json::Value>(
             Method::POST,
             format!(
@@ -743,18 +753,14 @@ impl ForgejoForge {
                 self.target_owner, self.target_repo, pr_number
             ),
             Some(serde_json::json!({
-                "assignees": assignee_usernames,
+                "assignees": assignees,
             })),
         )
         .await?;
         Ok(())
     }
 
-    async fn request_reviewers(
-        &self,
-        pr_number: u64,
-        reviewer_usernames: Vec<String>,
-    ) -> Result<()> {
+    async fn request_reviewers(&self, pr_number: u64, reviewers: Vec<u64>) -> Result<()> {
         self.request::<serde_json::Value>(
             Method::POST,
             format!(
@@ -762,7 +768,7 @@ impl ForgejoForge {
                 self.target_owner, self.target_repo, pr_number
             ),
             Some(serde_json::json!({
-                "reviewers": reviewer_usernames,
+                "reviewers": reviewers,
             })),
         )
         .await?;

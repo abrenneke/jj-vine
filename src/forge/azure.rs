@@ -20,6 +20,7 @@ use crate::{
         ForgeMergeRequestState,
         ForgeUser,
         MergeRequestStatus,
+        UserId,
     },
 };
 
@@ -332,6 +333,8 @@ impl Forge for AzureDevOpsForge {
 
     type MergeRequest = AzureDevOpsMergeRequest;
 
+    type UserId = UserId<String>;
+
     fn source_project_id(&self) -> &str {
         &self.source_project_id
     }
@@ -405,14 +408,14 @@ impl Forge for AzureDevOpsForge {
             description,
             open_as_draft,
             remove_source_branch,
-            reviewer_usernames,
+            reviewers,
             source_branch,
             squash,
             target_branch,
             title,
             // Azure DevOps has no concept of "assignees", only "reviewers".
-            assignee_usernames: _assignee_usernames,
-        }: ForgeCreateMergeRequestOptions,
+            assignees: _assignees,
+        }: ForgeCreateMergeRequestOptions<Self::UserId>,
     ) -> Result<Self::MergeRequest> {
         let body = CreatePullRequestBody {
             completion_options: RequestGitPullRequestCompletionOptions {
@@ -439,11 +442,9 @@ impl Forge for AzureDevOpsForge {
             },
             is_draft: open_as_draft,
             labels: Vec::new(),
-            reviewers: reviewer_usernames
+            reviewers: reviewers
                 .into_iter()
-                .map(|username| RequestIdentityRefWithVote::Descriptor {
-                    descriptor: username,
-                })
+                .map(|user| RequestIdentityRefWithVote::Descriptor { descriptor: user.0 })
                 .collect(),
             source_ref_name: format!("refs/heads/{}", source_branch),
             target_ref_name: format!("refs/heads/{}", target_branch),

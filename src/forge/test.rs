@@ -16,6 +16,7 @@ use crate::{
         ForgeMergeRequestState,
         ForgeUser,
         MergeRequestStatus,
+        UserId,
     },
 };
 
@@ -106,6 +107,8 @@ impl Forge for TestForge {
 
     type MergeRequest = MergeRequest;
 
+    type UserId = UserId<String>;
+
     fn project_id(&self) -> &str {
         &self.project_id
     }
@@ -146,7 +149,7 @@ impl Forge for TestForge {
 
     async fn create_merge_request(
         &self,
-        options: ForgeCreateMergeRequestOptions,
+        options: ForgeCreateMergeRequestOptions<Self::UserId>,
     ) -> Result<Self::MergeRequest> {
         let mr = MergeRequest::builder()
             .id(self
@@ -159,6 +162,20 @@ impl Forge for TestForge {
             .maybe_description(options.description)
             .source_branch(options.source_branch)
             .target_branch(options.target_branch)
+            .assignees(
+                options
+                    .assignees
+                    .into_iter()
+                    .map(|id| self.users.get(&id.0).unwrap().clone())
+                    .collect(),
+            )
+            .reviewers(
+                options
+                    .reviewers
+                    .into_iter()
+                    .map(|id| self.users.get(&id.0).unwrap().clone())
+                    .collect(),
+            )
             .build();
         self.state.write().unwrap().next_merge_request_id += 1;
         self.state

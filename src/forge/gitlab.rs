@@ -6,8 +6,9 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::{
     description::FormatMergeRequest,
-    error::{ConfigSnafu, GitLabApiSnafu, Result},
+    error::{ConfigSnafu, Error, GitLabApiSnafu, Result},
     forge::{
+        AnyForgeUser,
         ApprovalSatisfaction,
         ApprovalStatus,
         CheckStatus,
@@ -18,6 +19,7 @@ use crate::{
         ForgeMergeRequestState,
         ForgeUser,
         MergeRequestStatus,
+        UserId,
     },
 };
 
@@ -46,6 +48,23 @@ impl ForgeUser for GitLabUser {
 
     fn username(&self) -> Option<Cow<'_, str>> {
         Some(Cow::Borrowed(&self.username))
+    }
+}
+
+impl TryFrom<AnyForgeUser> for GitLabUser {
+    type Error = Error;
+
+    fn try_from(value: AnyForgeUser) -> Result<Self> {
+        Ok(Self {
+            id: value
+                .id()
+                .ok_or_else(|| Error::new("User ID is required"))?
+                .parse()?,
+            username: value
+                .username()
+                .ok_or_else(|| Error::new("Username is required"))?
+                .to_string(),
+        })
     }
 }
 
@@ -175,6 +194,8 @@ impl Forge for GitLabForge {
 
     type MergeRequest = MergeRequest;
 
+    type UserId = UserId<u64>;
+
     fn project_id(&self) -> &str {
         &self.target_project_id
     }
@@ -235,16 +256,16 @@ impl Forge for GitLabForge {
     async fn create_merge_request(
         &self,
         ForgeCreateMergeRequestOptions {
-            assignee_usernames: assignee_ids,
+            assignees,
             description,
             open_as_draft,
             remove_source_branch,
-            reviewer_usernames: reviewer_ids,
+            reviewers,
             source_branch,
             squash,
             target_branch,
             title,
-        }: ForgeCreateMergeRequestOptions,
+        }: ForgeCreateMergeRequestOptions<Self::UserId>,
     ) -> Result<Self::MergeRequest> {
         let mut payload = serde_json::json!({
             "source_branch": source_branch,
@@ -263,12 +284,14 @@ impl Forge for GitLabForge {
             payload["description"] = serde_json::json!(description);
         }
 
-        if !assignee_ids.is_empty() {
-            payload["assignee_ids"] = serde_json::json!(assignee_ids);
+        if !assignees.is_empty() {
+            payload["assignee_ids"] =
+                serde_json::json!(assignees.into_iter().map(|user| user.0).collect::<Vec<_>>());
         }
 
-        if !reviewer_ids.is_empty() {
-            payload["reviewer_ids"] = serde_json::json!(reviewer_ids);
+        if !reviewers.is_empty() {
+            payload["reviewer_ids"] =
+                serde_json::json!(reviewers.into_iter().map(|user| user.0).collect::<Vec<_>>());
         }
 
         let mr: MergeRequest = self

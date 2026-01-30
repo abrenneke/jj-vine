@@ -3,7 +3,7 @@ use tracing::error;
 
 use crate::{
     error::{Error, Result},
-    forge::{Forge, ForgeCreateMergeRequestOptions, ForgeUser},
+    forge::{Forge, ForgeCreateMergeRequestOptions},
     submit::execute::{
         ActionResultData,
         ExecuteAction,
@@ -64,9 +64,9 @@ impl ExecuteAction for CreateMRAction {
             Some(self.description.as_str())
         };
 
-        let assignee_ids = if ctx.config.assign_to_self {
+        let assignees = if ctx.config.assign_to_self {
             match ctx.forge.current_user().await {
-                Ok(user) => Some(vec![user.id().map(|id| id.to_string())]),
+                Ok(user) => Some(vec![user]),
                 Err(e) => {
                     let warning =
                         format!("Warning: Failed to get current user for assignment: {}", e);
@@ -78,14 +78,11 @@ impl ExecuteAction for CreateMRAction {
             None
         };
 
-        let mut reviewer_usernames = Vec::new();
+        let mut reviewers = Vec::new();
         for username in &ctx.config.default_reviewers {
             match ctx.forge.user_by_username(username).await {
                 Ok(Some(user)) => {
-                    if let Some(identifier) = user.username().or(user.id()).map(|id| id.to_string())
-                    {
-                        reviewer_usernames.push(identifier);
-                    }
+                    reviewers.push(user);
                 }
                 Ok(None) => {
                     let warning = format!("Warning: Reviewer '{}' not found", username);
@@ -109,20 +106,8 @@ impl ExecuteAction for CreateMRAction {
                     .remove_source_branch(ctx.config.delete_source_branch)
                     .squash(ctx.config.squash_commits)
                     .description(desc.map(|s| s.to_string()))
-                    .assignee_usernames(
-                        assignee_ids
-                            .unwrap_or_default()
-                            .into_iter()
-                            .flatten()
-                            .map(|id| id.to_string())
-                            .collect(),
-                    )
-                    .reviewer_usernames(
-                        reviewer_usernames
-                            .into_iter()
-                            .map(|username| username.to_string())
-                            .collect(),
-                    )
+                    .assignees(assignees.unwrap_or_default())
+                    .reviewers(reviewers)
                     .open_as_draft(ctx.config.open_as_draft)
                     .build(),
             )

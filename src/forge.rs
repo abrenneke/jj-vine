@@ -345,7 +345,7 @@ impl MergeRequestStatus {
 }
 
 #[derive(Builder, Default)]
-pub struct ForgeCreateMergeRequestOptions {
+pub struct ForgeCreateMergeRequestOptions<User> {
     /// The source branch of the merge request
     pub source_branch: String,
 
@@ -359,11 +359,11 @@ pub struct ForgeCreateMergeRequestOptions {
     #[builder(required)]
     pub description: Option<String>,
 
-    /// The usernames of the initial assignees of the merge request
-    pub assignee_usernames: Vec<String>,
+    /// The initial assignees of the merge request
+    pub assignees: Vec<User>,
 
-    /// The usernames of the initial assignees of the merge request
-    pub reviewer_usernames: Vec<String>,
+    /// The initial reviewers of the merge request
+    pub reviewers: Vec<User>,
 
     /// Whether to remove the source branch after the merge request is merged
     pub remove_source_branch: bool,
@@ -373,6 +373,84 @@ pub struct ForgeCreateMergeRequestOptions {
 
     /// Whether to open the merge request as a draft
     pub open_as_draft: bool,
+}
+
+impl<T> ForgeCreateMergeRequestOptions<T> {
+    pub fn from_other<U>(
+        options: ForgeCreateMergeRequestOptions<U>,
+    ) -> Result<Self, <T as TryFrom<U>>::Error>
+    where
+        T: TryFrom<U>,
+        T::Error: std::error::Error,
+    {
+        Ok(Self {
+            source_branch: options.source_branch,
+            target_branch: options.target_branch,
+            title: options.title,
+            description: options.description,
+            assignees: options
+                .assignees
+                .into_iter()
+                .map(|user| T::try_from(user))
+                .collect::<Result<Vec<_>, <T as TryFrom<U>>::Error>>()?,
+            reviewers: options
+                .reviewers
+                .into_iter()
+                .map(|user| T::try_from(user))
+                .collect::<Result<Vec<_>, <T as TryFrom<U>>::Error>>()?,
+            remove_source_branch: options.remove_source_branch,
+            squash: options.squash,
+            open_as_draft: options.open_as_draft,
+        })
+    }
+
+    pub fn into_other<U>(
+        self,
+    ) -> Result<ForgeCreateMergeRequestOptions<U>, <U as TryFrom<T>>::Error>
+    where
+        U: TryFrom<T>,
+        U::Error: std::error::Error,
+    {
+        ForgeCreateMergeRequestOptions::from_other(self)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct UserId<T>(pub T);
+
+impl<T> TryFrom<AnyForgeUser> for UserId<T>
+where
+    T: std::str::FromStr,
+    <T as std::str::FromStr>::Err: std::fmt::Display,
+{
+    type Error = Error;
+
+    fn try_from(user: AnyForgeUser) -> Result<Self, Error> {
+        Ok(Self(
+            user.id()
+                .ok_or(Error::new("User ID is required"))?
+                .parse()
+                .map_err(|e: <T as std::str::FromStr>::Err| Error::new(e.to_string()))?,
+        ))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct UserName<T>(pub T);
+
+impl<T> TryFrom<AnyForgeUser> for UserName<T>
+where
+    T: for<'a> From<Cow<'a, str>>,
+{
+    type Error = Error;
+
+    fn try_from(user: AnyForgeUser) -> Result<Self, Error> {
+        Ok(Self(
+            user.username()
+                .ok_or(Error::new("User name is required"))?
+                .into(),
+        ))
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -393,6 +471,8 @@ pub trait Forge: Send + Sync + FormatMergeRequest {
     type User: Send + Sync + ForgeUser;
 
     type MergeRequest: Send + Sync + ForgeMergeRequest<User = Self::User, Id = Self::Id>;
+
+    type UserId: Send + Sync;
 
     /// The project ID of the project in the forge. E.g. "group/project" or
     /// "12345" for a numeric project ID. Combined with the base URL, this forms
@@ -429,7 +509,7 @@ pub trait Forge: Send + Sync + FormatMergeRequest {
     /// Create a new merge request in the forge for the project.
     async fn create_merge_request(
         &self,
-        options: ForgeCreateMergeRequestOptions,
+        options: ForgeCreateMergeRequestOptions<Self::UserId>,
     ) -> Result<Self::MergeRequest>;
 
     /// Update the target branch (base) of an existing merge request.
@@ -511,6 +591,8 @@ impl Forge for ForgeImpl {
 
     type MergeRequest = AnyForgeMergeRequest;
 
+    type UserId = AnyForgeUser;
+
     /// The project ID of the project in the forge. E.g. "group/project" or
     /// "12345" for a numeric project ID. Combined with the base URL, this forms
     /// the full URL to the project in the forge.
@@ -563,8 +645,8 @@ impl Forge for ForgeImpl {
     }
 
     /// Get the current authenticated user in the forge.
-    async fn current_user(&self) -> Result<Box<dyn ForgeUser + Send + Sync>> {
-        let user: Box<dyn ForgeUser + Send + Sync> = match self {
+    async fn current_user(&self) -> Result<Self::User> {
+        let user: Self::User = match self {
             ForgeImpl::GitLab(forge) => Box::new(forge.current_user().await?),
             ForgeImpl::GitHub(forge) => Box::new(forge.current_user().await?),
             ForgeImpl::Forgejo(forge) => Box::new(forge.current_user().await?),
@@ -575,11 +657,8 @@ impl Forge for ForgeImpl {
     }
 
     /// Gets a user in the forge by their username.
-    async fn user_by_username(
-        &self,
-        username: &str,
-    ) -> Result<Option<Box<dyn ForgeUser + Send + Sync>>> {
-        let user: Option<Box<dyn ForgeUser + Send + Sync>> = match self {
+    async fn user_by_username(&self, username: &str) -> Result<Option<Self::User>> {
+        let user: Option<Self::User> = match self {
             ForgeImpl::GitLab(forge) => match forge.user_by_username(username).await? {
                 Some(user) => Some(Box::new(user)),
                 None => None,
@@ -638,23 +717,23 @@ impl Forge for ForgeImpl {
     /// Create a new merge request in the forge for the project.
     async fn create_merge_request(
         &self,
-        options: ForgeCreateMergeRequestOptions,
+        options: ForgeCreateMergeRequestOptions<Self::UserId>,
     ) -> Result<Self::MergeRequest> {
         let mr: Self::MergeRequest = match self {
             ForgeImpl::GitLab(forge) => {
-                AnyForgeMergeRequest::new(forge.create_merge_request(options).await?)
+                AnyForgeMergeRequest::new(forge.create_merge_request(options.into_other()?).await?)
             }
             ForgeImpl::GitHub(forge) => {
-                AnyForgeMergeRequest::new(forge.create_merge_request(options).await?)
+                AnyForgeMergeRequest::new(forge.create_merge_request(options.into_other()?).await?)
             }
             ForgeImpl::Forgejo(forge) => {
-                AnyForgeMergeRequest::new(forge.create_merge_request(options).await?)
+                AnyForgeMergeRequest::new(forge.create_merge_request(options.into_other()?).await?)
             }
             ForgeImpl::Test(forge) => {
-                AnyForgeMergeRequest::new(forge.create_merge_request(options).await?)
+                AnyForgeMergeRequest::new(forge.create_merge_request(options.into_other()?).await?)
             }
             ForgeImpl::AzureDevOps(forge) => {
-                AnyForgeMergeRequest::new(forge.create_merge_request(options).await?)
+                AnyForgeMergeRequest::new(forge.create_merge_request(options.into_other()?).await?)
             }
         };
         Ok(mr)
