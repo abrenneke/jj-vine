@@ -315,7 +315,10 @@ impl LinearListFormatter {
                         .get(bookmark.name())
                         .expect("Self-bookmark should always have an MR")
                         .title();
-                    format!(r#"{list_indicator} **"{title}"{into} ← this MR**"#)
+                    format!(
+                        r#"{list_indicator} **"{title}" (this {}){into}**"#,
+                        context.format_merge_request.mr_name()
+                    )
                 } else if let Some(mr) = context.merge_request_lookup.get(bookmark.name()) {
                     format!(
                         r#"{list_indicator} {} "{}"{}"#,
@@ -497,7 +500,10 @@ impl TreeFormatter {
                         .get(bookmark.name())
                         .expect("Self-bookmark should always have an MR")
                         .title();
-                    format!(r#"{indent}{list_indicator} **"{title}"{also} ← this MR**"#,)
+                    format!(
+                        r#"{indent}{list_indicator} **"{title}" (this {}){also}**"#,
+                        context.format_merge_request.mr_name()
+                    )
                 } else if let Some(mr) = context.merge_request_lookup.get(bookmark.name()) {
                     format!(
                         r#"{indent}{list_indicator} {} "{}"{}"#,
@@ -800,7 +806,7 @@ mod tests {
 
 1. `main`
 2. #1 "Feature A"
-3. **"Feature B" ← this MR**
+3. **"Feature B" (this MR)**
 4. #3 "Feature C""#
         );
     }
@@ -932,7 +938,7 @@ mod tests {
 2. #1 "Feature A" → `main`
 3. #4 "Feature D" → #1
 4. #2 "Feature B" → #1
-5. **"Feature E" → #2 ← this MR**
+5. **"Feature E" (this MR) → #2**
 6. #3 "Feature C" → #2
 7. #7 "Feature G" → #3
 8. #8 "Feature H" → #7
@@ -1098,7 +1104,7 @@ mod tests {
 3. #10 "Feature J" → #9
 4. #1 "Feature A" → `main`
 5. #2 "Feature B" → #1
-6. **"Feature E" → #2, #10 ← this MR**
+6. **"Feature E" (this MR) → #2, #10**
 7. #4 "Feature D" → #1, #2
 8. #3 "Feature C" → #2
 9. #7 "Feature G" → #3, #5, #10
@@ -1170,7 +1176,7 @@ mod tests {
 
 - `main`
     - #1 "Feature A"
-        - **"Feature B" ← this MR**
+        - **"Feature B" (this MR)**
             - #3 "Feature C""#
         );
     }
@@ -1305,7 +1311,7 @@ mod tests {
                 1. #7 "Feature G"
                     - #8 "Feature H"
                 2. #6 "Feature F"
-            2. **"Feature E" ← this MR**
+            2. **"Feature E" (this MR)**
         2. #4 "Feature D""#
         );
     }
@@ -1468,13 +1474,13 @@ mod tests {
         1. #10 "Feature J"
             1. #7 "Feature G" (→ #3, #5 also)
                 - #8 "Feature H"
-            2. **"Feature E" (→ #2 also) ← this MR**
+            2. **"Feature E" (this MR) (→ #2 also)**
                 - #7 "Feature G" (→ #3, #10 also)
                     - #8 "Feature H"
         2. #6 "Feature F" (→ #3 also)
     2. #1 "Feature A"
         1. #2 "Feature B"
-            1. **"Feature E" (→ #10 also) ← this MR**
+            1. **"Feature E" (this MR) (→ #10 also)**
                 - #7 "Feature G" (→ #3, #10 also)
                     - #8 "Feature H"
             2. #3 "Feature C"
