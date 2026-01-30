@@ -860,6 +860,10 @@ impl ForgeMergeRequest for AzureDevOpsMergeRequest {
             .collect()
     }
 
+    fn is_draft(&self) -> bool {
+        self.pull_request.is_draft
+    }
+
     fn clone_boxed(
         &self,
     ) -> Box<dyn ForgeMergeRequest<User = Self::User, Id = Self::Id> + Send + Sync> {

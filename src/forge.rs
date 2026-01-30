@@ -67,6 +67,8 @@ pub trait ForgeMergeRequest: std::fmt::Debug {
 
     fn reviewers(&self) -> Vec<Self::User>;
 
+    fn is_draft(&self) -> bool;
+
     fn clone_boxed(
         &self,
     ) -> Box<dyn ForgeMergeRequest<User = Self::User, Id = Self::Id> + Send + Sync>
@@ -187,6 +189,10 @@ where
             .collect()
     }
 
+    fn is_draft(&self) -> bool {
+        self.inner.is_draft()
+    }
+
     fn clone_boxed(
         &self,
     ) -> Box<dyn ForgeMergeRequest<User = Self::User, Id = Self::Id> + Send + Sync> {
@@ -247,6 +253,10 @@ impl ForgeMergeRequest for AnyForgeMergeRequest {
 
     fn reviewers(&self) -> Vec<Self::User> {
         (**self).reviewers()
+    }
+
+    fn is_draft(&self) -> bool {
+        (**self).is_draft()
     }
 
     fn clone_boxed(

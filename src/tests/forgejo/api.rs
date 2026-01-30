@@ -21,9 +21,9 @@ async fn test_submit_creates_pr() -> Result<()> {
         .await?
         .expect("PR should exist");
 
-    assert_eq!(pr.head.ref_name, branch);
-    assert_eq!(pr.base.ref_name, "main");
-    assert_eq!(pr.state, "open");
+    assert_eq!(pr.pull_request.head.ref_name, branch);
+    assert_eq!(pr.pull_request.base.ref_name, "main");
+    assert_eq!(pr.pull_request.state, "open");
 
     Ok(())
 }
@@ -55,7 +55,7 @@ async fn test_submit_creates_stacked_prs() -> Result<()> {
         repo.forge()
             .find_merge_request_by_source_branch(&branch_a)
             .await?
-            .map(|pr| pr.base.ref_name.to_string()),
+            .map(|pr| pr.pull_request.base.ref_name.to_string()),
         Some("main".to_string())
     );
 
@@ -63,7 +63,7 @@ async fn test_submit_creates_stacked_prs() -> Result<()> {
         repo.forge()
             .find_merge_request_by_source_branch(&branch_b)
             .await?
-            .map(|pr| pr.base.ref_name.to_string()),
+            .map(|pr| pr.pull_request.base.ref_name.to_string()),
         Some(branch_a.to_string())
     );
 
@@ -71,7 +71,7 @@ async fn test_submit_creates_stacked_prs() -> Result<()> {
         repo.forge()
             .find_merge_request_by_source_branch(&branch_c)
             .await?
-            .map(|pr| pr.base.ref_name.to_string()),
+            .map(|pr| pr.pull_request.base.ref_name.to_string()),
         Some(branch_b.to_string())
     );
 
@@ -103,7 +103,7 @@ async fn test_submit_is_idempotent() -> Result<()> {
         .await?
         .expect("PR should exist");
 
-    assert_eq!(pr1.number, pr2.number);
+    assert_eq!(pr1.pull_request.number, pr2.pull_request.number);
 
     Ok(())
 }
@@ -135,7 +135,7 @@ async fn test_submit_retargets_after_middle_bookmark_deleted() -> Result<()> {
         repo.forge()
             .find_merge_request_by_source_branch(&branch_c)
             .await?
-            .map(|pr| pr.base.ref_name.to_string()),
+            .map(|pr| pr.pull_request.base.ref_name.to_string()),
         Some(branch_b.to_string())
     );
 
@@ -147,7 +147,7 @@ async fn test_submit_retargets_after_middle_bookmark_deleted() -> Result<()> {
         repo.forge()
             .find_merge_request_by_source_branch(&branch_c)
             .await?
-            .map(|pr| pr.base.ref_name.to_string()),
+            .map(|pr| pr.pull_request.base.ref_name.to_string()),
         Some(branch_a.to_string())
     );
 

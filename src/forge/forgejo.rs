@@ -124,35 +124,42 @@ pub struct PullRequest {
     pub merged: bool,
 }
 
-impl ForgeMergeRequest for PullRequest {
+#[derive(Debug, Clone)]
+pub struct ForgejoMergeRequest {
+    pub pull_request: PullRequest,
+
+    wip_prefix: String,
+}
+
+impl ForgeMergeRequest for ForgejoMergeRequest {
     type User = ForgejoUser;
 
     type Id = u64;
 
     fn iid(&self) -> Self::Id {
-        self.number
+        self.pull_request.number
     }
 
     fn title(&self) -> &str {
-        &self.title
+        &self.pull_request.title
     }
 
     fn description(&self) -> &str {
-        self.body.as_deref().unwrap_or_default()
+        self.pull_request.body.as_deref().unwrap_or_default()
     }
 
     fn source_branch(&self) -> &str {
-        &self.head.ref_name
+        &self.pull_request.head.ref_name
     }
 
     fn target_branch(&self) -> &str {
-        &self.base.ref_name
+        &self.pull_request.base.ref_name
     }
 
     fn state(&self) -> ForgeMergeRequestState {
-        if self.merged {
+        if self.pull_request.merged {
             ForgeMergeRequestState::Merged
-        } else if self.state == "open" {
+        } else if self.pull_request.state == "open" {
             ForgeMergeRequestState::Open
         } else {
             ForgeMergeRequestState::Closed
@@ -160,29 +167,37 @@ impl ForgeMergeRequest for PullRequest {
     }
 
     fn url(&self) -> Cow<'_, str> {
-        Cow::Borrowed(&self.html_url)
+        Cow::Borrowed(&self.pull_request.html_url)
     }
 
     fn edit_url(&self) -> Cow<'_, str> {
-        Cow::Borrowed(&self.html_url)
+        Cow::Borrowed(&self.pull_request.html_url)
     }
 
     fn author_username(&self) -> &str {
-        &self.user.login
+        &self.pull_request.user.login
     }
 
     fn created_at(&self) -> jiff::Timestamp {
-        self.created_at
+        self.pull_request
+            .created_at
             .parse()
             .expect("Failed to parse creation date as ISO 8601")
     }
 
     fn assignees(&self) -> Vec<Self::User> {
-        self.assignees.clone().unwrap_or_default()
+        self.pull_request.assignees.clone().unwrap_or_default()
     }
 
     fn reviewers(&self) -> Vec<Self::User> {
-        self.requested_reviewers.clone().unwrap_or_default()
+        self.pull_request
+            .requested_reviewers
+            .clone()
+            .unwrap_or_default()
+    }
+
+    fn is_draft(&self) -> bool {
+        self.pull_request.title.starts_with(&self.wip_prefix)
     }
 
     fn clone_boxed(
@@ -381,7 +396,7 @@ impl ForgejoForge {
 impl Forge for ForgejoForge {
     type User = ForgejoUser;
 
-    type MergeRequest = PullRequest;
+    type MergeRequest = ForgejoMergeRequest;
 
     type UserId = UserId<u64>;
 
@@ -457,7 +472,10 @@ impl Forge for ForgejoForge {
             let has_more = prs.len() == limit;
 
             if let Some(pr) = prs.into_iter().find(|pr| pr.head.ref_name == branch) {
-                return Ok(Some(pr));
+                return Ok(Some(ForgejoMergeRequest {
+                    pull_request: pr,
+                    wip_prefix: self.wip_prefix.clone(),
+                }));
             }
 
             if !has_more {
@@ -529,7 +547,10 @@ impl Forge for ForgejoForge {
             .await?;
         }
 
-        Ok(pr)
+        Ok(ForgejoMergeRequest {
+            pull_request: pr,
+            wip_prefix: self.wip_prefix.clone(),
+        })
     }
 
     async fn update_merge_request_base(
@@ -550,7 +571,10 @@ impl Forge for ForgejoForge {
             )
             .await?;
 
-        Ok(pr)
+        Ok(ForgejoMergeRequest {
+            pull_request: pr,
+            wip_prefix: self.wip_prefix.clone(),
+        })
     }
 
     async fn update_merge_request_description(
@@ -571,7 +595,10 @@ impl Forge for ForgejoForge {
             )
             .await?;
 
-        Ok(pr)
+        Ok(ForgejoMergeRequest {
+            pull_request: pr,
+            wip_prefix: self.wip_prefix.clone(),
+        })
     }
 
     async fn get_merge_request(&self, pr_number: u64) -> Result<Self::MergeRequest> {
@@ -586,7 +613,10 @@ impl Forge for ForgejoForge {
             )
             .await?;
 
-        Ok(pr)
+        Ok(ForgejoMergeRequest {
+            pull_request: pr,
+            wip_prefix: self.wip_prefix.clone(),
+        })
     }
 
     async fn get_approval_status(&self, pr_number: u64) -> Result<ApprovalStatus> {
@@ -642,7 +672,7 @@ impl Forge for ForgejoForge {
 
     async fn get_check_status(&self, pr_number: u64) -> Result<CheckStatus> {
         let pr = self.get_merge_request(pr_number).await?;
-        let head_branch = pr.head.ref_name;
+        let head_branch = pr.pull_request.head.ref_name;
 
         // Get combined status for the head branch
         let response = self

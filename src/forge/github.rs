@@ -184,6 +184,10 @@ impl ForgeMergeRequest for PullRequest {
         self.requested_reviewers.clone()
     }
 
+    fn is_draft(&self) -> bool {
+        self.draft
+    }
+
     fn clone_boxed(
         &self,
     ) -> Box<dyn ForgeMergeRequest<User = Self::User, Id = Self::Id> + Send + Sync>

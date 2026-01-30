@@ -740,6 +740,10 @@ impl ForgeMergeRequest for MergeRequest {
         self.reviewers.clone()
     }
 
+    fn is_draft(&self) -> bool {
+        self.title.starts_with("Draft:")
+    }
+
     fn clone_boxed(
         &self,
     ) -> Box<dyn ForgeMergeRequest<User = Self::User, Id = Self::Id> + Send + Sync>

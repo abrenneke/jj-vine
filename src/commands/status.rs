@@ -43,6 +43,14 @@ pub struct StatusCommandConfig {
     /// Options for the revset
     #[command(flatten)]
     pub revset_options: StatusCommandRevsetOptions,
+
+    /// Include draft merge requests. Default true.
+    #[arg(long, overrides_with = "no_drafts", num_args = 0..=1)]
+    pub drafts: Option<bool>,
+
+    /// Exclude draft merge requests
+    #[arg(long)]
+    pub no_drafts: bool,
 }
 
 impl StatusCommandConfig {
@@ -113,13 +121,35 @@ struct BookmarkStatusError {
     error: Error,
 }
 
-pub async fn status(config: &StatusCommandConfig, cli_config: &CliConfig<'_>) -> Result<()> {
+fn resolve_bool(yes: Option<bool>, no: bool, default: bool) -> bool {
+    // wheeeeeeeee
+    match (yes, no) {
+        (Some(true), false) => true,
+        (Some(false), true) => false,
+        (Some(false), false) => false,
+        (None, false) => default,
+        (None, true) => false,
+        (Some(true), true) => unreachable!(),
+    }
+}
+
+pub async fn status(
+    StatusCommandConfig {
+        drafts,
+        no_drafts,
+        output_mode,
+        revset_options,
+    }: &StatusCommandConfig,
+    cli_config: &CliConfig<'_>,
+) -> Result<()> {
+    let drafts = resolve_bool(*drafts, *no_drafts, true);
+
     let jj = Jujutsu::new(&cli_config.repository)?;
     let repo_config = Config::load(&cli_config.repository)?;
     let forge = ForgeImpl::new(&repo_config)?;
     let output = cli_config.output;
 
-    let revset = config.revset_options.to_get_bookmarks_options().to_revset();
+    let revset = revset_options.to_get_bookmarks_options().to_revset();
     let changes = jj.log(revset)?;
     let bookmarks: Vec<_> = Bookmark::from_changes(&changes).into_iter().collect();
 
@@ -131,34 +161,39 @@ pub async fn status(config: &StatusCommandConfig, cli_config: &CliConfig<'_>) ->
 
     output.log_current("Checking status of tracked bookmarks");
 
-    let futures = FuturesUnordered::new();
-
-    for bookmark in &bookmarks {
-        futures.push(async {
+    let statuses: Vec<_> = bookmarks
+        .iter()
+        .map(|bookmark| async {
             let _substep = output.start_substep(bookmark.name().to_string());
 
-            let mr_option = forge
+            let merge_request = forge
                 .find_merge_request_by_source_branch(bookmark.name())
                 .await
-                .map_err(|e| BookmarkStatusError {
+                .map_err(|error| BookmarkStatusError {
                     bookmark: bookmark.name().to_string(),
-                    error: e,
+                    error,
                 })?;
 
-            let status = match mr_option {
-                Some(mr) => {
-                    let mr_status =
-                        forge
-                            .get_merge_request_status(mr.iid())
-                            .await
-                            .map_err(|e| BookmarkStatusError {
-                                bookmark: bookmark.name().to_string(),
-                                error: e,
-                            })?;
+            if let Some(merge_request) = &merge_request
+                && merge_request.is_draft()
+                && !drafts
+            {
+                return Ok(None);
+            }
+
+            let status = match merge_request {
+                Some(merge_request) => {
+                    let status = forge
+                        .get_merge_request_status(merge_request.iid())
+                        .await
+                        .map_err(|error| BookmarkStatusError {
+                            bookmark: bookmark.name().to_string(),
+                            error,
+                        })?;
                     BookmarkStatus::HasMergeRequest {
                         bookmark: bookmark.name().to_string(),
-                        merge_request: mr,
-                        status: mr_status,
+                        merge_request,
+                        status,
                     }
                 }
                 None => BookmarkStatus::NoMergeRequest {
@@ -166,13 +201,20 @@ pub async fn status(config: &StatusCommandConfig, cli_config: &CliConfig<'_>) ->
                 },
             };
 
-            Ok(status)
-        });
-    }
+            Ok(Some(status))
+        })
+        .collect::<FuturesUnordered<_>>()
+        .collect::<Vec<_>>()
+        .await
+        .into_iter()
+        .filter_map(|status| match status {
+            Ok(Some(status)) => Some(Ok(status)),
+            Ok(None) => None,
+            Err(error) => Some(Err(error)),
+        })
+        .collect();
 
-    let statuses = futures.collect::<Vec<_>>().await;
-
-    let rendered = config.output_mode.render(statuses, &forge, output).await;
+    let rendered = output_mode.render(statuses, &forge, output).await;
 
     output.finish();
 

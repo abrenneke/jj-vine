@@ -340,6 +340,9 @@ pub struct MergeRequest {
 
     #[builder(default)]
     pub num_open_discussions: DiscussionCount,
+
+    #[builder(default)]
+    pub draft: bool,
 }
 
 impl ForgeMergeRequest for MergeRequest {
@@ -393,6 +396,10 @@ impl ForgeMergeRequest for MergeRequest {
 
     fn reviewers(&self) -> Vec<Self::User> {
         self.reviewers.clone()
+    }
+
+    fn is_draft(&self) -> bool {
+        self.draft
     }
 
     fn clone_boxed(

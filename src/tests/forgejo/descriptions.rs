@@ -31,8 +31,8 @@ async fn test_pr_description_includes_stack_info() -> Result<()> {
         .await?
         .expect("PR A should exist");
 
-    assert_contains!(pr.body.as_ref().unwrap(), START_MARKER);
-    assert_contains!(pr.body.as_ref().unwrap(), END_MARKER);
+    assert_contains!(pr.pull_request.body.as_ref().unwrap(), START_MARKER);
+    assert_contains!(pr.pull_request.body.as_ref().unwrap(), END_MARKER);
 
     Ok(())
 }
@@ -55,20 +55,26 @@ async fn test_pr_description_links_to_dependent_prs() -> Result<()> {
 
     repo.run(["submit", &branch_b]).await;
 
-    let pr_a = repo
+    let a = repo
         .forge()
         .find_merge_request_by_source_branch(&branch_a)
         .await?
         .expect("PR A should exist");
 
-    let pr = repo
+    let b = repo
         .forge()
         .find_merge_request_by_source_branch(&branch_b)
         .await?
         .expect("PR B should exist");
 
-    assert_contains!(pr_a.body.as_ref().unwrap(), &format!("#{}", pr.number));
-    assert_contains!(pr.body.as_ref().unwrap(), &format!("#{}", pr_a.number));
+    assert_contains!(
+        a.pull_request.body.as_ref().unwrap(),
+        &format!("#{}", b.pull_request.number)
+    );
+    assert_contains!(
+        b.pull_request.body.as_ref().unwrap(),
+        &format!("#{}", a.pull_request.number)
+    );
 
     Ok(())
 }
@@ -94,9 +100,13 @@ async fn test_user_content_preserved_on_resubmit() -> Result<()> {
         .expect("PR A should exist");
 
     let user_content = "My important notes about this PR";
-    let new_desc = format!("{}\n\n{}", pr.body.as_ref().unwrap(), user_content);
+    let new_desc = format!(
+        "{}\n\n{}",
+        pr.pull_request.body.as_ref().unwrap(),
+        user_content
+    );
     repo.forge()
-        .update_merge_request_description(pr.number, &new_desc)
+        .update_merge_request_description(pr.pull_request.number, &new_desc)
         .await?;
 
     repo.jj.exec(["new"])?;
@@ -110,6 +120,7 @@ async fn test_user_content_preserved_on_resubmit() -> Result<()> {
             .find_merge_request_by_source_branch(&branch_a)
             .await?
             .expect("PR A should exist")
+            .pull_request
             .body
             .as_ref()
             .unwrap(),
@@ -141,7 +152,7 @@ async fn test_add_markers_to_description_without_markers() -> Result<()> {
 
     let user_description = "Custom description without markers";
     repo.forge()
-        .update_merge_request_description(pr.number, user_description)
+        .update_merge_request_description(pr.pull_request.number, user_description)
         .await?;
 
     repo.jj.exec(["new"])?;
@@ -156,9 +167,9 @@ async fn test_add_markers_to_description_without_markers() -> Result<()> {
         .await?
         .expect("PR A should exist");
 
-    assert_contains!(pr.body.as_ref().unwrap(), START_MARKER);
-    assert_contains!(pr.body.as_ref().unwrap(), END_MARKER);
-    assert_contains!(pr.body.as_ref().unwrap(), user_description);
+    assert_contains!(pr.pull_request.body.as_ref().unwrap(), START_MARKER);
+    assert_contains!(pr.pull_request.body.as_ref().unwrap(), END_MARKER);
+    assert_contains!(pr.pull_request.body.as_ref().unwrap(), user_description);
 
     Ok(())
 }
@@ -186,6 +197,7 @@ async fn test_skip_update_when_description_unchanged() -> Result<()> {
         .find_merge_request_by_source_branch(&branch_a)
         .await?
         .expect("PR A should exist")
+        .pull_request
         .body
         .as_ref()
         .unwrap()
@@ -199,7 +211,10 @@ async fn test_skip_update_when_description_unchanged() -> Result<()> {
         .await?
         .expect("PR A should exist");
 
-    assert_eq!(initial_desc, *pr_a_after.body.as_ref().unwrap());
+    assert_eq!(
+        initial_desc,
+        *pr_a_after.pull_request.body.as_ref().unwrap()
+    );
 
     Ok(())
 }
