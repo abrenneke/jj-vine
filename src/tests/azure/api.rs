@@ -21,8 +21,8 @@ async fn test_submit_creates_pr() -> Result<()> {
         .await?
         .expect("PR should exist");
 
-    assert_eq!(pr.source_ref_name, branch);
-    assert_eq!(pr.target_ref_name, "main");
+    assert_eq!(pr.source_ref_name, format!("refs/heads/{}", branch));
+    assert_eq!(pr.target_ref_name, "refs/heads/main");
     assert_eq!(pr.status, PullRequestStatus::Active);
 
     Ok(())
@@ -56,7 +56,7 @@ async fn test_submit_creates_stacked_prs() -> Result<()> {
             .find_merge_request_by_source_branch(&branch_a)
             .await?
             .map(|pr| pr.target_ref_name.to_string()),
-        Some("main".to_string())
+        Some("refs/heads/main".to_string())
     );
 
     assert_eq!(
@@ -64,7 +64,7 @@ async fn test_submit_creates_stacked_prs() -> Result<()> {
             .find_merge_request_by_source_branch(&branch_b)
             .await?
             .map(|pr| pr.target_ref_name.to_string()),
-        Some(branch_a.to_string())
+        Some(format!("refs/heads/{}", branch_a))
     );
 
     assert_eq!(
@@ -72,7 +72,7 @@ async fn test_submit_creates_stacked_prs() -> Result<()> {
             .find_merge_request_by_source_branch(&branch_c)
             .await?
             .map(|pr| pr.target_ref_name.to_string()),
-        Some(branch_b.to_string())
+        Some(format!("refs/heads/{}", branch_b))
     );
 
     Ok(())
@@ -136,7 +136,7 @@ async fn test_submit_retargets_after_middle_bookmark_deleted() -> Result<()> {
             .find_merge_request_by_source_branch(&branch_c)
             .await?
             .map(|pr| pr.target_ref_name.to_string()),
-        Some(branch_b.to_string())
+        Some(format!("refs/heads/{}", branch_b))
     );
 
     repo.jj.exec(["bookmark", "delete", &branch_b])?;
@@ -148,7 +148,7 @@ async fn test_submit_retargets_after_middle_bookmark_deleted() -> Result<()> {
             .find_merge_request_by_source_branch(&branch_c)
             .await?
             .map(|pr| pr.target_ref_name.to_string()),
-        Some(branch_a.to_string())
+        Some(format!("refs/heads/{}", branch_a))
     );
 
     Ok(())

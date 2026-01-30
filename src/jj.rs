@@ -7,6 +7,7 @@ use tracing::trace;
 #[cfg(test)]
 use crate::bookmark::Bookmark;
 use crate::{
+    bookmark::JJName,
     error::{ConfigSnafu, Error, JjCommandSnafu, JsonSnafu, ParseSnafu, Result, make_whatever},
     utils::Only,
 };
@@ -469,26 +470,34 @@ impl Jujutsu {
     }
 
     /// Track a bookmark on a remote.
-    pub fn track_bookmark(&self, bookmark: &str, remote: Option<&str>) -> Result<()> {
-        if let Some(remote) = remote {
-            self.exec(["bookmark", "track", &format!("{}@{}", bookmark, remote)])?;
-        } else {
-            self.exec(["bookmark", "track", bookmark])?;
-        }
-        Ok(())
+    pub fn track_bookmark(&self, bookmark: &impl JJName, remote: Option<&str>) -> Result<()> {
+        let remote = remote.unwrap_or("origin");
+        self.exec([
+            "bookmark",
+            "track",
+            &bookmark.name_for_jj(),
+            "--remote",
+            remote,
+        ])
+        .map(|_| ())
     }
 
     /// Push a bookmark to a remote using jj git push. This will automatically
     /// track the bookmark on the remote if it's not already tracked
-    pub fn push_bookmark(&self, bookmark: &str, remote: Option<&str>) -> Result<bool> {
+    pub fn push_bookmark(&self, bookmark: &impl JJName, remote: Option<&str>) -> Result<bool> {
         // Try to track the bookmark first (ignore errors if already tracked)
         let _ = self.track_bookmark(bookmark, remote);
 
-        let output = if let Some(remote) = remote {
-            self.exec(["git", "push", "--remote", remote, "--bookmark", bookmark])?
-        } else {
-            self.exec(["git", "push", "--bookmark", bookmark])?
-        };
+        let remote = remote.unwrap_or("origin");
+
+        let output = self.exec([
+            "git",
+            "push",
+            "--remote",
+            remote,
+            "--bookmark",
+            &bookmark.name_for_jj(),
+        ])?;
 
         Ok(!output.stderr.contains("Nothing changed."))
     }
@@ -730,7 +739,7 @@ mod tests {
             &remote_dir.to_string_lossy(),
         ])?;
 
-        jj.push_bookmark("feature-a", Some("origin"))?;
+        jj.push_bookmark(&"feature-a", Some("origin"))?;
 
         let tracked = jj.log("(mine() & tracked_remote_bookmarks()) ~ trunk()")?;
 

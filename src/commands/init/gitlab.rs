@@ -4,36 +4,29 @@ use dialoguer::{Input, Password};
 use owo_colors::OwoColorize;
 
 use crate::{
-    commands::init::{DetectedForge, ForkDetection, get_config, set_config},
-    config::ForgeType,
+    commands::init::{Remotes, get_config, set_config},
     error::Result,
 };
 
 /// Initialize GitLab-specific configuration
-pub async fn init(
-    repo_path: impl Into<PathBuf>,
-    detected: Option<&DetectedForge>,
-    fork_detection: Option<&ForkDetection>,
-) -> Result<()> {
+pub async fn init(repo_path: impl Into<PathBuf>, remotes: Option<Remotes>) -> Result<()> {
     let repo_path = repo_path.into();
     let existing_host = get_config(&repo_path, "jj-vine.gitlab.host");
     let existing_project = get_config(&repo_path, "jj-vine.gitlab.project");
     let existing_target_project = get_config(&repo_path, "jj-vine.gitlab.targetProject");
     let existing_token = get_config(&repo_path, "jj-vine.gitlab.token");
 
-    let (detected_host, detected_project, detected_target_project) = if let Some(d) = detected {
-        if d.forge_type == ForgeType::GitLab {
-            let target = fork_detection.and_then(|f| f.target_project.clone());
-            (Some(d.host.clone()), Some(d.project.clone()), target)
-        } else {
-            (None, None, None)
-        }
-    } else {
-        (None, None, None)
+    let remotes = remotes.as_ref();
+    let forge = match remotes {
+        Some(Remotes {
+            target_forge: Some(forge),
+            ..
+        }) => Some(forge),
+        _ => None,
     };
 
-    let default_host = existing_host.or(detected_host);
-    let default_project = existing_project.or(detected_project);
+    let default_host = existing_host.or(forge.map(|f| f.host.clone()));
+    let default_project = existing_project.or(forge.map(|f| f.project.clone()));
 
     let gitlab_host = if let Some(host) = default_host {
         Input::<String>::new()
@@ -80,8 +73,9 @@ pub async fn init(
             "jj-vine.gitlab.targetProject".dimmed()
         ))
         .default(
-            detected_target_project
-                .or(existing_target_project)
+            existing_target_project
+                .or(remotes.and_then(|f| f.upstream.clone()))
+                .or(remotes.map(|r| r.origin.clone()))
                 .unwrap_or(gitlab_project.clone()),
         )
         .interact_text()?;

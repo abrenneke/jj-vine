@@ -18,9 +18,9 @@ fn test_deleted_middle_bookmark() -> Result<()> {
     let repo = TestRepo::new();
 
     // a -> b -> c
-    repo.commit_with_bookmark("file1.txt", "content1", "Commit A", "bookmark-a")
-        .commit_with_bookmark("file2.txt", "content2", "Commit B", "bookmark-b")
-        .commit_with_bookmark("file3.txt", "content3", "Commit C", "bookmark-c");
+    repo.commit_with_bookmark("file1.txt", "content1", "Commit A", &"bookmark-a")
+        .commit_with_bookmark("file2.txt", "content2", "Commit B", &"bookmark-b")
+        .commit_with_bookmark("file3.txt", "content3", "Commit C", &"bookmark-c");
 
     repo.jj.exec(["bookmark", "delete", "bookmark-b"]).unwrap();
 
@@ -43,34 +43,14 @@ fn test_deleted_middle_bookmark() -> Result<()> {
 
 #[test]
 fn test_base_branch_not_included_in_submission() -> Result<()> {
-    let repo = TestRepo::new();
-    let upstream = TestRepo::new();
-    upstream
-        .create_change("init.txt", "initial", "Initial commit")
-        .create_bookmark("main");
+    let repo = TestRepo::with_local_remote();
 
-    repo.jj
-        .exec([
-            "git",
-            "remote",
-            "add",
-            "origin",
-            upstream.path.to_str().unwrap(),
-        ])
-        .unwrap();
-
-    repo.jj.exec(["git", "fetch"])?;
-
-    repo.jj
-        .exec(["bookmark", "track", "main", "--remote", "origin"])?;
-
-    repo.jj.exec(["new", "main"]).unwrap();
     repo.create_change("f1.txt", "feature1", "Feature 1")
-        .create_bookmark("feature-1");
+        .create_bookmark(&"feature-1");
 
     repo.jj.exec(["new"]).unwrap();
     repo.create_change("f2.txt", "feature2", "Feature 2")
-        .create_bookmark("feature-2");
+        .create_bookmark(&"feature-2");
 
     let changes = repo.jj.log("::feature-2")?;
     let bookmarks: Vec<_> = Bookmark::from_changes(&changes).into_iter().collect();
@@ -87,30 +67,10 @@ fn test_base_branch_not_included_in_submission() -> Result<()> {
 
 #[test]
 fn test_submit_base_branch_errors() -> Result<()> {
-    let repo = TestRepo::new();
-    let upstream = TestRepo::new();
-
-    upstream
-        .create_change("init.txt", "initial", "Initial commit")
-        .create_bookmark("main");
-
-    repo.jj
-        .exec([
-            "git",
-            "remote",
-            "add",
-            "origin",
-            upstream.path.to_str().unwrap(),
-        ])
-        .unwrap();
-
-    repo.jj.exec(["git", "fetch"])?;
+    let repo = TestRepo::with_local_remote();
 
     repo.create_change("feature.txt", "feature", "Feature commit")
-        .create_bookmark("feature-1");
-
-    repo.jj
-        .exec(["bookmark", "track", "main", "--remote", "origin"])?;
+        .create_bookmark(&"feature-1");
 
     let changes = repo.jj.log("main")?;
     let bookmarks: Vec<_> = Bookmark::from_changes(&changes).into_iter().collect();
@@ -123,27 +83,7 @@ fn test_submit_base_branch_errors() -> Result<()> {
 
 #[test]
 fn test_graph_skips_default_branch_history() -> Result<()> {
-    let repo = TestRepo::new();
-    let upstream = TestRepo::new();
-    upstream
-        .create_change("init.txt", "initial", "Initial commit")
-        .create_bookmark("main");
-
-    repo.jj
-        .exec([
-            "git",
-            "remote",
-            "add",
-            "origin",
-            upstream.path.to_str().unwrap(),
-        ])
-        .unwrap();
-
-    repo.jj.exec(["git", "fetch"])?;
-
-    repo.jj.exec(["bookmark", "track", "main"])?;
-
-    repo.jj.exec(["new", "main"])?;
+    let repo = TestRepo::with_local_remote();
 
     for i in 1..=50 {
         repo.create_change(
@@ -159,7 +99,7 @@ fn test_graph_skips_default_branch_history() -> Result<()> {
 
     repo.jj.exec(["new", "main"])?;
     repo.create_change("feature.txt", "feature", "Feature commit")
-        .create_bookmark("feature-1");
+        .create_bookmark(&"feature-1");
 
     let changes = repo.jj.log("mine() & bookmarks()")?;
     let bookmarks: Vec<_> = Bookmark::from_changes(&changes).into_iter().collect();
@@ -208,6 +148,39 @@ mod e2e {
         assert_contains!(output, &format!("Would create {} -> main", a));
         assert_contains!(output, &format!("Would create {} -> {}", b, a));
         assert_contains!(output, &format!("Would create {} -> main", c));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_complex_bookmark_name() -> Result<()> {
+        let repo = TestRepo::with_forgejo_remote();
+
+        let name = unique_branch("complex-bookmark--parent/complex--name");
+
+        repo.create_change_and_bookmark(&name);
+
+        let output = repo
+            .run(["submit", &format!("\"{name}\""), "--dry-run"])
+            .await;
+
+        assert_contains!(output, &format!("Would create {name} -> main"));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_complex_bookmark_name_tracked() -> Result<()> {
+        let repo = TestRepo::with_forgejo_remote();
+
+        let name = unique_branch("complex-bookmark--parent/complex--name");
+
+        repo.create_change_and_tracked_bookmark(&name)
+            .push_bookmark(&name);
+
+        let output = repo.run(["submit", "--tracked", "--dry-run"]).await;
+
+        assert_contains!(output, &format!("Would create {name} -> main"));
 
         Ok(())
     }

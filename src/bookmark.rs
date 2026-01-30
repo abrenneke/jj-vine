@@ -64,6 +64,39 @@ impl PartialEq<String> for &Bookmark<'_> {
     }
 }
 
+pub trait JJName {
+    /// Gets the raw (unquoted) name of the JJ item.
+    fn raw_name(&self) -> String;
+
+    /// Some bookmarks have special characters in their name that need to be
+    /// escaped for jj. So always quote bookmarks.
+    fn name_for_jj(&self) -> String;
+}
+
+impl<'a> JJName for Bookmark<'a> {
+    fn raw_name(&self) -> String {
+        self.name().to_string()
+    }
+
+    fn name_for_jj(&self) -> String {
+        format!("\"{}\"", self.name())
+    }
+}
+
+impl<T> JJName for T
+where
+    T: AsRef<str>,
+{
+    fn raw_name(&self) -> String {
+        self.as_ref().to_string()
+    }
+
+    fn name_for_jj(&self) -> String {
+        // Assume a raw string is a bookmark, not something like `trunk()`.
+        format!("\"{}\"", self.as_ref())
+    }
+}
+
 /// A graph of jj changes that is independent of any other ChangeComponent.
 /// The component is only connected to the trunk. Can be thought of as a "stack"
 /// of changes.
@@ -249,9 +282,7 @@ impl BookmarkRef<'_> {
             BookmarkRef::Trunk => Vec::new(),
         }
     }
-}
 
-impl BookmarkRef<'_> {
     pub fn name(&self) -> Option<&str> {
         match self {
             BookmarkRef::Bookmark(b) => Some(b.name()),
@@ -263,6 +294,24 @@ impl BookmarkRef<'_> {
         match self {
             BookmarkRef::Bookmark(b) => b.has_parent_bookmark(name),
             BookmarkRef::Trunk => false,
+        }
+    }
+}
+
+impl<'a> JJName for BookmarkRef<'a> {
+    fn raw_name(&self) -> String {
+        match self {
+            BookmarkRef::Bookmark(b) => b.clone().raw_name(),
+            BookmarkRef::Trunk => "trunk".to_string(),
+        }
+    }
+
+    /// Gets the name of the bookmark or trunk as a string that can be used in
+    /// a jj revset or command.
+    fn name_for_jj(&self) -> String {
+        match self {
+            BookmarkRef::Bookmark(b) => b.clone().name_for_jj(),
+            BookmarkRef::Trunk => "trunk()".to_string(),
         }
     }
 }
@@ -345,6 +394,16 @@ impl BookmarkWithPointers<'_> {
 
     pub fn has_parent_ref(&self, parent: &BookmarkRef<'_>) -> bool {
         self.parents.iter().any(|p| p == parent)
+    }
+}
+
+impl<'a> JJName for BookmarkWithPointers<'a> {
+    fn raw_name(&self) -> String {
+        self.bookmark.raw_name()
+    }
+
+    fn name_for_jj(&self) -> String {
+        self.bookmark.name_for_jj()
     }
 }
 

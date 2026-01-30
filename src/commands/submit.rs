@@ -13,7 +13,7 @@ use tracing::info;
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{
-    bookmark::{Bookmark, BookmarkGraph},
+    bookmark::{Bookmark, BookmarkGraph, JJName},
     cli::CliConfig,
     commands::{GetBookmarksOptions, StrVisualWidth},
     config::Config,
@@ -119,7 +119,6 @@ impl Default for SubmitCommandConfig {
     }
 }
 
-/// Submit bookmarks and their dependencies as GitLab MRs
 pub async fn submit(config: &SubmitCommandConfig, cli_config: &CliConfig<'_>) -> Result<()> {
     let jj = Jujutsu::new(&cli_config.repository)?;
 
@@ -145,7 +144,7 @@ pub async fn submit(config: &SubmitCommandConfig, cli_config: &CliConfig<'_>) ->
         "(({}) & mine() & bookmarks()) ~ trunk()",
         bookmarks
             .iter()
-            .map(|b| format!("::{}", b.name()))
+            .map(|b| format!("::{}", b.name_for_jj()))
             .join(" | ")
     ))?;
     let bookmarks: Vec<_> = Bookmark::from_changes(&changes).into_iter().collect();

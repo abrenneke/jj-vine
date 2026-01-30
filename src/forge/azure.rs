@@ -790,11 +790,15 @@ impl ForgeMergeRequest for AzureDevOpsMergeRequest {
     }
 
     fn source_branch(&self) -> &str {
-        &self.pull_request.source_ref_name
+        self.pull_request
+            .source_ref_name
+            .trim_start_matches("refs/heads/")
     }
 
     fn target_branch(&self) -> &str {
-        &self.pull_request.target_ref_name
+        self.pull_request
+            .target_ref_name
+            .trim_start_matches("refs/heads/")
     }
 
     fn state(&self) -> ForgeMergeRequestState {

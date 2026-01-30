@@ -4,16 +4,11 @@ use dialoguer::{Input, Password};
 use owo_colors::OwoColorize;
 
 use crate::{
-    commands::init::{DetectedForge, ForkDetection, get_config, set_config},
-    config::ForgeType,
+    commands::init::{Remotes, get_config, set_config},
     error::Result,
 };
 
-pub async fn init(
-    repo_path: impl Into<PathBuf>,
-    detected: Option<&DetectedForge>,
-    fork_detection: Option<&ForkDetection>,
-) -> Result<()> {
+pub async fn init(repo_path: impl Into<PathBuf>, remotes: Option<Remotes>) -> Result<()> {
     let repo_path = repo_path.into();
     let existing_host = get_config(&repo_path, "jj-vine.azure.host");
     let existing_vssps_host = get_config(&repo_path, "jj-vine.azure.vsspsHost");
@@ -25,23 +20,17 @@ pub async fn init(
     let existing_target_repository_name =
         get_config(&repo_path, "jj-vine.azure.targetRepositoryName");
 
-    let (detected_host, detected_project, detected_target_project, detected_source_repository_name) =
-        if let Some(d) = detected
-            && d.forge_type == ForgeType::AzureDevOps
-        {
-            let target = fork_detection.and_then(|f| f.target_project.clone());
-            (
-                Some(d.host.clone()),
-                Some(d.project.clone()),
-                target,
-                d.repository_name.clone(),
-            )
-        } else {
-            (None, None, None, None)
-        };
+    let remotes = remotes.as_ref();
+    let forge = match remotes {
+        Some(Remotes {
+            target_forge: Some(forge),
+            ..
+        }) => Some(forge),
+        _ => None,
+    };
 
     let mut default_host = existing_host
-        .or(detected_host)
+        .or(forge.map(|f| f.host.clone()))
         .unwrap_or_else(|| "https://dev.azure.com".to_string());
 
     // Handle ssh.dev.azure.com
@@ -75,7 +64,7 @@ pub async fn init(
         .default(default_vssps_host)
         .interact_text()?;
 
-    let default_project = existing_project.or(detected_project);
+    let default_project = existing_project.or(forge.map(|f| f.project.clone()));
 
     let azure_project = if let Some(project) = default_project {
         Input::<String>::new()
@@ -96,7 +85,9 @@ pub async fn init(
             .interact_text()?
     };
 
-    let default_target_project = existing_target_project.or(detected_target_project);
+    let default_target_project = existing_target_project
+        .or(remotes.and_then(|f| f.upstream.clone()))
+        .or(remotes.map(|r| r.origin.clone()));
 
     let azure_target_project = Input::<String>::new()
         .with_prompt(format!(
@@ -108,7 +99,7 @@ pub async fn init(
         .interact_text()?;
 
     let default_source_repository_name =
-        existing_source_repository_name.or(detected_source_repository_name);
+        existing_source_repository_name.or(forge.and_then(|f| f.repository_name.clone()));
 
     let azure_source_repository_name = if let Some(repository_name) = default_source_repository_name
     {

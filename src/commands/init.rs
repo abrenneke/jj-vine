@@ -6,7 +6,12 @@ use owo_colors::OwoColorize;
 use serde::Deserialize;
 use strum::VariantArray;
 
-use crate::{cli::CliConfig, config::ForgeType, error::Result, jj::Jujutsu};
+use crate::{
+    cli::CliConfig,
+    config::ForgeType,
+    error::{Result, make_whatever},
+    jj::Jujutsu,
+};
 
 mod azure;
 mod forgejo;
@@ -24,8 +29,10 @@ struct DetectedForge {
 }
 
 #[derive(Debug, Clone)]
-struct ForkDetection {
-    target_project: Option<String>,
+struct Remotes {
+    origin: String,
+    upstream: Option<String>,
+    target_forge: Option<DetectedForge>,
 }
 
 /// Initialize jj-vine configuration for this repository
@@ -40,18 +47,23 @@ pub async fn init(cli_config: &CliConfig<'_>) -> Result<()> {
     let existing_forge: Option<ForgeType> =
         get_config(&cli_config.repository, "jj-vine.forge").and_then(|s| s.parse().ok());
 
-    let detected = detect_forge_from_remote(&cli_config.repository)?;
-    let fork_detection = detect_fork_setup(&cli_config.repository)?;
+    let jj = Jujutsu::new(&cli_config.repository)?;
+
+    let remotes = detect_remotes(&jj)?;
 
     let forge_type = if let Some(existing) = existing_forge {
         existing
-    } else if let Some(ref detected_forge) = detected {
-        detected_forge.forge_type
+    } else if let Some(Remotes {
+        target_forge: Some(forge),
+        ..
+    }) = remotes.as_ref()
+    {
+        forge.forge_type
     } else {
         let selection = Select::new()
             .with_prompt(format!(
                 "{} {}",
-                "Which forge are you using?".bold(),
+                "Which code forge are you using?".bold(),
                 "jj-vine.forge".dimmed()
             ))
             .items(ForgeType::VARIANTS.iter().map(|v| v.display_name()))
@@ -96,40 +108,18 @@ pub async fn init(cli_config: &CliConfig<'_>) -> Result<()> {
 
     match forge_type {
         ForgeType::GitLab => {
-            gitlab::init(
-                &cli_config.repository,
-                detected.as_ref(),
-                fork_detection.as_ref(),
-            )
-            .await?;
+            gitlab::init(&cli_config.repository, remotes).await?;
         }
         ForgeType::GitHub => {
-            github::init(
-                &cli_config.repository,
-                detected.as_ref(),
-                fork_detection.as_ref(),
-            )
-            .await?;
+            github::init(&cli_config.repository, remotes).await?;
         }
         ForgeType::Forgejo => {
-            forgejo::init(
-                &cli_config.repository,
-                detected.as_ref(),
-                fork_detection.as_ref(),
-            )
-            .await?;
+            forgejo::init(&cli_config.repository, remotes).await?;
         }
         ForgeType::AzureDevOps => {
-            azure::init(
-                &cli_config.repository,
-                detected.as_ref(),
-                fork_detection.as_ref(),
-            )
-            .await?;
+            azure::init(&cli_config.repository, remotes).await?;
         }
     }
-
-    let jj = Jujutsu::new(&cli_config.repository)?;
 
     let recommended_alias = match forge_type {
         ForgeType::GitLab => "pr",
@@ -216,79 +206,51 @@ fn set_config(repo_path: impl Into<PathBuf>, key: &str, value: impl AsRef<str>) 
     Ok(())
 }
 
-/// Detect forge type, host, and project from git remote
-fn detect_forge_from_remote(repo_path: impl Into<PathBuf>) -> Result<Option<DetectedForge>> {
-    // Get the origin remote URL
-    let remote_output = match Jujutsu::new(repo_path)?.exec(["git", "remote", "list"]) {
-        Ok(output) => output,
-        Err(_) => return Ok(None),
-    };
+fn detect_remotes(jj: &Jujutsu) -> Result<Option<Remotes>> {
+    let output = jj.exec(["git", "remote", "list"])?;
+    let remotes: HashMap<_, _> = output
+        .stdout
+        .lines()
+        .map(|line| {
+            line.split_whitespace()
+                .collect_tuple()
+                .ok_or_else(|| make_whatever!("Failed to parse remote line: {}", line))
+        })
+        .collect::<Result<_>>()?;
 
-    // Parse the first remote (typically origin)
-    for line in remote_output.stdout.lines() {
-        let parts: Vec<&str> = line.split_whitespace().collect();
-        if parts.len() >= 2 {
-            let url = parts[1];
+    let origin = remotes
+        .get("origin")
+        .and_then(|url| parse_project_from_url(url));
 
-            // Try to detect forge from URL
-            if let Some(detected) = parse_forge_url(url) {
-                return Ok(Some(detected));
-            }
-        }
-    }
-
-    Ok(None)
-}
-
-/// Detect fork setup from git remotes
-fn detect_fork_setup(repo_path: impl Into<PathBuf>) -> Result<Option<ForkDetection>> {
-    let remote_output = match Jujutsu::new(repo_path)?.exec(["git", "remote", "list"]) {
-        Ok(output) => output,
-        Err(_) => return Ok(None),
-    };
-
-    let mut remotes: Vec<(String, String)> = Vec::new();
-    for line in remote_output.stdout.lines() {
-        let parts: Vec<&str> = line.split_whitespace().collect();
-        if parts.len() >= 2 {
-            remotes.push((parts[0].to_string(), parts[1].to_string()));
-        }
-    }
-
-    // Look for origin + upstream pattern
-    let origin = remotes.iter().find(|(name, _)| name == "origin");
-    let upstream = remotes.iter().find(|(name, _)| name == "upstream");
-
-    if let (Some((_, origin_url)), Some((_, upstream_url))) = (origin, upstream)
-        && let (Some(_), Some(target)) = (
-            parse_project_from_url(origin_url),
-            parse_project_from_url(upstream_url),
-        )
+    if let Some(upstream) = remotes
+        .get("upstream")
+        .and_then(|url| parse_project_from_url(url))
+        && let Some(origin) = origin
     {
-        return Ok(Some(ForkDetection {
-            target_project: Some(target),
+        return Ok(Some(Remotes {
+            origin,
+            target_forge: parse_forge_url(&upstream),
+            upstream: Some(upstream),
         }));
     }
 
-    // Look for fork + origin pattern (reverse convention)
-    let fork = remotes.iter().find(|(name, _)| name == "fork");
-    if let (Some((_, fork_url)), Some((_, origin_url))) = (fork, origin)
-        && let (Some(_), Some(target)) = (
-            parse_project_from_url(fork_url),
-            parse_project_from_url(origin_url),
-        )
+    if let Some(fork) = remotes
+        .get("fork")
+        .and_then(|url| parse_project_from_url(url))
+        && let Some(origin) = origin
     {
-        return Ok(Some(ForkDetection {
-            target_project: Some(target),
+        return Ok(Some(Remotes {
+            origin: fork,
+            target_forge: parse_forge_url(&origin),
+            upstream: Some(origin),
         }));
     }
 
-    // No fork detected - just return origin if it exists
-    if let Some((_, origin_url)) = origin
-        && parse_project_from_url(origin_url).is_some()
-    {
-        return Ok(Some(ForkDetection {
-            target_project: None,
+    if let Some(origin) = origin {
+        return Ok(Some(Remotes {
+            target_forge: parse_forge_url(&origin),
+            origin,
+            upstream: None,
         }));
     }
 

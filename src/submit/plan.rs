@@ -4,7 +4,7 @@ use itertools::Itertools;
 use owo_colors::OwoColorize;
 
 use crate::{
-    bookmark::{BookmarkGraph, BookmarkRef},
+    bookmark::{BookmarkGraph, BookmarkRef, JJName},
     config::Config,
     description::generate_initial_description,
     error::Result,
@@ -237,17 +237,20 @@ pub async fn plan<'a>(
                     }
                 }
                 None => {
-                    let title = get_mr_title(jj, bookmark.name(), target_branch)?;
+                    let title = get_mr_title(jj, bookmark, &target_branch)?;
                     let action_id = get_id();
                     mr_action_ids.push(action_id);
 
-                    let revset = ["trunk()"]
+                    let revset = [BookmarkRef::Trunk]
                         .into_iter()
-                        .chain(bookmark.parents.iter().filter_map(|p| match p {
-                            BookmarkRef::Bookmark(b) => Some(b.name()),
-                            BookmarkRef::Trunk => None,
-                        }))
-                        .map(|p| format!("({}..{})", p, bookmark.name()))
+                        .chain(
+                            bookmark
+                                .parents
+                                .iter()
+                                .filter(|p| matches!(p, BookmarkRef::Bookmark(..)))
+                                .cloned(),
+                        )
+                        .map(|p| format!("({}..{})", p.name_for_jj(), bookmark.name_for_jj()))
                         .join(" & ");
 
                     let branch_commits = jj.log(revset)?;
@@ -334,8 +337,13 @@ pub async fn plan<'a>(
     })
 }
 
-fn get_mr_title(jj: &Jujutsu, bookmark: &str, base: &str) -> Result<String> {
-    let changes = jj.log(format!("::{}  ~ ::{}", bookmark, base))?;
+fn get_mr_title(jj: &Jujutsu, bookmark: &impl JJName, base: &impl JJName) -> Result<String> {
+    let changes = jj.log(format!(
+        "::{}  ~ ::{}",
+        bookmark.name_for_jj(),
+        base.name_for_jj()
+    ))?;
+
     match &changes[..] {
         [change] if !change.description.is_empty() => Ok(change
             .description
@@ -344,7 +352,7 @@ fn get_mr_title(jj: &Jujutsu, bookmark: &str, base: &str) -> Result<String> {
             .unwrap_or_default()
             .trim()
             .to_string()),
-        _ => Ok(bookmark.to_string()),
+        _ => Ok(bookmark.raw_name()),
     }
 }
 
@@ -455,7 +463,7 @@ mod tests {
         jj.exec(["bookmark", "create", "feature"])?;
 
         assert_eq!(
-            get_mr_title(&jj, "feature", "main")?,
+            get_mr_title(&jj, &"feature", &"main")?,
             "Add awesome feature".to_string()
         );
 
@@ -486,7 +494,7 @@ mod tests {
         jj.exec(["bookmark", "create", "multi-commit-feature"])?;
 
         assert_eq!(
-            get_mr_title(&jj, "multi-commit-feature", "main")?,
+            get_mr_title(&jj, &"multi-commit-feature", &"main")?,
             "multi-commit-feature"
         );
 
@@ -512,7 +520,7 @@ mod tests {
         jj.exec(["describe", "-m", ""])?;
         jj.exec(["bookmark", "create", "empty-desc"])?;
 
-        assert_eq!(get_mr_title(&jj, "empty-desc", "main")?, "empty-desc");
+        assert_eq!(get_mr_title(&jj, &"empty-desc", &"main")?, "empty-desc");
 
         Ok(())
     }
@@ -541,11 +549,14 @@ mod tests {
         jj.exec(["bookmark", "create", "feature-b"])?;
 
         assert_eq!(
-            get_mr_title(&jj, "feature-a", "main")?,
+            get_mr_title(&jj, &"feature-a", &"main")?,
             "Add authentication"
         );
 
-        assert_eq!(get_mr_title(&jj, "feature-b", "feature-a")?, "Add logging");
+        assert_eq!(
+            get_mr_title(&jj, &"feature-b", &"feature-a")?,
+            "Add logging"
+        );
 
         Ok(())
     }

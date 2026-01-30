@@ -55,20 +55,20 @@ async fn test_pr_description_links_to_dependent_prs() -> Result<()> {
 
     repo.run(["submit", &branch_b]).await;
 
-    let pr_a = repo
+    let a = repo
         .forge()
         .find_merge_request_by_source_branch(&branch_a)
         .await?
         .expect("PR A should exist");
 
-    let pr_b = repo
+    let b = repo
         .forge()
         .find_merge_request_by_source_branch(&branch_b)
         .await?
         .expect("PR B should exist");
 
-    assert_contains!(pr_a.body.unwrap(), &format!("#{}", pr_b.id));
-    assert_contains!(pr_b.body.unwrap(), &format!("#{}", pr_a.id));
+    assert_contains!(a.body.unwrap(), &format!("#{}", b.number));
+    assert_contains!(b.body.unwrap(), &format!("#{}", a.number));
 
     Ok(())
 }
@@ -86,16 +86,15 @@ async fn test_user_content_preserved_on_resubmit() -> Result<()> {
 
     repo.run(["submit", &branch_a]).await;
 
-    let pr_a = repo
+    let pr = repo
         .forge()
         .find_merge_request_by_source_branch(&branch_a)
         .await?
         .expect("PR A should exist");
 
     let user_content = "My important notes about this PR";
-    let new_desc = format!("{}\n\n{}", pr_a.body.unwrap(), user_content);
     repo.forge()
-        .update_merge_request_description(pr_a.number, &new_desc)
+        .update_merge_request_description(pr.number, user_content)
         .await?;
 
     repo.jj.exec(["new"])?;

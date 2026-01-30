@@ -102,9 +102,8 @@ async fn test_user_content_preserved_on_resubmit() -> Result<()> {
         .expect("MR A should exist");
 
     let user_content = "My important notes about this MR";
-    let new_desc = format!("{}\n\n{}", mr.description.unwrap(), user_content);
     repo.forge()
-        .update_merge_request_description(mr.iid, &new_desc)
+        .update_merge_request_description(mr.iid, user_content)
         .await?;
 
     repo.jj.exec(["new"])?;

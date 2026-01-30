@@ -4,38 +4,31 @@ use dialoguer::{Input, Password};
 use owo_colors::OwoColorize;
 
 use crate::{
-    commands::init::{DetectedForge, ForkDetection, get_config, set_config},
-    config::ForgeType,
+    commands::init::{Remotes, get_config, set_config},
     error::Result,
 };
 
 /// Initialize GitHub-specific configuration
-pub async fn init(
-    repo_path: impl Into<PathBuf>,
-    detected: Option<&DetectedForge>,
-    fork_detection: Option<&ForkDetection>,
-) -> Result<()> {
+pub async fn init(repo_path: impl Into<PathBuf>, remotes: Option<Remotes>) -> Result<()> {
     let repo_path = repo_path.into();
     let existing_host = get_config(&repo_path, "jj-vine.github.host");
     let existing_project = get_config(&repo_path, "jj-vine.github.project");
     let existing_target_project = get_config(&repo_path, "jj-vine.github.targetProject");
     let existing_token = get_config(&repo_path, "jj-vine.github.token");
 
-    let (detected_host, detected_project, detected_target_project) = if let Some(d) = detected {
-        if d.forge_type == ForgeType::GitHub {
-            let target = fork_detection.and_then(|f| f.target_project.clone());
-            (Some(d.host.clone()), Some(d.project.clone()), target)
-        } else {
-            (None, None, None)
-        }
-    } else {
-        (None, None, None)
+    let remotes = remotes.as_ref();
+    let forge = match remotes {
+        Some(Remotes {
+            target_forge: Some(forge),
+            ..
+        }) => Some(forge),
+        _ => None,
     };
 
     let default_host = existing_host
-        .or(detected_host)
+        .or(forge.map(|f| f.host.clone()))
         .unwrap_or_else(|| "https://api.github.com".to_string());
-    let default_project = existing_project.or(detected_project);
+    let default_project = existing_project.or(forge.map(|f| f.project.clone()));
 
     let github_host = Input::<String>::new()
         .with_prompt(format!(
@@ -73,8 +66,9 @@ pub async fn init(
             "jj-vine.github.targetProject".dimmed()
         ))
         .default(
-            detected_target_project
-                .or(existing_target_project)
+            existing_target_project
+                .or(remotes.and_then(|f| f.upstream.clone()))
+                .or(remotes.map(|r| r.origin.clone()))
                 .unwrap_or(github_project.clone()),
         )
         .interact_text()?;

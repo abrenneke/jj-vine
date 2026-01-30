@@ -244,11 +244,11 @@ async fn test_create_merge_request_dependencies() -> Result<()> {
     // main -> B -> C
 
     repo.new_on("main")
-        .create_change_and_bookmark(&a)
+        .create_change_and_tracked_bookmark(&a)
         .new_on("main")
-        .create_change_and_bookmark(&b)
+        .create_change_and_tracked_bookmark(&b)
         .exec(["new", &a, &b])
-        .create_change_and_bookmark(&c);
+        .create_change_and_tracked_bookmark(&c);
 
     repo.run(["submit", &c]).await;
 
