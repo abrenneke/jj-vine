@@ -20,7 +20,7 @@ use crate::{
         ForgeMergeRequestState,
         ForgeUser,
         MergeRequestStatus,
-        UserId,
+        UserName,
     },
 };
 
@@ -333,7 +333,7 @@ impl Forge for AzureDevOpsForge {
 
     type MergeRequest = AzureDevOpsMergeRequest;
 
-    type UserId = UserId<String>;
+    type UserId = UserName<String>;
 
     fn source_project_id(&self) -> &str {
         &self.source_project_id

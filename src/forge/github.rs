@@ -274,20 +274,23 @@ struct CheckRunsResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 enum CheckRunStatus {
     Queued,
     InProgress,
     Completed,
+    Waiting,
+    Requested,
+    Pending,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 enum CheckRunConclusion {
     Success,
     Failure,
     Neutral,
-    Cancelled,
+    Canceled,
     Skipped,
     TimedOut,
     ActionRequired,
@@ -772,7 +775,7 @@ impl Forge for GitHubForge {
                     CheckRunStatus::Completed,
                     Some(
                         CheckRunConclusion::Failure
-                        | CheckRunConclusion::Cancelled
+                        | CheckRunConclusion::Canceled
                         | CheckRunConclusion::TimedOut
                         | CheckRunConclusion::ActionRequired,
                     ),
@@ -780,7 +783,11 @@ impl Forge for GitHubForge {
                     has_failed = true;
                 }
                 (CheckRunStatus::Completed, _) => {}
-                (CheckRunStatus::Queued, _) | (CheckRunStatus::InProgress, _) => {
+                (CheckRunStatus::Queued, _)
+                | (CheckRunStatus::InProgress, _)
+                | (CheckRunStatus::Waiting, _)
+                | (CheckRunStatus::Pending, _)
+                | (CheckRunStatus::Requested, _) => {
                     has_pending = true;
                 }
             }
