@@ -360,7 +360,7 @@ This PR is part of a stack containing 5 PRs:
 
 1. `main`
 2. [#1](#) "Feature A"
-3. **"Feature B" ← this PR**
+3. **"Feature B" (this PR)**
 4. [#3](#) "Feature C"
 5. [#4](#) "Feature D"
 6. [#5](#) "Feature E"
@@ -375,7 +375,7 @@ This PR is part of a tree containing 8 PRs:
 2. [#1](#) "Feature A" → `main`
 3. [#4](#) "Feature D" → [#1](#)
 4. [#2](#) "Feature B" → [#1](#)
-5. **"Feature E" → [#2](#) ← this PR**
+5. **"Feature E" (this PR) → [#2](#)**
 6. [#3](#) "Feature C" → [#2](#)
 7. [#7](#) "Feature G" → [#3](#)
 8. [#8](#) "Feature H" → [#7](#)
@@ -392,7 +392,7 @@ This PR is part of a complex set of PRs containing 10 PRs:
 3. [#10](#) "Feature J" → [#9](#)
 4. [#1](#) "Feature A" → `main`
 5. [#2](#) "Feature B" → [#1](#)
-6. **"Feature E" → [#2](#), [#10](#) ← this PR**
+6. **"Feature E" (this PR) → [#2](#), [#10](#)**
 7. [#4](#) "Feature D" → [#1](#), [#2](#)
 8. [#3](#) "Feature C" → [#2](#)
 9. [#7](#) "Feature G" → [#3](#), [#5](#), [#10](#)
@@ -411,7 +411,7 @@ This PR is part of a stack containing 5 PRs:
 
     - [#1](#) "Feature A"
 
-        - **"Feature B" ← this MR**
+        - **"Feature B" (this PR)**
 
             - [#3](#) "Feature C"
 
@@ -439,7 +439,7 @@ This PR is part of a tree containing 8 PRs:
 
                 2. [#6](#) "Feature F"
 
-            2. **"Feature E" ← this PR**
+            2. **"Feature E" (this PR)**
 
         2. [#4](#) "Feature D"
 
@@ -459,7 +459,7 @@ This PR is part of a complex set of PRs containing 10 PRs:
 
                 - [#8](#) "Feature H"
 
-            2. **"Feature E" (→ [#2](#) also) ← this PR**
+            2. **"Feature E" (this PR) (→ [#2](#) also)**
 
                 - [#7](#) "Feature G" (→ [#3](#), [#10](#) also)
 
@@ -471,7 +471,7 @@ This PR is part of a complex set of PRs containing 10 PRs:
 
         1. [#2](#) "Feature B"
 
-            1. **"Feature E" (→ [#10](#) also) ← this PR**
+            1. **"Feature E" (this PR) (→ [#10](#) also)**
 
                 - [#7](#) "Feature G" (→ [#3](#), [#10](#) also)
 
