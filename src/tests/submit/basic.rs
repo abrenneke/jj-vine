@@ -2,16 +2,13 @@
 mod e2e {
     use assertables::{assert_contains, assert_lt};
 
-    use crate::{
-        error::Result,
-        tests::{TestRepo, unique_branch},
-    };
+    use crate::{error::Result, tests::TestRepo};
 
     #[tokio::test]
     async fn test_submit_dry_run_shows_would_create() -> Result<()> {
         let repo = TestRepo::with_forgejo_remote();
 
-        let branch = unique_branch("dry-run-test");
+        let branch = repo.bookmark_name("dry-run-test");
         repo.jj.exec(["new", "main"])?;
         repo.create_change("test.txt", "content", "Test commit")
             .create_and_push_bookmark(&branch);
@@ -27,9 +24,9 @@ mod e2e {
     async fn test_topological_ordering_in_stack() -> Result<()> {
         let repo = TestRepo::with_forgejo_remote();
 
-        let a = unique_branch("topo-a");
-        let b = unique_branch("topo-b");
-        let c = unique_branch("topo-c");
+        let a = repo.bookmark_name("topo-a");
+        let b = repo.bookmark_name("topo-b");
+        let c = repo.bookmark_name("topo-c");
 
         // main -> A -> B -> C
         repo.jj.exec(["new", "main"])?;

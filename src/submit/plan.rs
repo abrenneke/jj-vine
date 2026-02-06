@@ -1,193 +1,145 @@
 use std::collections::HashMap;
 
+use futures::{StreamExt, stream::FuturesUnordered};
 use itertools::Itertools;
 use owo_colors::OwoColorize;
+use snafu::whatever;
 
 use crate::{
-    bookmark::{BookmarkGraph, BookmarkRef, JJName},
-    config::Config,
+    bookmark::{BookmarkRef, JJName},
     description::generate_initial_description,
-    error::Result,
-    forge::{Forge, ForgeImpl},
-    jj::Jujutsu,
-    output::Output,
+    error::{Error, Result},
+    forge::{AnyForgeMergeRequest, Forge},
+    submit::{
+        SubmitContext,
+        execute::{
+            Action,
+            ActionInfo,
+            create_mr::CreateMRAction,
+            load_all_mrs::LoadAllMRsAction,
+            push::PushAction,
+            sync_dependent_merge_requests::SyncDependentMergeRequestsAction,
+            update_mr_base::UpdateMRBaseAction,
+            update_mr_title_description::UpdateMRTitleDescriptionAction,
+        },
+    },
+    title::get_mr_title,
 };
-
-/// Action to perform during execution
-#[derive(Debug, Clone, PartialEq)]
-pub enum Action<'a> {
-    /// Push a bookmark to remote
-    Push { bookmark: String, remote: String },
-
-    /// Create a new merge request
-    CreateMR {
-        bookmark: String,
-        target_branch: String,
-        title: String,
-        description: String,
-    },
-
-    /// Update the target branch (base) of an existing MR
-    UpdateMRBase {
-        bookmark: String,
-        mr_iid: String,
-        new_target_branch: String,
-    },
-
-    /// Update MR description (after all MRs created)
-    UpdateMRDescription {
-        bookmark: String,
-        bookmark_graph: BookmarkGraph<'a>,
-    },
-
-    /// Sync dependent merge requests (after all MRs created)
-    SyncDependentMergeRequests {
-        bookmark: String,
-        bookmark_graph: BookmarkGraph<'a>,
-    },
-}
-
-impl<'a> Action<'a> {
-    pub fn get_group_text(&self) -> String {
-        match self {
-            Action::Push { .. } => "Pushing bookmarks".to_string(),
-            Action::CreateMR { .. } => "Creating MRs".to_string(),
-            Action::UpdateMRBase { .. } => "Updating MR bases".to_string(),
-            Action::UpdateMRDescription { .. } => "Updating MR descriptions".to_string(),
-            Action::SyncDependentMergeRequests { .. } => {
-                "Syncing dependent merge requests".to_string()
-            }
-        }
-    }
-
-    pub fn get_text(&self) -> String {
-        match self {
-            Action::Push { bookmark, .. } => format!("Pushing {}", bookmark.magenta()),
-            Action::CreateMR { bookmark, .. } => format!("Creating MR for {}", bookmark.magenta()),
-            Action::UpdateMRBase {
-                bookmark,
-                mr_iid,
-                new_target_branch,
-            } => format!(
-                "Updating MR {} base for {} to {}",
-                mr_iid.cyan(),
-                bookmark.magenta(),
-                new_target_branch.magenta()
-            ),
-            Action::UpdateMRDescription { bookmark, .. } => {
-                format!("Updating MR description for {}", bookmark.magenta())
-            }
-            Action::SyncDependentMergeRequests { bookmark, .. } => format!(
-                "Syncing dependent merge requests for {}",
-                bookmark.magenta()
-            ),
-        }
-    }
-
-    pub fn get_substep_text(&self) -> String {
-        match self {
-            Action::Push { bookmark, .. } => format!("{}", bookmark.magenta()),
-            Action::CreateMR { bookmark, .. } => format!("{}", bookmark.magenta()),
-            Action::UpdateMRBase { bookmark, .. } => format!("{}", bookmark.magenta()),
-            Action::UpdateMRDescription { bookmark, .. } => format!("{}", bookmark.magenta()),
-            Action::SyncDependentMergeRequests { bookmark, .. } => {
-                format!("{}", bookmark.magenta())
-            }
-        }
-    }
-}
-
-/// A planned action with ID and dependencies
-#[derive(Debug, Clone, PartialEq)]
-pub struct PlannedAction<'a> {
-    /// Sequential ID for this action
-    pub id: usize,
-
-    /// The actual action to perform
-    pub action: Action<'a>,
-
-    /// IDs of actions that must complete successfully before this action can
-    /// run
-    pub dependencies: Vec<usize>,
-}
 
 /// Plan for submission execution
 #[derive(Debug, Clone)]
-pub struct SubmissionPlan<'a> {
+pub struct SubmissionPlan {
     /// Actions organized into batches. Each batch's actions execute in
     /// parallel, and batches execute sequentially.
-    pub actions: Vec<Vec<PlannedAction<'a>>>,
-
-    /// Whether this is a dry run (don't actually execute)
-    pub dry_run: bool,
+    pub actions: Vec<Vec<Action>>,
 }
 
-/// Create a submission plan based on analysis
-pub async fn plan<'a>(
-    jj: &Jujutsu,
-    forge: &ForgeImpl,
-    config: &Config,
-    graph: &BookmarkGraph<'a>,
-    dry_run: bool,
-    output: &dyn Output,
-) -> Result<SubmissionPlan<'a>> {
-    output.log_current("Planning submission");
+impl std::fmt::Display for SubmissionPlan {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for (i, batch) in self.actions.iter().enumerate() {
+            writeln!(f, "Batch {}:", i + 1)?;
+            for action in batch {
+                writeln!(f, "  {}", action.plan_text())?;
+            }
+        }
+        Ok(())
+    }
+}
 
-    let mut batches = Vec::new();
-    let mut current_id = 1;
-    let mut get_id = || {
-        let id = current_id;
-        current_id += 1;
-        id
-    };
+#[allow(dead_code)]
+struct PlanMergeRequest {
+    bookmark: String,
+    target_branch: String,
+    title: String,
+    description: String,
+}
 
-    let mut existing_mrs = HashMap::new();
-    for bookmark in graph.bookmarks() {
-        output.set_substep(&format!("MRs for {}", bookmark.name().magenta()));
-        if let Some(mr) = forge
-            .find_merge_request_by_source_branch(bookmark.name())
-            .await?
-        {
-            existing_mrs.insert(bookmark.name().to_string(), mr);
+impl PlanMergeRequest {
+    fn from_forge_mr(mr: &AnyForgeMergeRequest) -> Self {
+        Self {
+            bookmark: mr.source_branch().to_string(),
+            target_branch: mr.target_branch().to_string(),
+            title: mr.title().to_string(),
+            description: mr.description().to_string(),
         }
     }
+}
 
-    output.set_substep("");
+/// Create a submission plan
+pub async fn plan(ctx: SubmitContext<'_>) -> Result<SubmissionPlan> {
+    ctx.output.log_current("Planning submission");
+
+    let default_branch = ctx.jj.default_branch()?;
+
+    let mut batches: Vec<Vec<Action>> = Vec::new();
+
+    let existing_mrs: HashMap<_, _> = ctx
+        .bookmark_graph
+        .components()
+        .iter()
+        .flat_map(|component| component.all_bookmarks())
+        .map(async |bookmark| {
+            let _substep = ctx
+                .output
+                .start_substep(&bookmark.name().magenta().to_string());
+
+            if let Some(mr) = ctx
+                .forge
+                .find_merge_request_by_source_branch_base_branch(
+                    bookmark.name(),
+                    &bookmark.parent_name(default_branch),
+                )
+                .await?
+            {
+                Ok(Some((bookmark.name().to_string(), mr)))
+            } else {
+                Ok(None)
+            }
+        })
+        .collect::<FuturesUnordered<_>>()
+        .collect::<Vec<_>>()
+        .await
+        .into_iter()
+        .collect::<Result<Vec<_>>>()?
+        .into_iter()
+        .flatten()
+        .collect();
 
     let mut push_action_ids = HashMap::new();
 
     let mut push_batch = Vec::new();
-    for bookmark in graph.bookmarks() {
-        let action_id = get_id();
+    for bookmark in ctx.bookmark_graph.bookmarks() {
+        let push_action = PushAction::builder()
+            .bookmark(bookmark.name().to_string())
+            .remote(ctx.config.remote_name.clone())
+            .build();
 
-        push_action_ids.insert(bookmark.name().to_string(), action_id);
-
-        push_batch.push(PlannedAction {
-            id: action_id,
-            action: Action::Push {
-                bookmark: bookmark.name().to_string(),
-                remote: config.remote_name.clone(),
-            },
-            dependencies: vec![],
-        });
+        push_action_ids.insert(bookmark.name().to_string(), push_action.id());
+        push_batch.push(Action::Push(push_action));
     }
     if !push_batch.is_empty() {
         batches.push(push_batch);
     }
 
-    let mut mr_action_ids: Vec<usize> = Vec::new();
+    let mut mr_action_ids = Vec::new();
+    let mut plan_mrs: HashMap<_, _> = existing_mrs
+        .values()
+        .map(|mr| {
+            (
+                mr.source_branch().to_string(),
+                PlanMergeRequest::from_forge_mr(mr),
+            )
+        })
+        .collect();
 
-    let default_branch = jj.default_branch()?;
-
-    for component in graph.components() {
+    for component in ctx.bookmark_graph.components() {
         for bookmark in component.topological_sort()? {
-            let bookmark = graph.find_bookmark_in_components(&bookmark).unwrap();
+            let bookmark = ctx
+                .bookmark_graph
+                .find_bookmark_in_components(&bookmark)
+                .unwrap();
 
-            // TODO let user pick target branch
-            let target_branch = match bookmark.parents.first() {
-                Some(BookmarkRef::Bookmark(b)) => b.name(),
-                Some(BookmarkRef::Trunk) | None => default_branch,
-            };
+            let target_branch = bookmark.parent_name(default_branch);
 
             let mut dependencies = Vec::new();
 
@@ -195,8 +147,7 @@ pub async fn plan<'a>(
             dependencies.extend(
                 push_action_ids
                     .get(bookmark.name())
-                    .copied()
-                    .map(|id| vec![id])
+                    .map(|id| vec![id.clone()])
                     .unwrap_or_default(),
             );
 
@@ -207,9 +158,11 @@ pub async fn plan<'a>(
                     .iter()
                     .filter_map(|p| match p {
                         BookmarkRef::Bookmark(b) => Some(batches.iter().flat_map(|batch| {
-                            batch.iter().filter_map(|action| match &action.action {
-                                Action::CreateMR { bookmark, .. } if bookmark == b.name() => {
-                                    Some(action.id)
+                            batch.iter().filter_map(|action| match action {
+                                Action::CreateMR(create_mr_action)
+                                    if create_mr_action.bookmark == b.name() =>
+                                {
+                                    Some(create_mr_action.id())
                                 }
                                 _ => None,
                             })
@@ -222,24 +175,21 @@ pub async fn plan<'a>(
             match existing_mrs.get(bookmark.name()) {
                 Some(existing_mr) => {
                     if existing_mr.target_branch() != target_branch {
-                        let action_id = get_id();
-                        mr_action_ids.push(action_id);
+                        let update_mr_base_action = UpdateMRBaseAction::builder()
+                            .bookmark(bookmark.name().to_string())
+                            .mr_iid(existing_mr.iid().to_string())
+                            .new_target_branch(target_branch.to_string())
+                            .dependencies(dependencies)
+                            .build();
 
-                        batches.push(vec![PlannedAction {
-                            id: action_id,
-                            action: Action::UpdateMRBase {
-                                bookmark: bookmark.name().to_string(),
-                                mr_iid: existing_mr.iid().to_string(),
-                                new_target_branch: target_branch.to_string(),
-                            },
-                            dependencies,
-                        }]);
+                        mr_action_ids.push(update_mr_base_action.id());
+
+                        batches.push(vec![Action::UpdateMRBase(update_mr_base_action)]);
                     }
                 }
                 None => {
-                    let title = get_mr_title(jj, bookmark, &target_branch)?;
-                    let action_id = get_id();
-                    mr_action_ids.push(action_id);
+                    let title =
+                        get_mr_title(ctx.jj, &ctx.config.title, bookmark.clone(), component)?;
 
                     let revset = [BookmarkRef::Trunk]
                         .into_iter()
@@ -253,311 +203,130 @@ pub async fn plan<'a>(
                         .map(|p| format!("({}..{})", p.name_for_jj(), bookmark.name_for_jj()))
                         .join(" & ");
 
-                    let branch_commits = jj.log(revset)?;
+                    let branch_commits = ctx.jj.log(revset)?;
 
                     let description =
-                        generate_initial_description(&config.description, &branch_commits);
+                        generate_initial_description(&ctx.config.description, &branch_commits);
 
-                    batches.push(vec![PlannedAction {
-                        id: action_id,
-                        action: Action::CreateMR {
+                    let create_mr_action = CreateMRAction::builder()
+                        .bookmark(bookmark.name().to_string())
+                        .target_branch(target_branch.to_string())
+                        .title(title.clone())
+                        .description(description.clone())
+                        .dependencies(dependencies)
+                        .build();
+
+                    mr_action_ids.push(create_mr_action.id());
+
+                    batches.push(vec![Action::CreateMR(create_mr_action)]);
+
+                    plan_mrs.insert(
+                        bookmark.name().to_string(),
+                        PlanMergeRequest {
                             bookmark: bookmark.name().to_string(),
                             target_branch: target_branch.to_string(),
                             title,
                             description,
                         },
-                        dependencies,
-                    }]);
+                    );
                 }
             }
         }
     }
 
-    if config.description.enabled {
-        let bookmarks_needing_descriptions: Vec<_> = graph
-            .bookmarks()
-            .filter(|bookmark| {
-                if let Some(stack) = graph.component_containing(bookmark.name())
-                    && stack.len() >= 2
-                {
-                    true
-                } else {
-                    false
-                }
-            })
-            .collect();
+    let title_description_batch = (ctx.config.description.enabled || ctx.config.title.sync)
+        .then(|| {
+            let actions = ctx
+                .bookmark_graph
+                .components()
+                .iter()
+                .flat_map(|component| {
+                    component.all_bookmarks().into_iter().map(|bookmark| {
+                        let Some(current_title) = plan_mrs.get(bookmark.name()).map(|mr| &mr.title)
+                        else {
+                            whatever!("No MR found for {}", bookmark.name())
+                        };
 
-        let mut description_batch = Vec::new();
-        for bookmark in &bookmarks_needing_descriptions {
-            let action_id = get_id();
+                        let maybe_title = if ctx.config.title.sync {
+                            let new_title = get_mr_title(
+                                ctx.jj,
+                                &ctx.config.title,
+                                bookmark.clone(),
+                                component,
+                            )?;
 
-            description_batch.push(PlannedAction {
-                id: action_id,
-                action: Action::UpdateMRDescription {
-                    bookmark: bookmark.name().to_string(),
-                    bookmark_graph: graph.clone(),
-                },
-                dependencies: mr_action_ids.clone(),
-            });
-        }
+                            if new_title != *current_title {
+                                Some(new_title)
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        };
 
-        if !description_batch.is_empty() {
-            batches.push(description_batch);
-        }
+                        if maybe_title.is_some() || ctx.config.description.enabled {
+                            Ok(Some(Action::UpdateMRTitleDescription(
+                                UpdateMRTitleDescriptionAction::builder()
+                                    .bookmark(bookmark.name().to_string())
+                                    .generate_stack_in_description(ctx.config.description.enabled)
+                                    .maybe_title(maybe_title)
+                                    .dependencies(mr_action_ids.clone())
+                                    .build(),
+                            )))
+                        } else {
+                            Ok(None)
+                        }
+                    })
+                })
+                .collect::<Result<Vec<_>>>()?
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>();
+
+            Ok::<_, Error>(actions)
+        })
+        .transpose()?
+        .take_if(|batch| !batch.is_empty());
+
+    let sync_dependent_merge_requests_enabled = ctx.forge.supports_dependent_merge_requests()
+        && ctx.config.gitlab.create_merge_request_dependencies; // Kinda awkward but whatever
+
+    let sync_dependent_merge_requests_batch = sync_dependent_merge_requests_enabled
+        .then(|| {
+            ctx.bookmark_graph
+                .components()
+                .iter()
+                .flat_map(|component| {
+                    component.all_bookmarks().into_iter().filter(|bookmark| {
+                        bookmark
+                            .parents
+                            .iter()
+                            .any(|p| matches!(p, BookmarkRef::Bookmark { .. }))
+                    })
+                })
+                .map(|bookmark| {
+                    Action::SyncDependentMergeRequests(
+                        SyncDependentMergeRequestsAction::builder()
+                            .bookmark(bookmark.name().to_string())
+                            .build(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        })
+        .take_if(|batch| !batch.is_empty());
+
+    // TODO better dependency handling instead of just sticking it here manually
+    if title_description_batch.is_some() || sync_dependent_merge_requests_batch.is_some() {
+        batches.push(vec![Action::LoadAllMRs(LoadAllMRsAction)]);
     }
 
-    let sync_dependent_merge_requests_batch = graph
-        .components()
-        .iter()
-        .flat_map(|component| {
-            component.all_bookmarks().into_iter().filter(|bookmark| {
-                bookmark
-                    .parents
-                    .iter()
-                    .any(|p| matches!(p, BookmarkRef::Bookmark { .. }))
-            })
-        })
-        .map(|bookmark| PlannedAction {
-            id: get_id(),
-            action: Action::SyncDependentMergeRequests {
-                bookmark: bookmark.name().to_string(),
-                bookmark_graph: graph.clone(),
-            },
-            dependencies: vec![],
-        })
-        .collect::<Vec<_>>();
+    if let Some(description_batch) = title_description_batch {
+        batches.push(description_batch);
+    }
 
-    if !sync_dependent_merge_requests_batch.is_empty() {
+    if let Some(sync_dependent_merge_requests_batch) = sync_dependent_merge_requests_batch {
         batches.push(sync_dependent_merge_requests_batch);
     }
 
-    Ok(SubmissionPlan {
-        actions: batches,
-        dry_run,
-    })
-}
-
-fn get_mr_title(jj: &Jujutsu, bookmark: &impl JJName, base: &impl JJName) -> Result<String> {
-    let changes = jj.log(format!(
-        "::{}  ~ ::{}",
-        bookmark.name_for_jj(),
-        base.name_for_jj()
-    ))?;
-
-    match &changes[..] {
-        [change] if !change.description.is_empty() => Ok(change
-            .description
-            .lines()
-            .next()
-            .unwrap_or_default()
-            .trim()
-            .to_string()),
-        _ => Ok(bookmark.raw_name()),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use tempfile::TempDir;
-
-    use super::*;
-
-    #[test]
-    fn test_action_push() {
-        let action = Action::Push {
-            bookmark: "feature".to_string(),
-            remote: "origin".to_string(),
-        };
-
-        assert!(
-            matches!(&action, Action::Push { .. }),
-            "Expected Push action, got {:?}",
-            action
-        );
-
-        if let Action::Push { bookmark, remote } = action {
-            assert_eq!(bookmark, "feature");
-            assert_eq!(remote, "origin");
-        }
-    }
-
-    #[test]
-    fn test_action_create_mr() {
-        let action = Action::CreateMR {
-            bookmark: "feature".to_string(),
-            target_branch: "main".to_string(),
-            title: "[jj-vine] feature".to_string(),
-            description: "Stack visualization here".to_string(),
-        };
-
-        assert!(
-            matches!(&action, Action::CreateMR { .. }),
-            "Expected CreateMR action, got {:?}",
-            action
-        );
-
-        if let Action::CreateMR {
-            bookmark,
-            target_branch,
-            title,
-            description,
-        } = action
-        {
-            assert_eq!(bookmark, "feature");
-            assert_eq!(target_branch, "main");
-            assert_eq!(title, "[jj-vine] feature");
-            assert_eq!(description, "Stack visualization here");
-        }
-    }
-
-    #[test]
-    fn test_submission_plan_struct() {
-        let plan = SubmissionPlan {
-            actions: vec![
-                vec![PlannedAction {
-                    id: 1,
-                    action: Action::Push {
-                        bookmark: "feature".to_string(),
-                        remote: "origin".to_string(),
-                    },
-                    dependencies: vec![],
-                }],
-                vec![PlannedAction {
-                    id: 2,
-                    action: Action::CreateMR {
-                        bookmark: "feature".to_string(),
-                        target_branch: "main".to_string(),
-                        title: "[jj-vine] feature".to_string(),
-                        description: "".to_string(),
-                    },
-                    dependencies: vec![1],
-                }],
-            ],
-            dry_run: false,
-        };
-
-        assert_eq!(plan.actions.len(), 2);
-        assert!(!plan.dry_run);
-        assert_eq!(plan.actions[0][0].id, 1);
-        assert_eq!(plan.actions[1][0].id, 2);
-        assert_eq!(plan.actions[1][0].dependencies, vec![1]);
-    }
-
-    #[test]
-    fn test_get_mr_title_single_commit() -> Result<()> {
-        let temp_dir = TempDir::new()?;
-        let repo_path = temp_dir.path().to_path_buf();
-
-        let jj = Jujutsu::new(&repo_path)?;
-
-        jj.exec(["git", "init"])?;
-
-        std::fs::write(repo_path.join("README.md"), "# Test\n")?;
-
-        jj.exec(["describe", "-m", "Initial commit"])?;
-        jj.exec(["bookmark", "create", "main"])?;
-
-        jj.exec(["new"])?;
-        std::fs::write(repo_path.join("feature.txt"), "feature content\n")?;
-        jj.exec(["describe", "-m", "Add awesome feature"])?;
-        jj.exec(["bookmark", "create", "feature"])?;
-
-        assert_eq!(
-            get_mr_title(&jj, &"feature", &"main")?,
-            "Add awesome feature".to_string()
-        );
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_get_mr_title_multiple_commits() -> Result<()> {
-        let temp_dir = TempDir::new()?;
-        let repo_path = temp_dir.path().to_path_buf();
-
-        let jj = Jujutsu::new(&repo_path)?;
-
-        jj.exec(["git", "init"])?;
-
-        std::fs::write(repo_path.join("README.md"), "# Test\n")?;
-
-        jj.exec(["describe", "-m", "Initial commit"])?;
-        jj.exec(["bookmark", "create", "main"])?;
-
-        jj.exec(["new"])?;
-        std::fs::write(repo_path.join("file1.txt"), "content 1\n")?;
-        jj.exec(["describe", "-m", "First commit"])?;
-
-        jj.exec(["new"])?;
-        std::fs::write(repo_path.join("file2.txt"), "content 2\n")?;
-        jj.exec(["describe", "-m", "Second commit"])?;
-        jj.exec(["bookmark", "create", "multi-commit-feature"])?;
-
-        assert_eq!(
-            get_mr_title(&jj, &"multi-commit-feature", &"main")?,
-            "multi-commit-feature"
-        );
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_get_mr_title_empty_description() -> Result<()> {
-        let temp_dir = TempDir::new()?;
-        let repo_path = temp_dir.path().to_path_buf();
-
-        let jj = Jujutsu::new(&repo_path)?;
-
-        jj.exec(["git", "init"])?;
-
-        std::fs::write(repo_path.join("README.md"), "# Test\n")?;
-
-        jj.exec(["describe", "-m", "Initial commit"])?;
-        jj.exec(["bookmark", "create", "main"])?;
-
-        jj.exec(["new"])?;
-        std::fs::write(repo_path.join("file.txt"), "content\n")?;
-        jj.exec(["describe", "-m", ""])?;
-        jj.exec(["bookmark", "create", "empty-desc"])?;
-
-        assert_eq!(get_mr_title(&jj, &"empty-desc", &"main")?, "empty-desc");
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_get_mr_title_stacked_bookmarks() -> Result<()> {
-        let temp_dir = TempDir::new()?;
-        let repo_path = temp_dir.path().to_path_buf();
-
-        let jj = Jujutsu::new(&repo_path)?;
-
-        jj.exec(["git", "init", "--colocate"])?;
-
-        std::fs::write(repo_path.join("README.md"), "# Test\n")?;
-        jj.exec(["describe", "-m", "Initial commit"])?;
-        jj.exec(["bookmark", "create", "main"])?;
-
-        jj.exec(["new"])?;
-        std::fs::write(repo_path.join("auth.txt"), "auth code\n")?;
-        jj.exec(["describe", "-m", "Add authentication"])?;
-        jj.exec(["bookmark", "create", "feature-a"])?;
-
-        jj.exec(["new"])?;
-        std::fs::write(repo_path.join("logging.txt"), "logging code\n")?;
-        jj.exec(["describe", "-m", "Add logging"])?;
-        jj.exec(["bookmark", "create", "feature-b"])?;
-
-        assert_eq!(
-            get_mr_title(&jj, &"feature-a", &"main")?,
-            "Add authentication"
-        );
-
-        assert_eq!(
-            get_mr_title(&jj, &"feature-b", &"feature-a")?,
-            "Add logging"
-        );
-
-        Ok(())
-    }
+    Ok(SubmissionPlan { actions: batches })
 }

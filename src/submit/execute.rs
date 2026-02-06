@@ -1,33 +1,45 @@
-mod create_mr;
-mod push;
-mod sync_dependent_merge_requests;
-mod update_mr_base;
-mod update_mr_description;
+pub mod create_mr;
+pub mod load_all_mrs;
+pub mod push;
+pub mod sync_dependent_merge_requests;
+pub mod update_mr_base;
+pub mod update_mr_title_description;
 
 use std::collections::HashMap;
 
+use bon::bon;
 use enum_dispatch::enum_dispatch;
 use futures::{StreamExt, stream::FuturesUnordered};
 use itertools::{Either, Itertools};
 use tracing::debug;
 
 use crate::{
-    config::Config,
-    error::{Error, Result},
-    forge::{AnyForgeMergeRequest, ForgeImpl},
-    jj::Jujutsu,
-    output::Output,
+    error::{ClonableError, Error, Result},
+    forge::AnyForgeMergeRequest,
     submit::{
+        ExecuteContext,
         execute::{
             create_mr::CreateMRAction,
+            load_all_mrs::LoadAllMRsAction,
             push::PushAction,
             sync_dependent_merge_requests::SyncDependentMergeRequestsAction,
             update_mr_base::UpdateMRBaseAction,
-            update_mr_description::UpdateMRDescriptionAction,
+            update_mr_title_description::UpdateMRTitleDescriptionAction,
         },
-        plan::{Action, SubmissionPlan},
     },
 };
+
+/// Action to perform during execution
+#[derive(Debug, Clone, PartialEq)]
+#[enum_dispatch(ExecuteAction, ActionInfo)]
+pub enum Action {
+    Push(PushAction),
+    CreateMR(CreateMRAction),
+    UpdateMRBase(UpdateMRBaseAction),
+    LoadAllMRs(LoadAllMRsAction),
+    UpdateMRTitleDescription(UpdateMRTitleDescriptionAction),
+    SyncDependentMergeRequests(SyncDependentMergeRequestsAction),
+}
 
 /// Result of executing a submission plan
 #[derive(Debug)]
@@ -36,7 +48,7 @@ pub struct SubmissionResult {
     pub merge_requests: Vec<MRUpdate>,
 
     /// Any errors that occurred (non-fatal)
-    pub errors: Vec<Error>,
+    pub errors: Vec<ClonableError>,
 
     /// Bookmarks that were successfully pushed
     pub bookmarks_pushed: Vec<String>,
@@ -52,37 +64,50 @@ pub struct MRUpdate {
 #[derive(Debug, Clone)]
 pub enum ActionResultData {
     Pushed { bookmark: String, pushed: bool },
-    MRCreated(Box<MRUpdate>),
-    MRUpdated(Box<MRUpdate>),
+    MRCreated(MRUpdate),
+    MRUpdated(MRUpdate),
+    MRsLoaded(HashMap<String, AnyForgeMergeRequest>),
     DryRun,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ActionResult {
-    pub id: usize,
-    pub data: Result<ActionResultData>,
+    pub id: String,
+    pub data: Result<ActionResultData, ClonableError>,
+}
+
+pub struct ExecuteActionContext<'a> {
+    pub execute: ExecuteContext<'a>,
+    pub current_results: Vec<ActionResult>,
 }
 
 #[enum_dispatch]
 pub trait ExecuteAction {
-    async fn execute(&self, ctx: ExecutionActionContext<'_, '_>) -> Result<ActionResultData>;
+    async fn execute(&self, ctx: ExecuteActionContext<'_>) -> Result<ActionResultData>;
 }
 
-#[enum_dispatch(ExecuteAction)]
-pub enum ExecuteActionImpl<'a> {
-    Push(PushAction),
-    CreateMR(CreateMRAction),
-    UpdateMRBase(UpdateMRBaseAction),
-    UpdateMRDescription(UpdateMRDescriptionAction<'a>),
-    SyncDependentMergeRequests(SyncDependentMergeRequestsAction<'a>),
-}
+#[enum_dispatch]
+pub trait ActionInfo {
+    /// Gets a unique ID for this action that other actions can potentially
+    /// refer to.
+    fn id(&self) -> String;
 
-pub struct ExecutionActionContext<'a, 'b> {
-    pub plan: &'a SubmissionPlan<'b>,
-    pub jj: &'a Jujutsu,
-    pub forge: &'a ForgeImpl,
-    pub config: &'a Config,
-    pub output: &'a dyn Output,
+    /// The text to display for an entire group of this action type.
+    fn group_text(&self) -> String;
+
+    /// The text to display for this action.
+    fn text(&self) -> String;
+
+    /// The text to display for a substep that is this action.
+    fn substep_text(&self) -> String;
+
+    /// The text to display for this action when showing the plan.
+    fn plan_text(&self) -> String;
+
+    /// Gets any dependencies that this action has on other actions.
+    fn dependencies(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 /// Type of MR update
@@ -94,50 +119,66 @@ pub enum MRUpdateType {
     /// MR was created
     Created,
 
-    /// Target branch was changed (repointed)
-    Repointed {
-        old_target: String,
-        new_target: String,
-    },
+    /// Merge requested was updated in some way
+    Updated {
+        old_target: Option<String>,
+        new_target: Option<String>,
 
-    /// Description was updated
-    DescriptionUpdated,
+        old_title: Option<String>,
+        new_title: Option<String>,
 
-    /// Both target and description updated
-    Both {
-        old_target: String,
-        new_target: String,
+        old_description: Option<String>,
+        new_description: Option<String>,
+
+        synced_dependent_merge_requests: bool,
     },
-    SyncedDependentMergeRequests,
+}
+
+#[bon]
+impl MRUpdateType {
+    #[builder]
+    pub fn new_updated(
+        old_target: Option<String>,
+        new_target: Option<String>,
+        old_title: Option<String>,
+        new_title: Option<String>,
+        old_description: Option<String>,
+        new_description: Option<String>,
+        synced_dependent_merge_requests: Option<bool>,
+    ) -> Self {
+        Self::Updated {
+            old_target,
+            new_target,
+            old_title,
+            new_title,
+            old_description,
+            new_description,
+            synced_dependent_merge_requests: synced_dependent_merge_requests.unwrap_or(false),
+        }
+    }
 }
 
 /// Execute a submission plan
-pub async fn execute(
-    plan: &SubmissionPlan<'_>,
-    jj: &Jujutsu,
-    forge: &ForgeImpl,
-    config: &Config,
-    output: &dyn Output,
-) -> Result<SubmissionResult> {
+pub async fn execute(ctx: ExecuteContext<'_>) -> Result<SubmissionResult> {
     let mut merge_requests = Vec::new();
     let mut errors = Vec::new();
     let mut bookmarks_pushed = Vec::new();
     let mut current_results: Vec<ActionResult> = Vec::new();
 
-    if plan.dry_run {
-        output.log_message("DRY RUN - No changes will be made");
+    if ctx.dry_run {
+        ctx.output.log_message("DRY RUN - No changes will be made");
     }
 
-    output.log_current("Preparing submission");
+    ctx.output.log_current("Preparing submission");
 
-    for batch in &plan.actions {
-        output.log_current(&batch.first().unwrap().action.get_group_text());
+    for batch in &ctx.plan.actions {
+        ctx.output.log_current(&batch.first().unwrap().group_text());
 
         let handles = FuturesUnordered::new();
 
         for action in batch {
             let (_ok_deps, err_deps): (HashMap<_, _>, Vec<_>) = action
-                .dependencies
+                .dependencies()
                 .iter()
                 .map(|id| {
                     current_results
@@ -146,82 +187,39 @@ pub async fn execute(
                         .unwrap_or_else(|| panic!("Dependency {} not found", id))
                 })
                 .partition_map(|dep| match &dep.data {
-                    Ok(data) => Either::Left((dep.id, data)),
-                    Err(error) => Either::Right((dep.id, error)),
+                    Ok(data) => Either::Left((&dep.id, data)),
+                    Err(error) => Either::Right((&dep.id, error)),
                 });
 
             if !err_deps.is_empty() {
                 debug!(
                     "Skipping action {} because dependencies failed: {}",
-                    action.id,
+                    action.id(),
                     err_deps.iter().map(|(id, _)| id).join(", ")
                 );
                 current_results.push(ActionResult {
-                    id: action.id,
+                    id: action.id(),
                     data: Err(Error::new(format!(
                         "Dependencies failed: {}",
                         err_deps.iter().map(|(id, _)| id).join(", ")
-                    ))),
+                    ))
+                    .to_clonable_error()),
                 });
                 continue;
             }
 
-            let execute_action: ExecuteActionImpl<'_> = match &action.action {
-                Action::Push { bookmark, remote } => {
-                    PushAction::new(bookmark.clone(), remote.clone()).into()
-                }
-                Action::CreateMR {
-                    bookmark,
-                    target_branch,
-                    title,
-                    description,
-                } => CreateMRAction::new(
-                    bookmark.clone(),
-                    target_branch.clone(),
-                    title.clone(),
-                    description.clone(),
-                )
-                .into(),
-                Action::UpdateMRBase {
-                    bookmark,
-                    mr_iid,
-                    new_target_branch,
-                } => UpdateMRBaseAction::new(
-                    bookmark.clone(),
-                    mr_iid.clone(),
-                    new_target_branch.clone(),
-                )
-                .into(),
-                Action::UpdateMRDescription {
-                    bookmark,
-                    bookmark_graph,
-                } => {
-                    UpdateMRDescriptionAction::new(bookmark.clone(), bookmark_graph.clone()).into()
-                }
-                Action::SyncDependentMergeRequests {
-                    bookmark,
-                    bookmark_graph,
-                } => {
-                    SyncDependentMergeRequestsAction::new(bookmark.clone(), bookmark_graph.clone())
-                        .into()
-                }
-            };
+            let action_id = action.id();
 
-            let action_id = action.id;
-            let ctx = ExecutionActionContext {
-                plan,
-                jj,
-                forge,
-                config,
-                output,
+            let action_ctx = ExecuteActionContext {
+                execute: ctx.clone(),
+                current_results: current_results.clone(),
             };
 
             handles.push(async move {
-                let action_text = action.action.get_substep_text();
-                let output = ctx.output;
+                let output = action_ctx.execute.output;
 
-                let _substep = output.start_substep(action_text);
-                let result = execute_action.execute(ctx).await;
+                let _substep = output.start_substep(&action.substep_text());
+                let result = action.execute(action_ctx).await;
 
                 (action_id, result)
             });
@@ -232,7 +230,7 @@ pub async fn execute(
         for (action_id, result) in results {
             current_results.push(ActionResult {
                 id: action_id,
-                data: result,
+                data: result.map_err(|e| e.to_clonable_error()),
             });
         }
     }
@@ -246,9 +244,9 @@ pub async fn execute(
             }
             Ok(ActionResultData::MRCreated(mr_update))
             | Ok(ActionResultData::MRUpdated(mr_update)) => {
-                merge_requests.push(*mr_update);
+                merge_requests.push(mr_update);
             }
-            Ok(ActionResultData::DryRun) => {}
+            Ok(ActionResultData::DryRun) | Ok(ActionResultData::MRsLoaded(_)) => {}
             Err(error) => {
                 errors.push(error);
             }

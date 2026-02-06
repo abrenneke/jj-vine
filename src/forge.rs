@@ -516,6 +516,18 @@ pub trait Forge: Send + Sync + FormatMergeRequest {
         branch: &str,
     ) -> Result<Option<Self::MergeRequest>>;
 
+    /// Find merge request by source branch name and base branch name. Returns
+    /// the first MR found. More optimized than
+    /// `find_merge_request_by_source_branch` for some forges.
+    async fn find_merge_request_by_source_branch_base_branch(
+        &self,
+        source_branch: &str,
+        #[allow(unused)] base_branch: &str,
+    ) -> Result<Option<Self::MergeRequest>> {
+        self.find_merge_request_by_source_branch(source_branch)
+            .await
+    }
+
     /// Create a new merge request in the forge for the project.
     async fn create_merge_request(
         &self,
@@ -530,10 +542,11 @@ pub trait Forge: Send + Sync + FormatMergeRequest {
     ) -> Result<Self::MergeRequest>;
 
     /// Update the description of an existing merge request.
-    async fn update_merge_request_description<'a>(
+    async fn update_merge_request_info<'a>(
         &'a self,
         merge_request_iid: <Self::Id as BorrowId>::Id<'a>,
         new_description: &str,
+        new_title: &str,
     ) -> Result<Self::MergeRequest>;
 
     /// Get a specific merge request by IID.
@@ -565,6 +578,11 @@ pub trait Forge: Send + Sync + FormatMergeRequest {
         &'a self,
         merge_request_iid: <Self::Id as BorrowId>::Id<'a>,
     ) -> Result<DiscussionCount>;
+
+    /// Returns true if the forge supports dependent merge requests.
+    fn supports_dependent_merge_requests(&self) -> bool {
+        false
+    }
 
     /// Sync dependent merge requests for a merge request.
     /// Only currently supported for GitLab. No-op for other forges.
@@ -699,7 +717,7 @@ impl Forge for ForgeImpl {
         &self,
         branch: &str,
     ) -> Result<Option<Self::MergeRequest>> {
-        let mr: Option<Self::MergeRequest> = match self {
+        Ok(match self {
             ForgeImpl::GitLab(forge) => forge
                 .find_merge_request_by_source_branch(branch)
                 .await?
@@ -720,8 +738,36 @@ impl Forge for ForgeImpl {
                 .find_merge_request_by_source_branch(branch)
                 .await?
                 .map(AnyForgeMergeRequest::new),
-        };
-        Ok(mr)
+        })
+    }
+
+    async fn find_merge_request_by_source_branch_base_branch(
+        &self,
+        source_branch: &str,
+        base_branch: &str,
+    ) -> Result<Option<Self::MergeRequest>> {
+        Ok(match self {
+            ForgeImpl::GitLab(forge) => forge
+                .find_merge_request_by_source_branch_base_branch(source_branch, base_branch)
+                .await?
+                .map(AnyForgeMergeRequest::new),
+            ForgeImpl::GitHub(forge) => forge
+                .find_merge_request_by_source_branch_base_branch(source_branch, base_branch)
+                .await?
+                .map(AnyForgeMergeRequest::new),
+            ForgeImpl::Forgejo(forge) => forge
+                .find_merge_request_by_source_branch_base_branch(source_branch, base_branch)
+                .await?
+                .map(AnyForgeMergeRequest::new),
+            ForgeImpl::Test(forge) => forge
+                .find_merge_request_by_source_branch_base_branch(source_branch, base_branch)
+                .await?
+                .map(AnyForgeMergeRequest::new),
+            ForgeImpl::AzureDevOps(forge) => forge
+                .find_merge_request_by_source_branch_base_branch(source_branch, base_branch)
+                .await?
+                .map(AnyForgeMergeRequest::new),
+        })
     }
 
     /// Create a new merge request in the forge for the project.
@@ -790,50 +836,55 @@ impl Forge for ForgeImpl {
     }
 
     /// Update the description of an existing merge request.
-    async fn update_merge_request_description(
+    async fn update_merge_request_info(
         &self,
         merge_request_iid: Cow<'_, str>,
         new_description: &str,
+        new_title: &str,
     ) -> Result<Self::MergeRequest> {
         let mr: Self::MergeRequest = match self {
             ForgeImpl::GitLab(forge) => AnyForgeMergeRequest::new(
                 forge
-                    .update_merge_request_description(
+                    .update_merge_request_info(
                         merge_request_iid.parse::<u64>()?,
                         new_description,
+                        new_title,
                     )
                     .await?,
             ),
 
             ForgeImpl::GitHub(forge) => AnyForgeMergeRequest::new(
                 forge
-                    .update_merge_request_description(
+                    .update_merge_request_info(
                         merge_request_iid.parse::<u64>()?,
                         new_description,
+                        new_title,
                     )
                     .await?,
             ),
 
             ForgeImpl::Forgejo(forge) => AnyForgeMergeRequest::new(
                 forge
-                    .update_merge_request_description(
+                    .update_merge_request_info(
                         merge_request_iid.parse::<u64>()?,
                         new_description,
+                        new_title,
                     )
                     .await?,
             ),
 
             ForgeImpl::Test(forge) => AnyForgeMergeRequest::new(
                 forge
-                    .update_merge_request_description(merge_request_iid, new_description)
+                    .update_merge_request_info(merge_request_iid, new_description, new_title)
                     .await?,
             ),
 
             ForgeImpl::AzureDevOps(forge) => AnyForgeMergeRequest::new(
                 forge
-                    .update_merge_request_description(
+                    .update_merge_request_info(
                         merge_request_iid.parse::<i32>()?,
                         new_description,
+                        new_title,
                     )
                     .await?,
             ),
@@ -985,6 +1036,16 @@ impl Forge for ForgeImpl {
                     .num_open_discussions(merge_request_iid.parse::<i32>()?)
                     .await
             }
+        }
+    }
+
+    fn supports_dependent_merge_requests(&self) -> bool {
+        match self {
+            ForgeImpl::GitLab(forge) => forge.supports_dependent_merge_requests(),
+            ForgeImpl::GitHub(forge) => forge.supports_dependent_merge_requests(),
+            ForgeImpl::Forgejo(forge) => forge.supports_dependent_merge_requests(),
+            ForgeImpl::Test(forge) => forge.supports_dependent_merge_requests(),
+            ForgeImpl::AzureDevOps(forge) => forge.supports_dependent_merge_requests(),
         }
     }
 

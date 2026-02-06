@@ -3,14 +3,14 @@ use assertables::assert_contains;
 use crate::{
     error::Result,
     forge::{Forge, ForgeCreateMergeRequestOptions, gitlab::GitLabForge},
-    tests::{TestRepo, unique_branch},
+    tests::TestRepo,
 };
 
 #[tokio::test]
 async fn test_submit_creates_mr() -> Result<()> {
     let repo = TestRepo::with_gitlab_remote();
 
-    let branch = unique_branch("create-mr");
+    let branch = repo.bookmark_name("create-mr");
     repo.jj.exec(["new", "main"]).unwrap();
     repo.create_change("test.txt", "content", "Test commit")
         .create_and_push_bookmark(&branch);
@@ -34,9 +34,9 @@ async fn test_submit_creates_mr() -> Result<()> {
 async fn test_submit_creates_stacked_mrs() -> Result<()> {
     let repo = TestRepo::with_gitlab_remote();
 
-    let branch_a = unique_branch("stack-a");
-    let branch_b = unique_branch("stack-b");
-    let branch_c = unique_branch("stack-c");
+    let branch_a = repo.bookmark_name("stack-a");
+    let branch_b = repo.bookmark_name("stack-b");
+    let branch_c = repo.bookmark_name("stack-c");
 
     // main -> A -> B -> C
     repo.jj.exec(["new", "main"]).unwrap();
@@ -84,7 +84,7 @@ async fn test_submit_creates_stacked_mrs() -> Result<()> {
 async fn test_submit_is_idempotent() -> Result<()> {
     let repo = TestRepo::with_gitlab_remote();
 
-    let branch = unique_branch("idempotent");
+    let branch = repo.bookmark_name("idempotent");
     repo.jj.exec(["new", "main"]).unwrap();
     repo.create_change("test.txt", "content", "Test commit")
         .create_and_push_bookmark(&branch);
@@ -114,9 +114,9 @@ async fn test_submit_is_idempotent() -> Result<()> {
 async fn test_submit_retargets_after_middle_bookmark_deleted() -> Result<()> {
     let repo = TestRepo::with_gitlab_remote();
 
-    let branch_a = unique_branch("retarget-a");
-    let branch_b = unique_branch("retarget-b");
-    let branch_c = unique_branch("retarget-c");
+    let branch_a = repo.bookmark_name("retarget-a");
+    let branch_b = repo.bookmark_name("retarget-b");
+    let branch_c = repo.bookmark_name("retarget-c");
 
     // Create stack: main -> A -> B -> C
     repo.jj.exec(["new", "main"]).unwrap();
@@ -179,7 +179,7 @@ async fn test_invalid_token_errors_clearly() -> Result<()> {
 
     let result = client
         .create_merge_request(ForgeCreateMergeRequestOptions {
-            source_branch: unique_branch("invalid-token"),
+            source_branch: TestRepo::new().bookmark_name("invalid-token"),
             target_branch: "main".to_string(),
             title: "This should fail".to_string(),
             description: Some("Testing invalid token".to_string()),
@@ -218,7 +218,7 @@ async fn test_nonexistent_project_errors_clearly() -> Result<()> {
 
     let result = client
         .create_merge_request(ForgeCreateMergeRequestOptions {
-            source_branch: unique_branch("nonexistent-project"),
+            source_branch: TestRepo::new().bookmark_name("nonexistent-project"),
             target_branch: "main".to_string(),
             title: "This should fail".to_string(),
             description: Some("Testing nonexistent project".to_string()),
@@ -236,9 +236,9 @@ async fn test_nonexistent_project_errors_clearly() -> Result<()> {
 async fn test_create_merge_request_dependencies() -> Result<()> {
     let repo = TestRepo::with_gitlab_remote();
 
-    let a = unique_branch("dependency-a");
-    let b = unique_branch("dependency-b");
-    let c = unique_branch("dependency-c");
+    let a = repo.bookmark_name("dependency-a");
+    let b = repo.bookmark_name("dependency-b");
+    let c = repo.bookmark_name("dependency-c");
 
     // main -> A -> C
     // main -> B -> C

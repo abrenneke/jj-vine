@@ -1,63 +1,102 @@
+use bon::Builder;
 use futures::{StreamExt, stream::FuturesUnordered};
+use owo_colors::OwoColorize;
 
 use crate::{
-    bookmark::{BookmarkGraph, BookmarkRef},
+    bookmark::BookmarkRef,
     error::{Error, Result, make_whatever},
     forge::Forge,
     submit::execute::{
+        ActionInfo,
         ActionResultData,
         ExecuteAction,
-        ExecutionActionContext,
+        ExecuteActionContext,
         MRUpdate,
         MRUpdateType,
     },
 };
 
-pub struct SyncDependentMergeRequestsAction<'a> {
+/// Sync dependent merge requests for a bookmark (after all MRs created)
+#[derive(Debug, Clone, PartialEq, Eq, Builder)]
+pub struct SyncDependentMergeRequestsAction {
     pub bookmark: String,
-    pub bookmark_graph: BookmarkGraph<'a>,
+    pub dependencies: Option<Vec<String>>,
 }
 
-impl<'a> SyncDependentMergeRequestsAction<'a> {
-    pub fn new(bookmark: String, bookmark_graph: BookmarkGraph<'a>) -> Self {
-        Self {
-            bookmark,
-            bookmark_graph,
-        }
+impl ActionInfo for SyncDependentMergeRequestsAction {
+    fn id(&self) -> String {
+        format!("sync_dependent_merge_requests:{}", self.bookmark)
+    }
+
+    fn group_text(&self) -> String {
+        "Syncing dependent merge requests".to_string()
+    }
+    fn text(&self) -> String {
+        format!(
+            "Syncing dependent merge requests for {}",
+            self.bookmark.magenta()
+        )
+    }
+    fn substep_text(&self) -> String {
+        self.bookmark.magenta().to_string()
+    }
+
+    fn plan_text(&self) -> String {
+        format!(
+            "Sync dependent merge requests for {}",
+            self.bookmark.magenta()
+        )
+    }
+
+    fn dependencies(&self) -> Vec<String> {
+        self.dependencies.as_ref().cloned().unwrap_or_default()
     }
 }
 
-impl<'a> ExecuteAction for SyncDependentMergeRequestsAction<'a> {
-    async fn execute(&self, ctx: ExecutionActionContext<'_, '_>) -> Result<ActionResultData> {
-        if ctx.plan.dry_run {
+impl ExecuteAction for SyncDependentMergeRequestsAction {
+    async fn execute(&self, ctx: ExecuteActionContext<'_>) -> Result<ActionResultData> {
+        if ctx.execute.dry_run {
             return Ok(ActionResultData::DryRun);
         }
 
+        let bookmark = ctx
+            .execute
+            .bookmark_graph
+            .find_bookmark_in_components(&self.bookmark)
+            .ok_or_else::<Error, _>(|| make_whatever!("Bookmark not found: {}", self.bookmark))?;
+
+        let default_branch = ctx.execute.jj.default_branch()?;
+
         let mr = ctx
+            .execute
             .forge
-            .find_merge_request_by_source_branch(&self.bookmark)
+            .find_merge_request_by_source_branch_base_branch(
+                &self.bookmark,
+                &bookmark.parent_name(default_branch),
+            )
             .await?
             .ok_or_else::<Error, _>(|| {
                 make_whatever!("No merge request found for {}", self.bookmark)
             })?;
 
-        let dependent_merge_request_iids: Vec<_> = self
-            .bookmark_graph
-            .find_bookmark_in_components(&self.bookmark)
-            .expect("Bookmark not found in graph")
+        let dependent_merge_request_iids: Vec<_> = bookmark
             .parents
             .iter()
             .filter_map(|p| match p {
-                BookmarkRef::Bookmark(b) => Some(b.name()),
+                BookmarkRef::Bookmark(b) => Some(b),
                 BookmarkRef::Trunk => None,
             })
             .map(|parent_bookmark| async move {
                 let mr = ctx
+                    .execute
                     .forge
-                    .find_merge_request_by_source_branch(parent_bookmark)
+                    .find_merge_request_by_source_branch_base_branch(
+                        parent_bookmark.name(),
+                        &parent_bookmark.parent_name(default_branch),
+                    )
                     .await?
                     .ok_or_else::<Error, _>(|| {
-                        make_whatever!("No merge request found for {}", parent_bookmark)
+                        make_whatever!("No merge request found for {}", parent_bookmark.name())
                     })?;
                 Ok(mr.iid().to_string())
             })
@@ -68,6 +107,7 @@ impl<'a> ExecuteAction for SyncDependentMergeRequestsAction<'a> {
             .collect::<Result<Vec<_>>>()?;
 
         let changed = ctx
+            .execute
             .forge
             .sync_dependent_merge_requests(
                 mr.iid(),
@@ -79,14 +119,16 @@ impl<'a> ExecuteAction for SyncDependentMergeRequestsAction<'a> {
             )
             .await?;
 
-        Ok(ActionResultData::MRUpdated(Box::new(MRUpdate {
+        Ok(ActionResultData::MRUpdated(MRUpdate {
             mr,
             bookmark: self.bookmark.clone(),
             update_type: if changed {
-                MRUpdateType::SyncedDependentMergeRequests
+                MRUpdateType::new_updated()
+                    .synced_dependent_merge_requests(true)
+                    .call()
             } else {
                 MRUpdateType::Unchanged
             },
-        })))
+        }))
     }
 }

@@ -164,8 +164,9 @@ pub async fn status(
     let statuses: Vec<_> = bookmarks
         .iter()
         .map(|bookmark| async {
-            let _substep = output.start_substep(bookmark.name().to_string());
+            let _substep = output.start_substep(&bookmark.name().magenta().to_string());
 
+            // Can't really use find_merge_request_by_source_branch_base_branch here
             let merge_request = forge
                 .find_merge_request_by_source_branch(bookmark.name())
                 .await
@@ -322,7 +323,8 @@ async fn two_line_compact_status(
             merge_request,
             status,
         }) => {
-            let _substep = output.start_substep(forge.format_merge_request_id(merge_request.iid()));
+            let _substep =
+                output.start_substep(&forge.format_merge_request_id(merge_request.iid()));
 
             let data = StatusData::new(
                 forge,

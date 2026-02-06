@@ -332,10 +332,11 @@ impl Forge for GitLabForge {
     }
 
     /// Update the description of an existing merge request
-    async fn update_merge_request_description(
+    async fn update_merge_request_info(
         &self,
         merge_request_iid: Self::Id,
         new_description: &str,
+        new_title: &str,
     ) -> Result<Self::MergeRequest> {
         let mr: MergeRequest = self
             .request(
@@ -346,6 +347,7 @@ impl Forge for GitLabForge {
                     merge_request_iid,
                 ),
                 Some(serde_json::json!({
+                    "title": new_title,
                     "description": new_description,
                 })),
             )
@@ -501,6 +503,10 @@ impl Forge for GitLabForge {
                 }
                 acc
             }))
+    }
+
+    fn supports_dependent_merge_requests(&self) -> bool {
+        true
     }
 
     async fn sync_dependent_merge_requests(

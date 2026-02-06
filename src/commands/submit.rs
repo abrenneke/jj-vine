@@ -21,6 +21,7 @@ use crate::{
     forge::ForgeImpl,
     jj::Jujutsu,
     submit::{
+        SubmitContext,
         execute::{self, MRUpdate, MRUpdateType},
         plan,
     },
@@ -40,6 +41,10 @@ pub struct SubmitCommandConfig {
     /// what would be done.
     #[arg(long)]
     pub dry_run: bool,
+
+    /// Show the submission plan and do not execute it.
+    #[arg(long, conflicts_with = "dry_run")]
+    pub show_plan: bool,
 }
 
 impl SubmitCommandConfig {
@@ -115,6 +120,7 @@ impl Default for SubmitCommandConfig {
             revset_options: Default::default(),
             remote: "origin".to_string(),
             dry_run: false,
+            show_plan: false,
         }
     }
 }
@@ -154,17 +160,24 @@ pub async fn submit(config: &SubmitCommandConfig, cli_config: &CliConfig<'_>) ->
         config.revset_options.tracked,
     )?;
 
-    let submission_plan = plan::plan(
-        &jj,
-        &forge,
-        &repo_config,
-        &bookmark_graph,
-        config.dry_run,
+    let ctx = SubmitContext {
+        jj: &jj,
+        forge: &forge,
+        config: &repo_config,
         output,
-    )
-    .await?;
+        bookmark_graph: &bookmark_graph,
+        dry_run: config.dry_run,
+    };
 
-    let result = execute::execute(&submission_plan, &jj, &forge, &repo_config, output).await?;
+    let submission_plan = plan::plan(ctx.clone()).await?;
+
+    if config.show_plan {
+        info!("Submission plan:");
+        info!("{}", submission_plan);
+        return Ok(());
+    }
+
+    let result = execute::execute(ctx.into_execute_context(submission_plan)).await?;
 
     output.finish();
 
@@ -196,7 +209,7 @@ pub async fn submit(config: &SubmitCommandConfig, cli_config: &CliConfig<'_>) ->
 
         // If an MR was just created, don't also report that it was updated
         for (index, update) in updates.clone().into_iter().enumerate().rev() {
-            if let MRUpdateType::DescriptionUpdated = update.update_type
+            if let MRUpdateType::Updated { .. } = update.update_type
                 && updates
                     .iter()
                     .find(|u| {
@@ -226,10 +239,7 @@ pub async fn submit(config: &SubmitCommandConfig, cli_config: &CliConfig<'_>) ->
                         "[created]".green().cell(),
                     ]);
                 }
-                MRUpdateType::Repointed { .. }
-                | MRUpdateType::Both { .. }
-                | MRUpdateType::DescriptionUpdated
-                | MRUpdateType::SyncedDependentMergeRequests => {
+                MRUpdateType::Updated { .. } => {
                     table.push(vec![
                         bookmark.magenta().cell(),
                         mr.title().wrap(60).cell(),
@@ -269,7 +279,11 @@ pub async fn submit(config: &SubmitCommandConfig, cli_config: &CliConfig<'_>) ->
 
     if !result.errors.is_empty() {
         return Err(AggregateSnafu {
-            errors: result.errors,
+            errors: result
+                .errors
+                .into_iter()
+                .map::<Box<dyn std::error::Error + 'static>, _>(|e| Box::new(e))
+                .collect::<Vec<_>>(),
         }
         .build());
     }

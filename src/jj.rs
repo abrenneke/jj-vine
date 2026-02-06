@@ -1,3 +1,5 @@
+#[cfg(test)]
+use std::collections::{BTreeMap, BTreeSet};
 use std::{cell::OnceCell, path::PathBuf, process::Command};
 
 use serde::{Deserialize, Serialize};
@@ -129,14 +131,33 @@ pub struct Change {
     pub bookmarks: Vec<BookmarkInfo>,
 }
 
+impl Change {
+    pub fn description_first_line(&self) -> &str {
+        self.description.lines().next().unwrap_or_default().trim()
+    }
+
+    pub fn description_not_first_line(&self) -> &str {
+        // Avoids allocating a String which lines().skip(1).join() would do. 🤷
+        match (self.description.find('\n'), self.description.find("\r\n")) {
+            (Some(n_index), Some(rn_index)) => {
+                &self.description[usize::min(n_index, rn_index) + 1..]
+            }
+            (Some(n_index), None) => &self.description[n_index + 1..],
+            (None, Some(rn_index)) => &self.description[rn_index + 2..],
+            (None, None) => &self.description,
+        }
+        .trim()
+    }
+}
+
 #[cfg(test)]
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ChangeMap(std::collections::BTreeMap<String, Change>);
+pub struct ChangeMap(BTreeMap<String, Change>);
 
 #[cfg(test)]
 impl ChangeMap {
     pub fn new() -> Self {
-        Self(std::collections::BTreeMap::new())
+        Self(BTreeMap::new())
     }
 
     pub fn insert(&mut self, change: Change) {
@@ -153,7 +174,7 @@ impl Default for ChangeMap {
 
 #[cfg(test)]
 impl std::ops::Deref for ChangeMap {
-    type Target = std::collections::BTreeMap<String, Change>;
+    type Target = BTreeMap<String, Change>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -190,7 +211,7 @@ impl ChangeMap {
         })
     }
 
-    pub fn create_bookmark_map(&self) -> std::collections::BTreeMap<String, Bookmark<'_>> {
+    pub fn create_bookmark_map(&self) -> BTreeMap<String, Bookmark<'_>> {
         self.iter()
             .flat_map(|(_, change)| {
                 change
@@ -201,22 +222,39 @@ impl ChangeMap {
             .collect()
     }
 
-    pub fn create_adjacency_list(
-        &self,
-    ) -> std::collections::BTreeMap<String, std::collections::BTreeSet<String>> {
-        let mut adjacency_list = std::collections::BTreeMap::new();
+    pub fn create_adjacency_list(&self) -> BTreeMap<String, BTreeSet<String>> {
+        let mut adjacency_list = BTreeMap::new();
+
         for (_, change) in self.iter() {
-            let parent_bookmarks = change
+            let mut to_process: Vec<_> = change
                 .parent_commit_ids
                 .iter()
                 .map(|id| self.get(id).unwrap())
-                .flat_map(|change| change.bookmarks.iter().map(|info| info.name().to_string()))
-                .collect::<Vec<_>>();
+                .collect();
+
+            let mut parent_bookmarks = Vec::new();
+
+            while let Some(parent) = to_process.pop() {
+                match &parent.bookmarks[..] {
+                    [] => {
+                        to_process.extend(
+                            parent
+                                .parent_commit_ids
+                                .iter()
+                                .map(|id| self.get(id).unwrap()),
+                        );
+                    }
+                    [info] => {
+                        parent_bookmarks.push(info.full_name().to_string());
+                    }
+                    _ => panic!("Not supported yet"),
+                }
+            }
 
             for info in &change.bookmarks {
                 adjacency_list
                     .entry(info.name().to_string())
-                    .or_insert(std::collections::BTreeSet::new())
+                    .or_insert(BTreeSet::new())
                     .extend(parent_bookmarks.iter().cloned());
             }
         }
@@ -315,7 +353,7 @@ impl Change {
 }
 
 #[cfg(test)]
-impl FromIterator<Change> for std::collections::BTreeMap<String, Change> {
+impl FromIterator<Change> for BTreeMap<String, Change> {
     fn from_iter<T: IntoIterator<Item = Change>>(iter: T) -> Self {
         iter.into_iter().map(|c| (c.commit_id.clone(), c)).collect()
     }
@@ -470,7 +508,7 @@ impl Jujutsu {
     }
 
     /// Track a bookmark on a remote.
-    pub fn track_bookmark(&self, bookmark: &impl JJName, remote: Option<&str>) -> Result<()> {
+    pub fn track_bookmark(&self, bookmark: impl JJName, remote: Option<&str>) -> Result<()> {
         let remote = remote.unwrap_or("origin");
         self.exec([
             "bookmark",
@@ -484,7 +522,11 @@ impl Jujutsu {
 
     /// Push a bookmark to a remote using jj git push. This will automatically
     /// track the bookmark on the remote if it's not already tracked
-    pub fn push_bookmark(&self, bookmark: &impl JJName, remote: Option<&str>) -> Result<bool> {
+    pub fn push_bookmark(
+        &self,
+        bookmark: impl JJName + Copy,
+        remote: Option<&str>,
+    ) -> Result<bool> {
         // Try to track the bookmark first (ignore errors if already tracked)
         let _ = self.track_bookmark(bookmark, remote);
 
@@ -739,7 +781,7 @@ mod tests {
             &remote_dir.to_string_lossy(),
         ])?;
 
-        jj.push_bookmark(&"feature-a", Some("origin"))?;
+        jj.push_bookmark("feature-a", Some("origin"))?;
 
         let tracked = jj.log("(mine() & tracked_remote_bookmarks()) ~ trunk()")?;
 

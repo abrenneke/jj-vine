@@ -1,7 +1,7 @@
 use std::{borrow::Cow, collections::HashMap, path::Path};
 
 use futures::try_join;
-use reqwest::Method;
+use reqwest::{Method, StatusCode};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::{
@@ -373,10 +373,12 @@ impl ForgejoForge {
             let text = response.text().await?;
             return Err(ForgejoApiSnafu {
                 message: format!("Failed request: {} - {}", status, text),
+                status,
             }
             .build());
         }
 
+        let status = response.status();
         let body = response.text().await?;
         let data: T = serde_json::from_str(&body).map_err(|e| {
             ForgejoApiSnafu {
@@ -386,6 +388,7 @@ impl ForgejoForge {
                     e,
                     body
                 ),
+                status,
             }
             .build()
         })?;
@@ -488,6 +491,40 @@ impl Forge for ForgejoForge {
         Ok(None)
     }
 
+    async fn find_merge_request_by_source_branch_base_branch(
+        &self,
+        source_branch: &str,
+        base_branch: &str,
+    ) -> Result<Option<Self::MergeRequest>> {
+        // Forgejo has an efficient implementation if you know both source and base
+        // branch names.
+        let pr: Result<PullRequest> = self
+            .request(
+                Method::GET,
+                format!(
+                    "/repos/{}/{}/pulls/{}/{}",
+                    self.target_owner,
+                    self.target_repo,
+                    urlencoding::encode(base_branch),
+                    urlencoding::encode(source_branch),
+                ),
+                None::<()>,
+            )
+            .await;
+
+        match pr {
+            Ok(pr) => Ok(Some(ForgejoMergeRequest {
+                pull_request: pr,
+                wip_prefix: self.wip_prefix.clone(),
+            })),
+            Err(Error::ForgejoApi {
+                status: StatusCode::NOT_FOUND,
+                ..
+            }) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
     async fn create_merge_request(
         &self,
         ForgeCreateMergeRequestOptions {
@@ -577,10 +614,11 @@ impl Forge for ForgejoForge {
         })
     }
 
-    async fn update_merge_request_description(
+    async fn update_merge_request_info(
         &self,
         pr_number: u64,
         new_description: &str,
+        new_title: &str,
     ) -> Result<Self::MergeRequest> {
         let pr: PullRequest = self
             .request(
@@ -590,6 +628,7 @@ impl Forge for ForgejoForge {
                     self.target_owner, self.target_repo, pr_number
                 ),
                 Some(serde_json::json!({
+                    "title": new_title,
                     "body": new_description,
                 })),
             )
@@ -714,6 +753,7 @@ impl Forge for ForgejoForge {
             reqwest::StatusCode::NOT_FOUND => Ok(CheckStatus::None),
             status => Err(ForgejoApiSnafu {
                 message: format!("Failed to get commit status: {}", status),
+                status,
             }
             .build()),
         }

@@ -2,3 +2,4 @@
 
 mod api;
 mod descriptions;
+mod titles;

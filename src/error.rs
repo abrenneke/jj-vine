@@ -27,7 +27,7 @@ pub(crate) use err_whatever;
 pub enum Error {
     #[snafu(display("{} error(s) occurred: {:?}", errors.len(), errors))]
     Aggregate {
-        errors: Vec<Error>,
+        errors: Vec<Box<dyn std::error::Error>>,
         backtrace: Box<Backtrace>,
 
         #[snafu(implicit)]
@@ -75,6 +75,7 @@ pub enum Error {
     #[snafu(display("Forgejo API error: {message}"))]
     ForgejoApi {
         message: String,
+        status: reqwest::StatusCode,
         backtrace: Box<Backtrace>,
 
         #[snafu(implicit)]
@@ -196,6 +197,28 @@ pub enum Error {
     },
 }
 
+#[derive(Debug, Clone)]
+pub struct ClonableError {
+    pub message: String,
+    backtrace: Option<String>,
+    location: Option<Location>,
+}
+
+impl snafu::Error for ClonableError {}
+
+impl std::fmt::Display for ClonableError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)?;
+        if let Some(backtrace) = &self.backtrace {
+            writeln!(f, "\nBacktrace:\n{}", backtrace)?;
+        }
+        if let Some(location) = &self.location {
+            writeln!(f, "\nLocation:\n{}", location)?;
+        }
+        Ok(())
+    }
+}
+
 impl Error {
     pub fn backtrace(&self) -> Option<&Backtrace> {
         match self {
@@ -240,6 +263,14 @@ impl Error {
             Error::InvalidComponent { location, .. } => Some(location),
             Error::Aggregate { location, .. } => Some(location),
             Error::AzureDevOpsApi { location, .. } => Some(location),
+        }
+    }
+
+    pub fn to_clonable_error(&self) -> ClonableError {
+        ClonableError {
+            message: self.to_string(),
+            backtrace: self.backtrace().map(|b| b.to_string()),
+            location: self.location().cloned(),
         }
     }
 }

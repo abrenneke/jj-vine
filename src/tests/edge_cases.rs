@@ -18,9 +18,9 @@ fn test_deleted_middle_bookmark() -> Result<()> {
     let repo = TestRepo::new();
 
     // a -> b -> c
-    repo.commit_with_bookmark("file1.txt", "content1", "Commit A", &"bookmark-a")
-        .commit_with_bookmark("file2.txt", "content2", "Commit B", &"bookmark-b")
-        .commit_with_bookmark("file3.txt", "content3", "Commit C", &"bookmark-c");
+    repo.commit_with_bookmark("file1.txt", "content1", "Commit A", "bookmark-a")
+        .commit_with_bookmark("file2.txt", "content2", "Commit B", "bookmark-b")
+        .commit_with_bookmark("file3.txt", "content3", "Commit C", "bookmark-c");
 
     repo.jj.exec(["bookmark", "delete", "bookmark-b"]).unwrap();
 
@@ -46,11 +46,11 @@ fn test_base_branch_not_included_in_submission() -> Result<()> {
     let repo = TestRepo::with_local_remote();
 
     repo.create_change("f1.txt", "feature1", "Feature 1")
-        .create_bookmark(&"feature-1");
+        .create_bookmark("feature-1");
 
     repo.jj.exec(["new"]).unwrap();
     repo.create_change("f2.txt", "feature2", "Feature 2")
-        .create_bookmark(&"feature-2");
+        .create_bookmark("feature-2");
 
     let changes = repo.jj.log("::feature-2")?;
     let bookmarks: Vec<_> = Bookmark::from_changes(&changes).into_iter().collect();
@@ -70,7 +70,7 @@ fn test_submit_base_branch_errors() -> Result<()> {
     let repo = TestRepo::with_local_remote();
 
     repo.create_change("feature.txt", "feature", "Feature commit")
-        .create_bookmark(&"feature-1");
+        .create_bookmark("feature-1");
 
     let changes = repo.jj.log("main")?;
     let bookmarks: Vec<_> = Bookmark::from_changes(&changes).into_iter().collect();
@@ -99,7 +99,7 @@ fn test_graph_skips_default_branch_history() -> Result<()> {
 
     repo.jj.exec(["new", "main"])?;
     repo.create_change("feature.txt", "feature", "Feature commit")
-        .create_bookmark(&"feature-1");
+        .create_bookmark("feature-1");
 
     let changes = repo.jj.log("mine() & bookmarks()")?;
     let bookmarks: Vec<_> = Bookmark::from_changes(&changes).into_iter().collect();
@@ -116,10 +116,7 @@ fn test_graph_skips_default_branch_history() -> Result<()> {
 mod e2e {
     use assertables::assert_contains;
 
-    use crate::{
-        error::Result,
-        tests::{TestRepo, unique_branch},
-    };
+    use crate::{error::Result, tests::TestRepo};
 
     #[tokio::test]
     async fn test_multiple_independent_stacks_dont_incorrectly_retarget() -> Result<()> {
@@ -129,17 +126,17 @@ mod e2e {
         // main -> c
 
         repo.jj.exec(["new", "main"])?;
-        let a = unique_branch("a");
+        let a = repo.bookmark_name("a");
         repo.create_change("file1.txt", "a content", "A")
             .create_and_push_bookmark(&a);
 
         repo.jj.exec(["new"])?;
-        let b = unique_branch("b");
+        let b = repo.bookmark_name("b");
         repo.create_change("file2.txt", "b content", "B")
             .create_and_push_bookmark(&b);
 
         repo.jj.exec(["new", "main"])?;
-        let c = unique_branch("c");
+        let c = repo.bookmark_name("c");
         repo.create_change("file3.txt", "c content", "C")
             .create_and_push_bookmark(&c);
 
@@ -156,7 +153,7 @@ mod e2e {
     async fn test_complex_bookmark_name() -> Result<()> {
         let repo = TestRepo::with_forgejo_remote();
 
-        let name = unique_branch("complex-bookmark--parent/complex--name");
+        let name = repo.bookmark_name("complex-bookmark--parent/complex--name");
 
         repo.create_change_and_bookmark(&name);
 
@@ -173,7 +170,7 @@ mod e2e {
     async fn test_complex_bookmark_name_tracked() -> Result<()> {
         let repo = TestRepo::with_forgejo_remote();
 
-        let name = unique_branch("complex-bookmark--parent/complex--name");
+        let name = repo.bookmark_name("complex-bookmark--parent/complex--name");
 
         repo.create_change_and_tracked_bookmark(&name)
             .push_bookmark(&name);

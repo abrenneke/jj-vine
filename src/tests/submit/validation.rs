@@ -32,7 +32,7 @@ mod e2e {
 
         repo.jj.exec(["new"])?;
         repo.create_change("test.txt", "content", "Test commit")
-            .create_bookmark(&"unpushed-branch");
+            .create_bookmark("unpushed-branch");
 
         let result = repo.try_run(["submit", "--tracked"]).await;
 

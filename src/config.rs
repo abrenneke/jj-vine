@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use bon::Builder;
-use serde::Deserialize;
+use serde::{Deserialize, de::Visitor};
 
 use crate::{
     error::{ConfigSnafu, Error, Result},
@@ -182,6 +182,11 @@ pub struct Config {
     #[builder(default)]
     pub open_as_draft: bool,
 
+    /// Configuration for MR title generation.
+    #[serde(default)]
+    #[builder(default)]
+    pub title: TitleConfig,
+
     /// GitLab configuration.
     #[serde(default)]
     #[builder(default)]
@@ -201,6 +206,110 @@ pub struct Config {
     #[serde(default)]
     #[builder(default)]
     pub azure: AzureDevOpsConfig,
+}
+
+#[derive(Debug, Clone, Deserialize, Builder)]
+#[serde(rename_all = "camelCase")]
+pub struct TitleConfig {
+    /// Whether to sync MR titles on every submit, or only once at MR creation.
+    /// Defaults to true.
+    #[serde(default = "default_true")]
+    pub sync: bool,
+
+    /// How to generate the title when an MR has only one revision.
+    /// Defaults to "firstCommitFirstLine".
+    #[serde(default = "default_single_revision")]
+    pub single_revision: TitleFormat,
+
+    /// How to generate the title when an MR has multiple revisions.
+    #[serde(default = "default_multiple_revisions")]
+    pub multiple_revisions: TitleFormat,
+}
+
+fn default_single_revision() -> TitleFormat {
+    TitleFormat::FirstRevisionFirstLine
+}
+
+fn default_multiple_revisions() -> TitleFormat {
+    TitleFormat::BookmarkName
+}
+
+impl Default for TitleConfig {
+    fn default() -> Self {
+        Self {
+            sync: default_true(),
+            single_revision: default_single_revision(),
+            multiple_revisions: default_multiple_revisions(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum TitleFormat {
+    /// Use the first revision's first line as the title.
+    FirstRevisionFirstLine,
+
+    /// Use the first revision's full message as the title.
+    FirstRevisionFullMessage,
+
+    /// Use the head revision's first line as the title.
+    HeadRevisionFirstLine,
+
+    /// Use the head revision's full message as the title.
+    HeadRevisionFullMessage,
+
+    /// Use the bookmark name as the title.
+    BookmarkName,
+
+    /// Use a custom template.
+    Other(String),
+}
+
+impl<'de> Deserialize<'de> for TitleFormat {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct TitleFormatVisitor;
+
+        impl<'de> Visitor<'de> for TitleFormatVisitor {
+            type Value = TitleFormat;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a title format")
+            }
+
+            fn visit_string<E>(self, v: String) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(match v.as_str() {
+                    "firstRevisionFirstLine" => TitleFormat::FirstRevisionFirstLine,
+                    "firstRevisionFullMessage" => TitleFormat::FirstRevisionFullMessage,
+                    "headRevisionFirstLine" => TitleFormat::HeadRevisionFirstLine,
+                    "headRevisionFullMessage" => TitleFormat::HeadRevisionFullMessage,
+                    "bookmarkName" => TitleFormat::BookmarkName,
+                    _ => TitleFormat::Other(v),
+                })
+            }
+
+            fn visit_str<E>(self, v: &str) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(match v {
+                    "firstRevisionFirstLine" => TitleFormat::FirstRevisionFirstLine,
+                    "firstRevisionFullMessage" => TitleFormat::FirstRevisionFullMessage,
+                    "headRevisionFirstLine" => TitleFormat::HeadRevisionFirstLine,
+                    "headRevisionFullMessage" => TitleFormat::HeadRevisionFullMessage,
+                    "bookmarkName" => TitleFormat::BookmarkName,
+                    _ => TitleFormat::Other(v.to_string()),
+                })
+            }
+        }
+
+        deserializer.deserialize_string(TitleFormatVisitor)
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]

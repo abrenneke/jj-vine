@@ -22,11 +22,6 @@ use crate::{
     jj::Jujutsu,
 };
 
-/// Generate a unique test branch name to avoid conflicts between test runs
-pub fn unique_branch(name: &str) -> String {
-    format!("jjmrs-test-{}-{}", uuid::Uuid::new_v4(), name)
-}
-
 /// A test repository with jj initialized
 pub struct TestRepo<T> {
     /// Temporary directory containing the repository
@@ -39,6 +34,8 @@ pub struct TestRepo<T> {
     forge: T,
 
     pub jj: Jujutsu,
+
+    pub id: String,
 }
 
 impl TestRepo<()> {
@@ -50,6 +47,7 @@ impl TestRepo<()> {
             jj: Jujutsu::new(&path).expect("Failed to create Jujutsu"),
             path,
             forge: Default::default(),
+            id: uuid::Uuid::new_v4().to_string(),
         }
     }
 
@@ -58,7 +56,7 @@ impl TestRepo<()> {
         repo.jj(["new"])
             .unwrap()
             .create_change("main.txt", "main", "Main commit")
-            .create_bookmark(&"main")
+            .create_bookmark("main")
             .jj(["new", "main"])
             .unwrap();
         repo
@@ -95,6 +93,7 @@ impl TestRepo<GitLabForge> {
                 true,
             )
             .expect("Failed to create GitLab client"),
+            id: uuid::Uuid::new_v4().to_string(),
         };
 
         repo.jj
@@ -147,7 +146,7 @@ impl TestRepo<GitLabForge> {
 
         // Fetch and track main so tests don't have to
         repo.jj.exec(["git", "fetch"]).unwrap();
-        repo.track_bookmark(&"main");
+        repo.track_bookmark("main");
 
         repo
     }
@@ -183,6 +182,7 @@ impl TestRepo<GitHubForge> {
                 accept_non_compliant,
             )
             .expect("Failed to create GitHub client"),
+            id: uuid::Uuid::new_v4().to_string(),
         };
 
         repo.jj
@@ -239,7 +239,7 @@ impl TestRepo<GitHubForge> {
 
         // Fetch and track main so tests don't have to
         repo.jj.exec(["git", "fetch"]).unwrap();
-        repo.track_bookmark(&"main");
+        repo.track_bookmark("main");
 
         repo
     }
@@ -291,6 +291,7 @@ impl TestRepo<ForgejoForge> {
             jj: Jujutsu::new(&path).expect("Failed to create Jujutsu"),
             path,
             forge,
+            id: uuid::Uuid::new_v4().to_string(),
         };
 
         repo.jj
@@ -393,6 +394,7 @@ impl TestRepo<AzureDevOpsForge> {
             jj: Jujutsu::new(&path).expect("Failed to create Jujutsu"),
             path,
             forge,
+            id: uuid::Uuid::new_v4().to_string(),
         };
 
         repo.jj
@@ -457,7 +459,7 @@ impl TestRepo<AzureDevOpsForge> {
             .unwrap();
 
         repo.jj.exec(["git", "fetch"]).unwrap();
-        repo.track_bookmark(&"main");
+        repo.track_bookmark("main");
 
         repo
     }
@@ -469,6 +471,26 @@ where
 {
     pub fn forge(&self) -> &T {
         &self.forge
+    }
+
+    pub async fn get_mr(&self, bookmark: impl JJName) -> T::MergeRequest {
+        self.forge()
+            .find_merge_request_by_source_branch(&bookmark.raw_name())
+            .await
+            .unwrap_or_else(|_| panic!("Failed to find merge request for {}", bookmark.raw_name()))
+            .unwrap_or_else(|| panic!("Merge request should exist for {}", bookmark.raw_name()))
+    }
+
+    pub async fn get_mr_with_base(
+        &self,
+        bookmark: impl JJName,
+        base: impl JJName,
+    ) -> T::MergeRequest {
+        self.forge()
+            .find_merge_request_by_source_branch_base_branch(&bookmark.raw_name(), &base.raw_name())
+            .await
+            .unwrap_or_else(|_| panic!("Failed to find merge request for {}", bookmark.raw_name()))
+            .unwrap_or_else(|| panic!("Merge request should exist for {}", bookmark.raw_name()))
     }
 }
 
@@ -487,11 +509,12 @@ impl TestRepo<TestRepo<()>> {
             jj: Jujutsu::new(&path).unwrap(),
             path,
             forge: upstream,
+            id: uuid::Uuid::new_v4().to_string(),
         };
 
         repo.forge
             .create_change("init.txt", "initial", "Initial commit")
-            .create_bookmark(&"main");
+            .create_bookmark("main");
 
         repo.jj
             .exec([
@@ -505,21 +528,31 @@ impl TestRepo<TestRepo<()>> {
 
         repo.jj.exec(["git", "fetch"]).unwrap();
 
-        repo.track_bookmark(&"main").jj(["new", "main"]).unwrap();
+        repo.track_bookmark("main").jj(["new", "main"]).unwrap();
 
         repo
     }
 }
 
 impl<T> TestRepo<T> {
-    /// Create a file and describe the current change, chainable
+    /// Gets the unique identifier for this TestRepo.
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    /// Gets a bookmark name that is unique to this TestRepo.
+    pub fn bookmark_name(&self, bookmark: &str) -> String {
+        format!("{}-{}", self.id(), bookmark)
+    }
+
+    /// Create a file and describe the current change
     pub fn create_change(&self, file: &str, content: &str, msg: &str) -> &Self {
         std::fs::write(self.path.join(file), content).unwrap();
         self.jj.exec(["describe", "-m", msg]).unwrap();
         self
     }
 
-    pub fn create_bookmark(&self, bookmark: &impl JJName) -> &Self {
+    pub fn create_bookmark(&self, bookmark: impl JJName) -> &Self {
         self.jj
             .exec(["bookmark", "create", &bookmark.name_for_jj()])
             .unwrap();
@@ -527,7 +560,7 @@ impl<T> TestRepo<T> {
     }
 
     /// Create a commit with a bookmark, then start new working copy
-    pub fn create_change_and_bookmark(&self, bookmark: &impl JJName) -> &Self {
+    pub fn create_change_and_bookmark(&self, bookmark: impl JJName) -> &Self {
         self.create_change(
             &format!("{}.txt", bookmark.raw_name().replace("/", "--")),
             &format!("content for {}", bookmark.raw_name()),
@@ -538,15 +571,15 @@ impl<T> TestRepo<T> {
         .unwrap()
     }
 
-    /// Push a bookmark to origin, chainable
-    pub fn push_bookmark(&self, bookmark: &impl JJName) -> &Self {
+    /// Push a bookmark to origin
+    pub fn push_bookmark(&self, bookmark: impl JJName) -> &Self {
         self.jj
             .exec(["git", "push", "--bookmark", &bookmark.name_for_jj()])
             .unwrap();
         self
     }
 
-    /// Run a jj command, chainable
+    /// Run a jj command
     pub fn jj<'a>(&self, args: impl AsRef<[&'a str]>) -> Result<&Self> {
         self.jj.exec(args)?;
         Ok(self)
@@ -576,9 +609,8 @@ impl<T> TestRepo<T> {
         self
     }
 
-    /// Create a bookmark at current revision, chainable.
-    /// If a remote is configured, also tracks the bookmark.
-    pub fn create_tracked_bookmark(&self, bookmark: &impl JJName) -> &Self {
+    /// Creates a bookmark and tracks it
+    pub fn create_tracked_bookmark(&self, bookmark: impl JJName) -> &Self {
         self.jj
             .exec(["bookmark", "create", &bookmark.name_for_jj()])
             .unwrap();
@@ -586,7 +618,7 @@ impl<T> TestRepo<T> {
         self
     }
 
-    pub fn track_bookmark(&self, bookmark: &impl JJName) -> &Self {
+    pub fn track_bookmark(&self, bookmark: impl JJName) -> &Self {
         let output = self
             .jj
             .exec([
@@ -605,28 +637,55 @@ impl<T> TestRepo<T> {
         self
     }
 
-    /// Create a bookmark and push it to origin, chainable
-    pub fn create_and_push_bookmark(&self, bookmark: &impl JJName) -> &Self {
+    /// Creates a bookmark, tracks it, and pushes it to origin
+    pub fn create_and_push_bookmark(&self, bookmark: impl JJName + Copy) -> &Self {
         self.create_tracked_bookmark(bookmark);
         self.push_bookmark(bookmark)
     }
 
-    pub fn create_change_and_tracked_bookmark(&self, bookmark: &impl JJName) -> &Self {
+    /// Creates a change, creates a bookmark, and tracks it
+    pub fn create_change_and_tracked_bookmark(&self, bookmark: impl JJName) -> &Self {
         self.create_change(
             &format!("{}.txt", bookmark.raw_name().replace("/", "--")),
             &format!("content for {}", bookmark.raw_name()),
-            &format!("Commit for {} bookmark", bookmark.raw_name()),
+            &format!(
+                "Commit for {} bookmark\nDescription for {} bookmark",
+                bookmark.raw_name(),
+                bookmark.raw_name(),
+            ),
         )
         .create_tracked_bookmark(bookmark)
     }
 
-    /// Create a commit with a bookmark, then start new working copy
+    /// Creates a stack of changes, each with a tracked bookmark, and submits
+    /// the stack
+    pub async fn submit_stack<I>(&self, bookmarks: I) -> &Self
+    where
+        I: IntoIterator,
+        <I as IntoIterator>::Item: JJName,
+    {
+        let bookmarks = bookmarks.into_iter().collect::<Vec<_>>();
+
+        let last_name = bookmarks.last().unwrap().name_for_jj();
+
+        for bookmark in bookmarks {
+            self.create_change_and_tracked_bookmark(bookmark);
+            self.jj(["new"]).unwrap();
+        }
+
+        self.run(["submit", &last_name]).await;
+
+        self
+    }
+
+    /// Creates a change, creates a bookmark, tracks it, and starts a new
+    /// working copy
     pub fn commit_with_bookmark(
         &self,
         file: &str,
         content: &str,
         msg: &str,
-        bookmark: &impl JJName,
+        bookmark: impl JJName,
     ) -> &Self {
         self.create_change(file, content, msg);
         self.create_tracked_bookmark(bookmark);
@@ -657,6 +716,14 @@ impl<T> TestRepo<T> {
             user_name,
             user_email,
         }
+    }
+
+    /// Sets a jj configuration value for the repo
+    pub fn set_config(&self, key: &str, value: &str) -> &Self {
+        self.jj
+            .exec(["config", "set", "--repo", key, value])
+            .unwrap();
+        self
     }
 }
 

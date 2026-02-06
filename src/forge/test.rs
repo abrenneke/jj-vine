@@ -200,10 +200,11 @@ impl Forge for TestForge {
         Ok(mr.clone())
     }
 
-    async fn update_merge_request_description(
+    async fn update_merge_request_info(
         &self,
         merge_request_iid: Cow<'_, str>,
         new_description: &str,
+        new_title: &str,
     ) -> Result<Self::MergeRequest> {
         let mut state = self.state.write().unwrap();
         let mr = state
@@ -211,6 +212,7 @@ impl Forge for TestForge {
             .get_mut(merge_request_iid.as_ref())
             .ok_or(Error::new("Merge request not found"))?;
         mr.description = Some(new_description.to_string());
+        mr.title = new_title.to_string();
         Ok(mr.clone())
     }
 

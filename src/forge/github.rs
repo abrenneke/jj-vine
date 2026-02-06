@@ -665,16 +665,18 @@ impl Forge for GitHubForge {
         Ok(pr)
     }
 
-    async fn update_merge_request_description(
+    async fn update_merge_request_info(
         &self,
         pr_number: Self::Id,
         new_description: &str,
+        new_title: &str,
     ) -> Result<Self::MergeRequest> {
         let pr: PullRequest = self
             .request(
                 Method::PATCH,
                 format!("/repos/{}/pulls/{}", self.target_project_id, pr_number),
                 Some(serde_json::json!({
+                    "title": new_title,
                     "body": new_description,
                 })),
             )

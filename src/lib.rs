@@ -10,6 +10,7 @@ pub mod forge;
 pub mod jj;
 pub mod output;
 pub mod submit;
+pub mod title;
 pub mod tracing_formatter;
 
 #[cfg(test)]

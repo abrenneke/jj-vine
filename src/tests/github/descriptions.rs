@@ -4,15 +4,15 @@ use crate::{
     description::{END_MARKER, START_MARKER},
     error::Result,
     forge::Forge,
-    tests::{TestRepo, unique_branch},
+    tests::TestRepo,
 };
 
 #[tokio::test]
 async fn test_pr_description_includes_stack_info() -> Result<()> {
     let repo = TestRepo::with_github_remote();
 
-    let branch_a = unique_branch("desc-a");
-    let branch_b = unique_branch("desc-b");
+    let branch_a = repo.bookmark_name("desc-a");
+    let branch_b = repo.bookmark_name("desc-b");
 
     // main -> A -> B
     repo.jj.exec(["new", "main"])?;
@@ -41,8 +41,8 @@ async fn test_pr_description_includes_stack_info() -> Result<()> {
 async fn test_pr_description_links_to_dependent_prs() -> Result<()> {
     let repo = TestRepo::with_github_remote();
 
-    let branch_a = unique_branch("link-a");
-    let branch_b = unique_branch("link-b");
+    let branch_a = repo.bookmark_name("link-a");
+    let branch_b = repo.bookmark_name("link-b");
 
     // main -> A -> B
     repo.jj.exec(["new", "main"])?;
@@ -77,8 +77,8 @@ async fn test_pr_description_links_to_dependent_prs() -> Result<()> {
 async fn test_user_content_preserved_on_resubmit() -> Result<()> {
     let repo = TestRepo::with_github_remote();
 
-    let branch_a = unique_branch("preserve-a");
-    let branch_b = unique_branch("preserve-b");
+    let branch_a = repo.bookmark_name("preserve-a");
+    let branch_b = repo.bookmark_name("preserve-b");
 
     repo.jj.exec(["new", "main"])?;
     repo.create_change("a.txt", "a", "Commit A")
@@ -94,7 +94,7 @@ async fn test_user_content_preserved_on_resubmit() -> Result<()> {
 
     let user_content = "My important notes about this PR";
     repo.forge()
-        .update_merge_request_description(pr.number, user_content)
+        .update_merge_request_info(pr.number, user_content, &pr.title)
         .await?;
 
     repo.jj.exec(["new"])?;
@@ -120,8 +120,8 @@ async fn test_user_content_preserved_on_resubmit() -> Result<()> {
 async fn test_add_markers_to_description_without_markers() -> Result<()> {
     let repo = TestRepo::with_github_remote();
 
-    let branch_a = unique_branch("markers-a");
-    let branch_b = unique_branch("markers-b");
+    let branch_a = repo.bookmark_name("markers-a");
+    let branch_b = repo.bookmark_name("markers-b");
 
     // main -> A
     repo.jj.exec(["new", "main"])?;
@@ -138,7 +138,7 @@ async fn test_add_markers_to_description_without_markers() -> Result<()> {
 
     let user_description = "Custom description without markers";
     repo.forge()
-        .update_merge_request_description(pr.number, user_description)
+        .update_merge_request_info(pr.number, user_description, &pr.title)
         .await?;
 
     repo.jj.exec(["new"])?;
@@ -164,8 +164,8 @@ async fn test_add_markers_to_description_without_markers() -> Result<()> {
 async fn test_skip_update_when_description_unchanged() -> Result<()> {
     let repo = TestRepo::with_github_remote();
 
-    let branch_a = unique_branch("unchanged-a");
-    let branch_b = unique_branch("unchanged-b");
+    let branch_a = repo.bookmark_name("unchanged-a");
+    let branch_b = repo.bookmark_name("unchanged-b");
 
     // main -> A -> B
     repo.jj.exec(["new", "main"])?;

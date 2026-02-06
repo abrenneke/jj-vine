@@ -83,17 +83,24 @@ impl<'a> JJName for Bookmark<'a> {
     }
 }
 
-impl<T> JJName for T
-where
-    T: AsRef<str>,
-{
+impl JJName for &str {
     fn raw_name(&self) -> String {
-        self.as_ref().to_string()
+        self.to_string()
     }
 
     fn name_for_jj(&self) -> String {
         // Assume a raw string is a bookmark, not something like `trunk()`.
-        format!("\"{}\"", self.as_ref())
+        format!("\"{}\"", self)
+    }
+}
+
+impl JJName for &String {
+    fn raw_name(&self) -> String {
+        self.to_string()
+    }
+
+    fn name_for_jj(&self) -> String {
+        format!("\"{}\"", self)
     }
 }
 
@@ -110,7 +117,18 @@ pub struct ChangeComponent<'a> {
 impl ChangeComponent<'_> {
     /// Finds a bookmark in the component by name.
     pub fn find(&self, name: &str) -> Option<&BookmarkWithPointers<'_>> {
-        self.leaves.iter().find_map(|b| b.find(name))
+        let mut to_process: Vec<_> = self.leaves.iter().collect();
+        while let Some(bookmark) = to_process.pop() {
+            if bookmark.name() == name {
+                return Some(bookmark);
+            }
+
+            to_process.extend(bookmark.parents.iter().filter_map(|parent| match parent {
+                BookmarkRef::Bookmark(b) => Some(b),
+                BookmarkRef::Trunk => None,
+            }))
+        }
+        None
     }
 
     /// Check if the component contains a bookmark by name.
@@ -301,7 +319,7 @@ impl BookmarkRef<'_> {
 impl<'a> JJName for BookmarkRef<'a> {
     fn raw_name(&self) -> String {
         match self {
-            BookmarkRef::Bookmark(b) => b.clone().raw_name(),
+            BookmarkRef::Bookmark(b) => b.raw_name(),
             BookmarkRef::Trunk => "trunk".to_string(),
         }
     }
@@ -310,7 +328,7 @@ impl<'a> JJName for BookmarkRef<'a> {
     /// a jj revset or command.
     fn name_for_jj(&self) -> String {
         match self {
-            BookmarkRef::Bookmark(b) => b.clone().name_for_jj(),
+            BookmarkRef::Bookmark(b) => b.name_for_jj(),
             BookmarkRef::Trunk => "trunk()".to_string(),
         }
     }
@@ -333,6 +351,16 @@ impl BookmarkWithPointers<'_> {
     /// Get the name of the bookmark.
     pub fn name(&self) -> &str {
         self.bookmark.name()
+    }
+
+    /// Gets the name of the parent bookmark, or the default branch if there is
+    /// no parent or the parent is the trunk.
+    pub fn parent_name(&self, default_branch: &str) -> String {
+        // TODO let user pick target branch
+        match self.parents.first() {
+            Some(BookmarkRef::Bookmark(b)) => b.name().to_string(),
+            Some(BookmarkRef::Trunk) | None => default_branch.to_string(),
+        }
     }
 
     /// Finds a bookmark in the bookmark or its parents by name.
@@ -567,6 +595,12 @@ impl<'a> BookmarkGraph<'a> {
     /// Get all bookmarks in the graph.
     pub fn bookmarks(&self) -> impl Iterator<Item = Bookmark<'_>> {
         self.bookmarks.values().map(Bookmark::clone)
+    }
+
+    pub fn bookmarks_with_pointers(&self) -> impl Iterator<Item = &BookmarkWithPointers<'_>> {
+        self.components
+            .iter()
+            .flat_map(|component| component.all_bookmarks())
     }
 
     /// Get all components in the graph.

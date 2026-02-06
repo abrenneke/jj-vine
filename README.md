@@ -41,10 +41,13 @@ Supports the following code forges:
   - [Common Settings](#common-settings)
 - [Description Generation / Stack Visualization](#description-generation--stack-visualization)
 
-  - [Configuration](#configuration)
+  - [Configuration](#description-configuration)
   - [Linear Format](#linear-format)
   - [Tree Format](#tree-format)
   - [Initial Description Generation](#initial-description-generation)
+- [Title Generation](#title-generation)
+  - [Configuration](#title-configuration)
+  - [Custom Title Templates](#custom-title-templates)
 - [Credits](#credits)
 - [FAQs](#faqs)
 
@@ -241,7 +244,7 @@ wip-2 No merge request
 
 See all options and additional help with `jj-vine status --help`.
 
-## Configuration
+## Configuration{#configuration}
 
 Configuration is stored in [jj's configuration system](https://docs.jj-vcs.dev/latest/config/) under the `jj-vine` section. You can use `jj config edit --repo` to edit the configuration for a specific repository or `jj config edit --user` to edit the global configuration. You can also use `jj config set --repo <key> <value>` to set a configuration value for a specific repository:
 
@@ -335,7 +338,7 @@ These settings apply to all forges:
 `jj-vine` can generate stack diagrams for pull/merge requests and add them to the descriptions of pull/merge requests. When enabled,
 every time you `submit` your bookmark(s), the descriptions for all impacted pull/merge requests will be updated as well.
 
-### Configuration
+### Configuration{#description-configuration}
 
 | Setting | Description | Type | Required | Default |
 |---------|-------------|------|----------|---------|
@@ -534,6 +537,69 @@ Message line 4
 - `xxxxxxxc` Parent 2 Message\
 Message line 2\
 Message line 3
+
+## Title Generation
+
+`jj-vine` will automatically generate a title for a pull/merge request when it is created. It can also optionally sync the title of a pull/merge request every time the bookmark is submitted (default on).
+
+By default, the title is generated as:
+
+- When there is only one revision in an MR/PR, the first line of the revision description.
+- When there are multiple revisions in an MR/PR, the name of the bookmark.
+
+### Configuration{#title-configuration}
+
+The title generation is highly configurable, using the below settings:
+
+| Setting | Description | Type | Required | Default |
+|---------|-------------|------|----------|---------|
+| `title.sync` | Whether to sync/update the title of a pull/merge request every time the bookmark is submitted. If enabled, this will overwrite any changes you may have manually made to the title. | Boolean | No | true |
+| `title.singleRevision` | How to generate the title when an MR has only one revision on top of its parent(s) | "firstRevisionFirstLine" \| "firstRevisionFullMessage" \| "headRevisionFirstLine" \| "headRevisionFullMessage" \| "bookmarkName" \| (custom template, see below) | No | "firstRevisionFirstLine" |
+| `title.multipleRevisions` | How to generate the title when an MR has multiple revisions on top of its parent(s) | "firstRevisionFirstLine" \| "firstRevisionFullMessage" \| "headRevisionFirstLine" \| "headRevisionFullMessage" \| "bookmarkName" \| (custom template, see below) | No | "bookmarkName" |
+
+### Custom Title Templates
+
+You can use custom templates to generate the title of a pull or merge request. While the full power of jj's template language is planned, at the moment you can use any string with the following placeholders replaced with the corresponding values:
+
+| Placeholder | Description |
+|-------------|-------------|
+| `{first.id}` | The jj commit/revision ID of the first (bottommost) revision in the PR/MR. |
+| `{first.change_id}` | The jj change ID of the first (bottommost) revision in the PR/MR. |
+| `{first.description}` | The full description of the first (bottommost) revision in the PR/MR. |
+| `{first.description_first_line}` | The first line of the description of the first (bottommost) revision in the PR/MR. |
+| `{first.description_not_first_line}` | The description of the first (bottommost) revision in the PR/MR, excluding the first line (trimmed). |
+| `{head.id}` | The jj commit/revision ID of the head revision in the PR/MR. |
+| `{head.change_id}` | The jj change ID of the head revision in the PR/MR. |
+| `{head.description}` | The full description of the head revision in the PR/MR. |
+| `{head.description_first_line}` | The first line of the description of the head revision in the PR/MR. |
+| `{head.description_not_first_line}` | The description of the head revision in the PR/MR, excluding the first line (trimmed). |
+| `{stack_index`} | The 1-based index of the revision in the stack. |
+| `{stack_count}` | The total number of revisions in the stack. |
+| `{bookmark_name}` | The name of the bookmark. |
+| `{parent_bookmark_name}` | The name of the parent bookmark (i.e. the target branch). |
+
+Some examples:
+
+- `{bookmark_name}: {head.description_first_line}`
+
+    - feature-a: Add feature A
+    - feature-b: Add feature B
+- `[{stack_index}/{stack_count}] {first.description_first_line}`
+
+    - [1/2] Add feature A
+    - [2/2] Add feature B
+- `{stack_index}/N: {head.description_first_line} ({bookmark_name} -> {parent_bookmark_name})`
+
+    - 1/N: Add feature A (feature-a -> main)
+    - 2/N: Add feature B (feature-b -> feature-a)
+- `{bookmark_name} → {parent_bookmark_name}: {first.description_first_line}`
+
+    - feature-a → main: Add feature A
+    - feature-b → feature-a: Add feature B
+- `[{head.change_id}] {head.description_first_line}`
+
+    - [kxqpmsyz] Add feature A
+    - [rlvkpnkp] Add feature B
 
 ## Credits
 

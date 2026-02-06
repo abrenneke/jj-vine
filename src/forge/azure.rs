@@ -473,6 +473,7 @@ impl Forge for AzureDevOpsForge {
     ) -> Result<Self::MergeRequest> {
         let body = UpdatePullRequestBody {
             description: None,
+            title: None,
             target_ref_name: Some(format!("refs/heads/{}", new_base)),
         };
 
@@ -492,12 +493,14 @@ impl Forge for AzureDevOpsForge {
         Ok(self.to_merge_request(pr))
     }
 
-    async fn update_merge_request_description(
+    async fn update_merge_request_info(
         &self,
         merge_request_iid: i32,
         new_description: &str,
+        new_title: &str,
     ) -> Result<Self::MergeRequest> {
         let body = UpdatePullRequestBody {
+            title: Some(new_title.to_string()),
             description: Some(new_description.to_string()),
             target_ref_name: None,
         };
@@ -1126,6 +1129,7 @@ pub struct RequestGitPullRequestCompletionOptions {
 pub struct UpdatePullRequestBody {
     pub target_ref_name: Option<String>,
 
+    pub title: Option<String>,
     pub description: Option<String>,
 }
 

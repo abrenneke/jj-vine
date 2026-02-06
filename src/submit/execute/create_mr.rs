@@ -1,3 +1,4 @@
+use bon::Builder;
 use owo_colors::OwoColorize;
 use tracing::error;
 
@@ -5,14 +6,17 @@ use crate::{
     error::{Error, Result},
     forge::{Forge, ForgeCreateMergeRequestOptions},
     submit::execute::{
+        ActionInfo,
         ActionResultData,
         ExecuteAction,
-        ExecutionActionContext,
+        ExecuteActionContext,
         MRUpdate,
         MRUpdateType,
     },
 };
 
+/// Create a new merge request
+#[derive(Debug, Clone, PartialEq, Eq, Builder)]
 pub struct CreateMRAction {
     /// The bookmark of the merge request
     pub bookmark: String,
@@ -25,27 +29,53 @@ pub struct CreateMRAction {
 
     /// The description of the merge request
     pub description: String,
+
+    pub dependencies: Option<Vec<String>>,
 }
 
-impl CreateMRAction {
-    pub fn new(
-        bookmark: String,
-        target_branch: String,
-        title: String,
-        description: String,
-    ) -> Self {
-        Self {
-            bookmark,
-            target_branch,
-            title,
-            description,
+impl ActionInfo for CreateMRAction {
+    fn id(&self) -> String {
+        format!("create_mr:{}", self.bookmark)
+    }
+
+    fn group_text(&self) -> String {
+        "Creating MRs".to_string()
+    }
+
+    fn text(&self) -> String {
+        format!("Creating MR for {}", self.bookmark.magenta())
+    }
+
+    fn substep_text(&self) -> String {
+        self.bookmark.clone().magenta().to_string()
+    }
+
+    fn plan_text(&self) -> String {
+        match self.description.lines().count() {
+            0 => format!(
+                "Create MR for {} -> {} named \"{}\" with no description",
+                self.bookmark.magenta(),
+                self.target_branch.magenta(),
+                self.title.bold()
+            ),
+            lines => format!(
+                "Create MR for {} -> {} named \"{}\" and a description {} lines long",
+                self.bookmark.magenta(),
+                self.target_branch.magenta(),
+                self.title.bold(),
+                lines
+            ),
         }
+    }
+
+    fn dependencies(&self) -> Vec<String> {
+        self.dependencies.as_ref().cloned().unwrap_or_default()
     }
 }
 
 impl ExecuteAction for CreateMRAction {
-    async fn execute(&self, ctx: ExecutionActionContext<'_, '_>) -> Result<ActionResultData> {
-        if ctx.plan.dry_run {
+    async fn execute(&self, ctx: ExecuteActionContext<'_>) -> Result<ActionResultData> {
+        if ctx.execute.dry_run {
             let msg = format!(
                 "Would {} {} -> {} \"{}\"",
                 "create".green(),
@@ -53,7 +83,7 @@ impl ExecuteAction for CreateMRAction {
                 self.target_branch.magenta(),
                 self.title
             );
-            ctx.output.log_message(&msg);
+            ctx.execute.output.log_message(&msg);
 
             return Ok(ActionResultData::DryRun);
         }
@@ -64,13 +94,15 @@ impl ExecuteAction for CreateMRAction {
             Some(self.description.as_str())
         };
 
-        let assignees = if ctx.config.assign_to_self {
-            match ctx.forge.current_user().await {
+        let assignees = if ctx.execute.config.assign_to_self {
+            match ctx.execute.forge.current_user().await {
                 Ok(user) => Some(vec![user]),
                 Err(e) => {
                     let warning =
                         format!("Warning: Failed to get current user for assignment: {}", e);
-                    ctx.output.log_message(&warning.yellow().to_string());
+                    ctx.execute
+                        .output
+                        .log_message(&warning.yellow().to_string());
                     None
                 }
             }
@@ -79,55 +111,60 @@ impl ExecuteAction for CreateMRAction {
         };
 
         let mut reviewers = Vec::new();
-        for username in &ctx.config.default_reviewers {
-            match ctx.forge.user_by_username(username).await {
+        for username in &ctx.execute.config.default_reviewers {
+            match ctx.execute.forge.user_by_username(username).await {
                 Ok(Some(user)) => {
                     reviewers.push(user);
                 }
                 Ok(None) => {
                     let warning = format!("Warning: Reviewer '{}' not found", username);
-                    ctx.output.log_message(&warning.yellow().to_string());
+                    ctx.execute
+                        .output
+                        .log_message(&warning.yellow().to_string());
                 }
                 Err(e) => {
                     let warning =
                         format!("Warning: Failed to look up reviewer '{}': {}", username, e);
-                    ctx.output.log_message(&warning.yellow().to_string());
+                    ctx.execute
+                        .output
+                        .log_message(&warning.yellow().to_string());
                 }
             }
         }
 
         match ctx
+            .execute
             .forge
             .create_merge_request(
                 ForgeCreateMergeRequestOptions::builder()
                     .source_branch(self.bookmark.clone())
                     .target_branch(self.target_branch.clone())
                     .title(self.title.clone())
-                    .remove_source_branch(ctx.config.delete_source_branch)
-                    .squash(ctx.config.squash_commits)
+                    .remove_source_branch(ctx.execute.config.delete_source_branch)
+                    .squash(ctx.execute.config.squash_commits)
                     .description(desc.map(|s| s.to_string()))
                     .assignees(assignees.unwrap_or_default())
                     .reviewers(reviewers)
-                    .open_as_draft(ctx.config.open_as_draft)
+                    .open_as_draft(ctx.execute.config.open_as_draft)
                     .build(),
             )
             .await
         {
             Ok(mr) => {
-                ctx.output.log_completed(&format!(
+                ctx.execute.output.log_completed(&format!(
                     "Created MR {}: {}",
                     format!("!{}", mr.iid()).cyan(),
                     &mr.url().dimmed()
                 ));
-                Ok(ActionResultData::MRCreated(Box::new(MRUpdate {
+                Ok(ActionResultData::MRCreated(MRUpdate {
                     mr,
                     bookmark: self.bookmark.clone(),
                     update_type: MRUpdateType::Created,
-                })))
+                }))
             }
             Err(e) => {
                 let error_msg = format!("Failed to create MR for {}: {}", self.bookmark, e);
-                ctx.output.log_message(&error_msg);
+                ctx.execute.output.log_message(&error_msg);
                 error!("{}", error_msg);
                 Err(Error::new(error_msg))
             }

@@ -9,7 +9,7 @@ pub trait Output: Send + Sync {
 
     fn set_substep(&self, message: &str);
 
-    fn start_substep(&self, message: String) -> Substep<'_>;
+    fn start_substep(&self, message: &str) -> Substep<'_>;
 
     fn log_message(&self, message: &str);
     fn log_completed(&self, message: &str);
@@ -84,8 +84,10 @@ impl Output for InteractiveOutput {
         }
     }
 
-    fn start_substep(&self, message: String) -> Substep<'_> {
+    fn start_substep(&self, message: &str) -> Substep<'_> {
         let mut substeps = self.substeps.write().unwrap();
+
+        let message = message.to_string();
         substeps.push(message.clone());
         self.set_substep(&substeps.join(", "));
 
@@ -152,8 +154,10 @@ impl Output for FlatOutput {
         );
     }
 
-    fn start_substep(&self, message: String) -> Substep<'_> {
+    fn start_substep(&self, message: &str) -> Substep<'_> {
         let mut substeps = self.substeps.write().unwrap();
+
+        let message = message.to_string();
         substeps.push(message.clone());
         self.set_substep(&substeps.join(", "));
 
@@ -208,8 +212,10 @@ impl Output for BufferedOutput {
         buffer.push_str(&format!("{}...\n", message));
     }
 
-    fn start_substep(&self, message: String) -> Substep<'_> {
+    fn start_substep(&self, message: &str) -> Substep<'_> {
         let mut substeps = self.substeps.write().unwrap();
+
+        let message = message.to_string();
         substeps.push(message.clone());
         let mut buffer = self.buffer.write().unwrap();
         buffer.push_str(&format!(
