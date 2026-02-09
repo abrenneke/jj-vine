@@ -1,13 +1,12 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, path::Path};
 
 use futures::{StreamExt, stream::FuturesUnordered};
-use itertools::Itertools;
 use owo_colors::OwoColorize;
 use snafu::whatever;
 
 use crate::{
-    bookmark::{BookmarkRef, JJName},
-    description::generate_initial_description,
+    bookmark::BookmarkRef,
+    description::{generate_description, remove_jj_vine_stack_from_description},
     error::{Error, Result},
     forge::{AnyForgeMergeRequest, Forge},
     submit::{
@@ -191,22 +190,11 @@ pub async fn plan(ctx: SubmitContext<'_>) -> Result<SubmissionPlan> {
                     let title =
                         get_mr_title(ctx.jj, &ctx.config.title, bookmark.clone(), component)?;
 
-                    let revset = [BookmarkRef::Trunk]
-                        .into_iter()
-                        .chain(
-                            bookmark
-                                .parents
-                                .iter()
-                                .filter(|p| matches!(p, BookmarkRef::Bookmark(..)))
-                                .cloned(),
-                        )
-                        .map(|p| format!("({}..{})", p.name_for_jj(), bookmark.name_for_jj()))
-                        .join(" & ");
-
-                    let branch_commits = ctx.jj.log(revset)?;
-
-                    let description =
-                        generate_initial_description(&ctx.config.description, &branch_commits);
+                    let description = generate_description(
+                        &ctx.config.description,
+                        &bookmark.revisions(ctx.jj)?,
+                        Path::new(&ctx.jj.exec(["root"])?.stdout),
+                    );
 
                     let create_mr_action = CreateMRAction::builder()
                         .bookmark(bookmark.name().to_string())
@@ -234,7 +222,9 @@ pub async fn plan(ctx: SubmitContext<'_>) -> Result<SubmissionPlan> {
         }
     }
 
-    let title_description_batch = (ctx.config.description.enabled || ctx.config.title.sync)
+    let title_description_batch = (ctx.config.description.enabled
+        || ctx.config.title.sync
+        || ctx.config.description.sync)
         .then(|| {
             let actions = ctx
                 .bookmark_graph
@@ -242,7 +232,9 @@ pub async fn plan(ctx: SubmitContext<'_>) -> Result<SubmissionPlan> {
                 .iter()
                 .flat_map(|component| {
                     component.all_bookmarks().into_iter().map(|bookmark| {
-                        let Some(current_title) = plan_mrs.get(bookmark.name()).map(|mr| &mr.title)
+                        let Some((current_title, current_description)) = plan_mrs
+                            .get(bookmark.name())
+                            .map(|mr| (&mr.title, &mr.description))
                         else {
                             whatever!("No MR found for {}", bookmark.name())
                         };
@@ -264,12 +256,32 @@ pub async fn plan(ctx: SubmitContext<'_>) -> Result<SubmissionPlan> {
                             None
                         };
 
+                        let maybe_description =
+                            if ctx.config.description.enabled && ctx.config.description.sync {
+                                let new_description = generate_description(
+                                    &ctx.config.description,
+                                    &bookmark.revisions(ctx.jj)?,
+                                    Path::new(&ctx.jj.exec(["root"])?.stdout),
+                                );
+
+                                if new_description.trim()
+                                    != remove_jj_vine_stack_from_description(current_description)
+                                {
+                                    Some(new_description)
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            };
+
                         if maybe_title.is_some() || ctx.config.description.enabled {
                             Ok(Some(Action::UpdateMRTitleDescription(
                                 UpdateMRTitleDescriptionAction::builder()
                                     .bookmark(bookmark.name().to_string())
                                     .generate_stack_in_description(ctx.config.description.enabled)
                                     .maybe_title(maybe_title)
+                                    .maybe_description(maybe_description)
                                     .dependencies(mr_action_ids.clone())
                                     .build(),
                             )))

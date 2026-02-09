@@ -5,7 +5,7 @@ use tracing::error;
 
 use crate::{
     description::{generate_stack_description, insert_stack_into_description},
-    error::{Error, Result, make_whatever},
+    error::{Error, Result},
     forge::Forge,
     submit::execute::{
         ActionInfo,
@@ -24,6 +24,11 @@ use crate::{
 pub struct UpdateMRTitleDescriptionAction {
     /// The new title for the MR. If None, the title will not be updated.
     pub title: Option<String>,
+
+    /// The new user-content description for the MR. If None, the description
+    /// will not be updated. This does not affect whether the stack is shown
+    /// or regenerated, it is only for syncing the description automatically.
+    pub description: Option<String>,
 
     pub generate_stack_in_description: bool,
 
@@ -50,23 +55,51 @@ impl ActionInfo for UpdateMRTitleDescriptionAction {
     }
 
     fn plan_text(&self) -> String {
-        match (&self.title, self.generate_stack_in_description) {
-            (Some(title), true) => format!(
+        match (
+            &self.title,
+            self.generate_stack_in_description,
+            &self.description,
+        ) {
+            (Some(title), true, Some(description)) => format!(
+                "Update title of MR for {} to \"{}\" and update description ({} lines) & stack",
+                self.bookmark.magenta(),
+                title.bold(),
+                description.lines().count()
+            ),
+            (Some(title), true, None) => format!(
                 "Update title of MR for {} to \"{}\" and regenerate stack in description",
                 self.bookmark.magenta(),
                 title.bold()
             ),
-            (Some(title), false) => format!(
+            (Some(title), false, None) => format!(
                 "Update title of MR for {} to \"{}\"",
                 self.bookmark.magenta(),
                 title.bold()
             ),
-            (None, true) => format!(
+            (Some(title), false, Some(description)) => format!(
+                "Update title of MR for {} to \"{}\" and update description ({} lines)",
+                self.bookmark.magenta(),
+                title.bold(),
+                description.lines().count()
+            ),
+            (None, true, None) => format!(
                 "Regenerate stack in description of MR for {}",
                 self.bookmark.magenta()
             ),
-            (None, false) => format!(
-                "ERROR: Neither title nor generate_stack_in_description is set for {}",
+            (None, true, Some(description)) => format!(
+                "Update description ({} lines) & stack of MR for {}",
+                description.lines().count(),
+                self.bookmark.magenta()
+            ),
+            (None, false, Some(description)) => {
+                format!(
+                    "Update description of MR for {} ({} lines)",
+                    self.bookmark.magenta(),
+                    description.lines().count()
+                )
+            }
+            (None, false, None) => format!(
+                "ERROR: Neither title nor generate_stack_in_description nor description is set for {}",
                 self.id(),
             ),
         }
@@ -85,12 +118,11 @@ impl ActionInfo for UpdateMRTitleDescriptionAction {
 impl ExecuteAction for UpdateMRTitleDescriptionAction {
     async fn execute(&self, ctx: ExecuteActionContext<'_>) -> Result<ActionResultData> {
         if ctx.execute.dry_run {
-            let msg = format!(
+            ctx.execute.output.log_message(&format!(
                 "Would try to {} MR description for {}",
                 "update".yellow(),
                 self.bookmark.magenta()
-            );
-            ctx.execute.output.log_message(&msg);
+            ));
             return Ok(ActionResultData::DryRun);
         }
 
@@ -107,21 +139,18 @@ impl ExecuteAction for UpdateMRTitleDescriptionAction {
         };
 
         let Some(current_mr) = all_mrs.get(self.bookmark.as_str()) else {
-            return Err(Error::new(format!(
-                "No MR found for {}",
-                self.bookmark.magenta()
-            )));
+            whatever!("No MR found for {}", self.bookmark.magenta());
         };
 
         let default_branch = ctx.execute.jj.default_branch()?;
 
-        let stack = ctx
+        let Some(stack) = ctx
             .execute
             .bookmark_graph
             .component_containing(self.bookmark.as_str())
-            .ok_or_else::<Error, _>(|| {
-                make_whatever!("Bookmark not found in component: {}", self.bookmark)
-            })?;
+        else {
+            whatever!("Bookmark not found in component: {}", self.bookmark)
+        };
 
         let stack_description = generate_stack_description(
             &self.bookmark,
@@ -132,8 +161,14 @@ impl ExecuteAction for UpdateMRTitleDescriptionAction {
             ctx.execute.forge,
         );
 
+        let description_user_part = if let Some(description) = &self.description {
+            description // Stack part will be inserted after
+        } else {
+            current_mr.description()
+        };
+
         let new_description =
-            insert_stack_into_description(&stack_description, current_mr.description());
+            insert_stack_into_description(&stack_description, description_user_part);
 
         let description_unchanged = current_mr.description() == new_description;
 

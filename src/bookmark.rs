@@ -1,5 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use itertools::Itertools;
+
 use crate::{
     error::{BookmarkNotFoundSnafu, Error, Result},
     jj::{BookmarkInfo, Change, Jujutsu},
@@ -422,6 +424,21 @@ impl BookmarkWithPointers<'_> {
 
     pub fn has_parent_ref(&self, parent: &BookmarkRef<'_>) -> bool {
         self.parents.iter().any(|p| p == parent)
+    }
+
+    pub fn revisions(&self, jj: &Jujutsu) -> Result<Vec<Change>> {
+        let revset = [BookmarkRef::Trunk]
+            .into_iter()
+            .chain(
+                self.parents
+                    .iter()
+                    .filter(|p| matches!(p, BookmarkRef::Bookmark(..)))
+                    .cloned(),
+            )
+            .map(|p| format!("({}..{})", p.name_for_jj(), self.name_for_jj()))
+            .join(" & ");
+
+        jj.log(revset)
     }
 }
 

@@ -1,6 +1,7 @@
 use std::{
     borrow::Cow,
     collections::{HashMap, HashSet},
+    path::Path,
 };
 
 use enum_dispatch::enum_dispatch;
@@ -8,7 +9,7 @@ use itertools::Itertools;
 
 use crate::{
     bookmark::{BookmarkRef, ChangeComponent},
-    config::{DescriptionConfig, DescriptionFormat, InitialDescriptionMode},
+    config::{DescriptionConfig, DescriptionDiagramFormat, DescriptionMode},
     forge::{AnyForgeMergeRequest, BorrowId, ForgeImpl, ForgeMergeRequest},
     jj::Change,
     utils::toposort,
@@ -593,10 +594,10 @@ pub fn generate_stack_description(
     base_branch: &str,
     format_merge_request: &ForgeImpl,
 ) -> String {
-    let formatter = |format: DescriptionFormat| match format {
-        DescriptionFormat::None => DescriptionFormatter::None,
-        DescriptionFormat::Linear => DescriptionFormatter::LinearList(LinearListFormatter),
-        DescriptionFormat::Tree => DescriptionFormatter::Tree(TreeFormatter),
+    let formatter = |format: DescriptionDiagramFormat| match format {
+        DescriptionDiagramFormat::None => DescriptionFormatter::None,
+        DescriptionDiagramFormat::Linear => DescriptionFormatter::LinearList(LinearListFormatter),
+        DescriptionDiagramFormat::Tree => DescriptionFormatter::Tree(TreeFormatter),
     };
 
     let context = FormatContext {
@@ -609,21 +610,34 @@ pub fn generate_stack_description(
 
     match component {
         component if component.len() == 1 => {
-            formatter(config.format.single).format_single(&context)
+            formatter(config.diagram.single).format_single(&context)
         }
         component if component.is_linear() => {
-            formatter(config.format.linear).format_linear(&context)
+            formatter(config.diagram.linear).format_linear(&context)
         }
-        component if component.is_tree() => formatter(config.format.tree).format_tree(&context),
-        _ => formatter(config.format.complex).format_graph(&context),
+        component if component.is_tree() => formatter(config.diagram.tree).format_tree(&context),
+        _ => formatter(config.diagram.complex).format_graph(&context),
     }
 }
 
-/// Generates the initial description for a branch based on the commits in the
+pub fn remove_jj_vine_stack_from_description(description: &str) -> String {
+    let (before, after) = match (description.find(START_MARKER), description.find(END_MARKER)) {
+        (Some(start), Some(end)) if start < end => (
+            description[..start].trim(),
+            description[end + END_MARKER.len()..].trim(),
+        ),
+        _ => (description.trim(), ""),
+    };
+
+    format!("{before}\n\n{after}").trim().to_string()
+}
+
+/// Generates the description for a branch based on the commits in the
 /// branch and the configuration.
-pub fn generate_initial_description(
+pub fn generate_description(
     config: &DescriptionConfig,
     branch_commits: impl AsRef<[Change]>,
+    repository_root: &Path,
 ) -> String {
     if !config.enabled {
         return String::new();
@@ -640,17 +654,17 @@ pub fn generate_initial_description(
 
     match &branch_commits[..] {
         [] => String::new(),
-        [single_commit] => match config.initial_single_revision {
-            InitialDescriptionMode::None => String::new(),
-            InitialDescriptionMode::NotFirstLine => single_commit
+        [single_commit] => match &config.single_revision {
+            DescriptionMode::None => String::new(),
+            DescriptionMode::NotFirstLine => single_commit
                 .description
                 .lines()
                 .skip(1)
                 .join("\n")
                 .trim()
                 .to_string(),
-            InitialDescriptionMode::FullMessage => single_commit.description.clone(),
-            InitialDescriptionMode::CommitListFirstLine => format!(
+            DescriptionMode::FullMessage => single_commit.description.clone(),
+            DescriptionMode::CommitListFirstLine => format!(
                 "- `{}` {}",
                 single_commit.commit_id.chars().take(8).collect::<String>(),
                 single_commit
@@ -660,7 +674,7 @@ pub fn generate_initial_description(
                     .unwrap_or_default()
                     .trim()
             ),
-            InitialDescriptionMode::CommitListFull => format!(
+            DescriptionMode::CommitListFull => format!(
                 "- `{}` {}",
                 single_commit.commit_id.chars().take(8).collect::<String>(),
                 single_commit
@@ -671,18 +685,19 @@ pub fn generate_initial_description(
                     .join("\n")
                     .trim_end_matches('\\')
             ),
+            DescriptionMode::File(path) => read_file(repository_root, Path::new(path)),
         },
-        [head_commit, ..] => match config.initial_multiple_revisions {
-            InitialDescriptionMode::None => String::new(),
-            InitialDescriptionMode::NotFirstLine => head_commit
+        [head_commit, ..] => match &config.multiple_revisions {
+            DescriptionMode::None => String::new(),
+            DescriptionMode::NotFirstLine => head_commit
                 .description
                 .lines()
                 .skip(1)
                 .join("\n")
                 .trim()
                 .to_string(),
-            InitialDescriptionMode::FullMessage => head_commit.description.clone(),
-            InitialDescriptionMode::CommitListFirstLine => branch_commits
+            DescriptionMode::FullMessage => head_commit.description.clone(),
+            DescriptionMode::CommitListFirstLine => branch_commits
                 .iter()
                 .map(|c| {
                     format!(
@@ -692,7 +707,7 @@ pub fn generate_initial_description(
                     )
                 })
                 .join("\n"),
-            InitialDescriptionMode::CommitListFull => branch_commits
+            DescriptionMode::CommitListFull => branch_commits
                 .iter()
                 .map(|c| {
                     format!(
@@ -707,8 +722,13 @@ pub fn generate_initial_description(
                     )
                 })
                 .join("\n"),
+            DescriptionMode::File(path) => read_file(repository_root, Path::new(path)),
         },
     }
+}
+
+fn read_file(repository_root: &Path, path: &Path) -> String {
+    std::fs::read_to_string(repository_root.join(path)).unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -1516,7 +1536,7 @@ mod tests {
     #[test]
     fn test_generate_initial_description_none() {
         assert_str_eq!(
-            generate_initial_description(&DescriptionConfig::default(), &[]),
+            generate_description(&DescriptionConfig::default(), &[], Path::new("")),
             ""
         );
     }
@@ -1534,12 +1554,13 @@ mod tests {
     #[test]
     fn test_generate_initial_description_single_revision_none() {
         assert_str_eq!(
-            generate_initial_description(
+            generate_description(
                 &DescriptionConfig {
-                    initial_single_revision: InitialDescriptionMode::None,
+                    single_revision: DescriptionMode::None,
                     ..DescriptionConfig::default()
                 },
-                &[mock_commit("commit-1", []),]
+                &[mock_commit("commit-1", []),],
+                Path::new("")
             ),
             ""
         );
@@ -1548,12 +1569,13 @@ mod tests {
     #[test]
     fn test_generate_initial_description_single_revision_not_first_line() {
         assert_str_eq!(
-            generate_initial_description(
+            generate_description(
                 &DescriptionConfig {
-                    initial_single_revision: InitialDescriptionMode::NotFirstLine,
+                    single_revision: DescriptionMode::NotFirstLine,
                     ..DescriptionConfig::default()
                 },
-                &[mock_commit("commit-1", []),]
+                &[mock_commit("commit-1", []),],
+                Path::new("")
             ),
             "Body"
         );
@@ -1562,12 +1584,13 @@ mod tests {
     #[test]
     fn test_generate_initial_description_single_revision_full_message() {
         assert_str_eq!(
-            generate_initial_description(
+            generate_description(
                 &DescriptionConfig {
-                    initial_single_revision: InitialDescriptionMode::FullMessage,
+                    single_revision: DescriptionMode::FullMessage,
                     ..DescriptionConfig::default()
                 },
-                &[mock_commit("commit-1", []),]
+                &[mock_commit("commit-1", []),],
+                Path::new("")
             ),
             "Message\n\nBody"
         );
@@ -1576,12 +1599,13 @@ mod tests {
     #[test]
     fn test_generate_initial_description_single_revision_commit_list_first_line() {
         assert_str_eq!(
-            generate_initial_description(
+            generate_description(
                 &DescriptionConfig {
-                    initial_single_revision: InitialDescriptionMode::CommitListFirstLine,
+                    single_revision: DescriptionMode::CommitListFirstLine,
                     ..DescriptionConfig::default()
                 },
-                &[mock_commit("commit-1", []),]
+                &[mock_commit("commit-1", []),],
+                Path::new("")
             ),
             "- `commit-1` Message"
         );
@@ -1590,12 +1614,13 @@ mod tests {
     #[test]
     fn test_generate_initial_description_single_revision_commit_list_full() {
         assert_str_eq!(
-            generate_initial_description(
+            generate_description(
                 &DescriptionConfig {
-                    initial_single_revision: InitialDescriptionMode::CommitListFull,
+                    single_revision: DescriptionMode::CommitListFull,
                     ..DescriptionConfig::default()
                 },
-                &[mock_commit("commit-1", []),]
+                &[mock_commit("commit-1", []),],
+                Path::new("")
             ),
             "- `commit-1` Message\\\n\\\nBody"
         );
@@ -1604,15 +1629,16 @@ mod tests {
     #[test]
     fn test_generate_initial_description_multiple_revisions_none() {
         assert_str_eq!(
-            generate_initial_description(
+            generate_description(
                 &DescriptionConfig {
-                    initial_multiple_revisions: InitialDescriptionMode::None,
+                    multiple_revisions: DescriptionMode::None,
                     ..DescriptionConfig::default()
                 },
                 &[
                     mock_commit("commit-1", []),
                     mock_commit("commit-2", ["commit-1"]),
-                ]
+                ],
+                Path::new("")
             ),
             ""
         );
@@ -1621,15 +1647,16 @@ mod tests {
     #[test]
     fn test_generate_initial_description_multiple_revisions_not_first_line() {
         assert_str_eq!(
-            generate_initial_description(
+            generate_description(
                 &DescriptionConfig {
-                    initial_multiple_revisions: InitialDescriptionMode::NotFirstLine,
+                    multiple_revisions: DescriptionMode::NotFirstLine,
                     ..DescriptionConfig::default()
                 },
                 &[
                     mock_commit("commit-1", []),
                     mock_commit("commit-2", ["commit-1"]),
-                ]
+                ],
+                Path::new("")
             ),
             "Body"
         );
@@ -1638,15 +1665,16 @@ mod tests {
     #[test]
     fn test_generate_initial_description_multiple_revisions_full_message() {
         assert_str_eq!(
-            generate_initial_description(
+            generate_description(
                 &DescriptionConfig {
-                    initial_multiple_revisions: InitialDescriptionMode::FullMessage,
+                    multiple_revisions: DescriptionMode::FullMessage,
                     ..DescriptionConfig::default()
                 },
                 &[
                     mock_commit("commit-1", []),
                     mock_commit("commit-2", ["commit-1"]),
-                ]
+                ],
+                Path::new("")
             ),
             "Message\n\nBody"
         );
@@ -1655,15 +1683,16 @@ mod tests {
     #[test]
     fn test_generate_initial_description_multiple_revisions_commit_list_first_line() {
         assert_str_eq!(
-            generate_initial_description(
+            generate_description(
                 &DescriptionConfig {
-                    initial_multiple_revisions: InitialDescriptionMode::CommitListFirstLine,
+                    multiple_revisions: DescriptionMode::CommitListFirstLine,
                     ..DescriptionConfig::default()
                 },
                 &[
                     mock_commit("commit-1", []),
                     mock_commit("commit-2", ["commit-1"]),
-                ]
+                ],
+                Path::new("")
             ),
             "- `commit-2` Message\n- `commit-1` Message"
         );
@@ -1672,15 +1701,16 @@ mod tests {
     #[test]
     fn test_generate_initial_description_multiple_revisions_commit_list_full() {
         assert_str_eq!(
-            generate_initial_description(
+            generate_description(
                 &DescriptionConfig {
-                    initial_multiple_revisions: InitialDescriptionMode::CommitListFull,
+                    multiple_revisions: DescriptionMode::CommitListFull,
                     ..DescriptionConfig::default()
                 },
                 &[
                     mock_commit("commit-1", []),
                     mock_commit("commit-2", ["commit-1"]),
-                ]
+                ],
+                Path::new("")
             ),
             "- `commit-2` Message\\\n\\\nBody\n- `commit-1` Message\\\n\\\nBody"
         );
@@ -1689,12 +1719,13 @@ mod tests {
     #[test]
     fn test_generate_initial_description_disabled() {
         assert_str_eq!(
-            generate_initial_description(
+            generate_description(
                 &DescriptionConfig {
                     enabled: false,
                     ..DescriptionConfig::default()
                 },
-                &[mock_commit("commit-1", []),]
+                &[mock_commit("commit-1", []),],
+                Path::new("")
             ),
             ""
         );

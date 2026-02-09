@@ -222,3 +222,163 @@ async fn test_skip_update_when_description_unchanged() -> Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_sync_description() -> Result<()> {
+    let repo = TestRepo::with_forgejo_remote();
+
+    repo.set_config("jj-vine.description.sync", "true");
+
+    let branch_a = repo.bookmark_name("feature-a");
+    let branch_b = repo.bookmark_name("feature-b");
+
+    // main -> A -> B
+    repo.submit_stack([&branch_a, &branch_b]).await;
+
+    let pr_a = repo.get_mr_with_base(&branch_a, "main").await;
+    let pr_b = repo.get_mr_with_base(&branch_b, &branch_a).await;
+
+    assert!(
+        pr_a.pull_request
+            .body
+            .as_ref()
+            .unwrap()
+            .starts_with(&format!(
+                r#"Description for {branch_a} bookmark
+
+<!-- start jj-vine stack -->"#
+            ))
+    );
+
+    assert!(
+        pr_b.pull_request
+            .body
+            .as_ref()
+            .unwrap()
+            .starts_with(&format!(
+                r#"Description for {branch_b} bookmark
+
+<!-- start jj-vine stack -->"#
+            ))
+    );
+
+    repo.jj.exec([
+        "describe",
+        "-r",
+        &branch_a,
+        "-m",
+        "This is the new branch A description\n\nThis is the new branch A body",
+    ])?;
+    repo.jj.exec([
+        "describe",
+        "-r",
+        &branch_b,
+        "-m",
+        "This is the new branch B description\n\nThis is the new branch B body",
+    ])?;
+
+    repo.run(["submit", &branch_b]).await;
+
+    let pr_a = repo.get_mr_with_base(&branch_a, "main").await;
+    let pr_b = repo.get_mr_with_base(&branch_b, &branch_a).await;
+
+    assert!(pr_a.pull_request.body.as_ref().unwrap().starts_with(
+        r#"This is the new branch A body
+
+<!-- start jj-vine stack -->"#
+    ));
+
+    assert!(pr_b.pull_request.body.as_ref().unwrap().starts_with(
+        r#"This is the new branch B body
+
+<!-- start jj-vine stack -->"#
+    ));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_sync_description_disabled() -> Result<()> {
+    let repo = TestRepo::with_forgejo_remote();
+
+    repo.set_config("jj-vine.description.sync", "false");
+
+    let branch_a = repo.bookmark_name("feature-a");
+    let branch_b = repo.bookmark_name("feature-b");
+
+    // main -> A -> B
+    repo.submit_stack([&branch_a, &branch_b]).await;
+
+    let pr_a = repo.get_mr_with_base(&branch_a, "main").await;
+    let pr_b = repo.get_mr_with_base(&branch_b, &branch_a).await;
+
+    assert!(
+        pr_a.pull_request
+            .body
+            .as_ref()
+            .unwrap()
+            .starts_with(&format!(
+                r#"Description for {branch_a} bookmark
+
+<!-- start jj-vine stack -->"#
+            ))
+    );
+
+    assert!(
+        pr_b.pull_request
+            .body
+            .as_ref()
+            .unwrap()
+            .starts_with(&format!(
+                r#"Description for {branch_b} bookmark
+
+<!-- start jj-vine stack -->"#
+            ))
+    );
+
+    repo.jj.exec([
+        "describe",
+        "-r",
+        &branch_a,
+        "-m",
+        "This is the new branch A description\n\nThis is the new branch A body",
+    ])?;
+    repo.jj.exec([
+        "describe",
+        "-r",
+        &branch_b,
+        "-m",
+        "This is the new branch B description\n\nThis is the new branch B body",
+    ])?;
+
+    repo.run(["submit", &branch_b]).await;
+
+    let pr_a = repo.get_mr_with_base(&branch_a, "main").await;
+    let pr_b = repo.get_mr_with_base(&branch_b, &branch_a).await;
+
+    assert!(
+        pr_a.pull_request
+            .body
+            .as_ref()
+            .unwrap()
+            .starts_with(&format!(
+                r#"Description for {branch_a} bookmark
+
+<!-- start jj-vine stack -->"#
+            ))
+    );
+
+    assert!(
+        pr_b.pull_request
+            .body
+            .as_ref()
+            .unwrap()
+            .starts_with(&format!(
+                r#"Description for {branch_b} bookmark
+
+<!-- start jj-vine stack -->"#
+            ))
+    );
+
+    Ok(())
+}

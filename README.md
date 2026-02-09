@@ -44,7 +44,7 @@ Supports the following code forges:
   - [Configuration](#description-configuration)
   - [Linear Format](#linear-format)
   - [Tree Format](#tree-format)
-  - [Initial Description Generation](#initial-description-generation)
+  - [Description Generation](#description-generation)
 - [Title Generation](#title-generation)
   - [Configuration](#title-configuration)
   - [Custom Title Templates](#custom-title-templates)
@@ -335,21 +335,25 @@ These settings apply to all forges:
 
 ## Description Generation / Stack Visualization
 
-`jj-vine` can generate stack diagrams for pull/merge requests and add them to the descriptions of pull/merge requests. When enabled,
-every time you `submit` your bookmark(s), the descriptions for all impacted pull/merge requests will be updated as well.
+If enabled, `jj-vine` can generate both a description/body for a pull/merge request, and a stack diagram to include in the description. The stack diagram
+will always be kept in sync with your PR/MR stack upon submitting your bookmark(s). The description generation will only sync if `description.sync` is enabled, otherwise the description generation will only happen when a pull/merge request is first created.
+
+If you would like description generation, but not a stack diagram, you can set each value of `description.diagram` to `none`. Alternatively, if you would
+like to only generate a stack diagram, you can set `description.singleRevision` and `description.multipleRevisions` to `none`.
 
 ### Configuration{#description-configuration}
 
 | Setting | Description | Type | Required | Default |
 |---------|-------------|------|----------|---------|
 | `description.enabled` | Whether to enable or disable description generation entirely. If false, pull/merge request descriptions will not be touched | Boolean | No | true |
-| `description.format` | How to render the description for different types of merge request stacks | Object | No | (see next rows) |
-| `description.initialSingleRevision` | How to generate the initial description for a pull/merge request when there is only one revision in the pull/merge request  | "none" \| "notFirstLine" \| "fullMessage" \| "commitListFirstLine" \| "commitListFull" (see below) | No | "notFirstLine" |
-| `description.initialMultipleRevisions` | How to generate the initial description for a pull/merge request when there are multiple revisions in the pull/merge request | "none" \| "notFirstLine" \| "fullMessage" \| "commitListFirstLine" \| "commitListFull" (see below) | No | "commitListFull" |
-| `description.format.single` | How to render a **single** pull/merge request, without any parents or children besides the trunk | "none" \| "linear" \| "tree" | No | "none" |
-| `description.format.linear` | How to render a **linear** stack of bookmarks. This means that no tracked bookmark has multiple parents or multiple children | "none" \| "linear" \| "tree" | No | "linear" |
-| `description.format.tree` | How to render a **tree** of bookmarks, where two bookmarks merge into a common parent, but no bookmark has multiple parents | "none" \| "linear" \| "tree" | No | "tree" |
-| `description.format.complex` | How to render a **complex** (DAG) graph of bookmarks, where any bookmark has multiple parents. Because forges only support a pull/merge request merging into a single parent, in this situation you may see commits of one pull/merge request included in other pull/merge requests | "none" \| "linear" \| "tree" | No | "complex" |
+| `description.sync` | Whether to sync the description of a pull/merge request every time the bookmark is submitted. If this is enabled, any changes you make to the description will be overwritten by the generated description on the next submission. Defaults to false | Boolean | No | false |
+| `description.diagram` | How to render the stack diagram for different types of merge request stacks | Object | No | (see next rows) |
+| `description.singleRevision` | How to generate the non-stack part of the description for a pull/merge request when there is only one revision in the pull/merge request  | `none` \| `notFirstLine` \| `fullMessage` \| `commitListFirstLine` \| `commitListFull` \| `file(path_to_file)` (see below) | No | `notFirstLine` |
+| `description.multipleRevisions` | How to generate the non-stack part of the description for a pull/merge request when there are multiple revisions in the pull/merge request | `none` \| `notFirstLine` \| `fullMessage` \| `commitListFirstLine` \| `commitListFull` \| `file(path_to_file)` (see below) | No | `commitListFull` |
+| `description.diagram.single` | How to render a **single** pull/merge request, without any parents or children besides the trunk | `none` \| `linear` \| `tree` | No | `none` |
+| `description.diagram.linear` | How to render a **linear** stack of bookmarks. This means that no tracked bookmark has multiple parents or multiple children | `none` \| `linear` \| `tree` | No | `linear` |
+| `description.diagram.tree` | How to render a **tree** of bookmarks, where two bookmarks merge into a common parent, but no bookmark has multiple parents | `none` \| `linear` \| `tree` | No | `tree` |
+| `description.diagram.complex` | How to render a **complex** (DAG) graph of bookmarks, where any bookmark has multiple parents. Because forges only support a pull/merge request merging into a single parent, in this situation you may see commits of one pull/merge request included in other pull/merge requests | `none` \| `linear` \| `tree` | No | `complex` |
 
 The following sections show examples of the different stack formats.
 
@@ -357,7 +361,7 @@ The following sections show examples of the different stack formats.
 
 #### Linear/Single Bookmark Stack
 
-(`description.format.single = "linear"` and `description.format.linear = "linear"`)
+(`description.diagram.single = "linear"` and `description.diagram.linear = "linear"`)
 
 This PR is part of a stack containing 5 PRs:
 
@@ -370,7 +374,7 @@ This PR is part of a stack containing 5 PRs:
 
 #### Tree Bookmarks
 
-(`description.format.tree = "linear"`)
+(`description.diagram.tree = "linear"`)
 
 This PR is part of a tree containing 8 PRs:
 
@@ -386,7 +390,7 @@ This PR is part of a tree containing 8 PRs:
 
 #### Complex Graph of Bookmarks
 
-(`description.format.complex = "linear"`)
+(`description.diagram.complex = "linear"`)
 
 This PR is part of a complex set of PRs containing 10 PRs:
 
@@ -406,7 +410,7 @@ This PR is part of a complex set of PRs containing 10 PRs:
 
 #### Linear/Single Bookmark Stack
 
-(`description.format.single = "tree"` and `description.format.linear = "tree"`)
+(`description.diagram.single = "tree"` and `description.diagram.linear = "tree"`)
 
 This PR is part of a stack containing 5 PRs:
 
@@ -424,7 +428,7 @@ This PR is part of a stack containing 5 PRs:
 
 #### Tree of Bookmarks
 
-(`description.format.tree = "tree"`)
+(`description.diagram.tree = "tree"`)
 
 This PR is part of a tree containing 8 PRs:
 
@@ -448,7 +452,7 @@ This PR is part of a tree containing 8 PRs:
 
 #### Complex Graph of Bookmarks
 
-(`description.format.complex = "tree"`)
+(`description.diagram.complex = "tree"`)
 
 This PR is part of a complex set of PRs containing 10 PRs:
 
@@ -492,27 +496,27 @@ This PR is part of a complex set of PRs containing 10 PRs:
 
         2. [#4](#) "Feature D" (→ [#2](#) also)
 
-### Initial Description Generation
+### Description Generation
 
-jj-vine can generate an initial description for a pull/merge request when it is created. Note that this description will not be updated automatically if changes are made later (in case you want to remove it entirely, or change it, etc).
+jj-vine can generate a description for a pull/merge request when it is created. Note that this description will not be updated automatically if changes are made later (in case you want to remove it entirely, or change it, etc).
 
-You can configure how the initial description is generated by setting the `description.initialSingleRevision` and `description.initialMultipleRevisions` settings. `initialSingleRevision` is used when there is only one revision in the pull/merge request, and `initialMultipleRevisions` is used when there are multiple revisions in the pull/merge request.
+You can configure how the description is generated by setting the `description.singleRevision` and `description.multipleRevisions` settings. `singleRevision` is used when there is only one revision in the pull/merge request, and `multipleRevisions` is used when there are multiple revisions in the pull/merge request.
 
-If `jj-vine.description.enabled` is false, the initial description will not be generated.
+If `jj-vine.description.enabled` is false, the description will not be generated.
 
 The following options are available:
 
 #### `none`
 
-Do not generate an initial description in this situation.
+Do not generate a description in this situation.
 
 #### `notFirstLine`
 
-Take the commit message of the head commit in the branch, trim the first line, and use the rest as the initial description. This is the default behavior for when there is only one revision in the pull/merge request (because the title of the PR/MR uses the first line of the commit message).
+Take the commit message of the head commit in the branch, trim the first line, and use the rest as the description. This is the default behavior for when there is only one revision in the pull/merge request (because the title of the PR/MR uses the first line of the commit message).
 
 #### `fullMessage`
 
-Use the full commit message of the head commit in the branch as the initial description.
+Use the full commit message of the head commit in the branch as the description.
 
 #### `commitListFirstLine`
 
@@ -524,7 +528,7 @@ Generate a list of all commits in the branch, with their hashes and the first li
 
 #### `commitListFull`
 
-Generate a list of all commits in the branch, with their hashes and the full commit messages. This is the default behavior for when there are multiple revisions in the pull/merge request (because the title of the PR/MR uses the bookmark name). For example:
+Generate a list of all commits in the branch, with their hashes and the full commit messages. This is the default behavior for when there are multiple revisions in the pull/merge request (because the default title of the PR/MR uses the bookmark name). For example:
 
 - `xxxxxxxa` Head Commit Message\
 Message line 2\
@@ -537,6 +541,10 @@ Message line 4
 - `xxxxxxxc` Parent 2 Message\
 Message line 2\
 Message line 3
+
+#### `file(path_to_file)`
+
+Include the contents of a file at the given path as the description. This is useful if you use pull request templates. For example, `file(.github/pull_request_template.md)` will include the contents of `.github/pull_request_template.md` as the description. The file path is relative to the root of the repository.
 
 ## Title Generation
 
@@ -554,8 +562,8 @@ The title generation is highly configurable, using the below settings:
 | Setting | Description | Type | Required | Default |
 |---------|-------------|------|----------|---------|
 | `title.sync` | Whether to sync/update the title of a pull/merge request every time the bookmark is submitted. If enabled, this will overwrite any changes you may have manually made to the title. | Boolean | No | true |
-| `title.singleRevision` | How to generate the title when an MR has only one revision on top of its parent(s) | "firstRevisionFirstLine" \| "firstRevisionFullMessage" \| "headRevisionFirstLine" \| "headRevisionFullMessage" \| "bookmarkName" \| (custom template, see below) | No | "firstRevisionFirstLine" |
-| `title.multipleRevisions` | How to generate the title when an MR has multiple revisions on top of its parent(s) | "firstRevisionFirstLine" \| "firstRevisionFullMessage" \| "headRevisionFirstLine" \| "headRevisionFullMessage" \| "bookmarkName" \| (custom template, see below) | No | "bookmarkName" |
+| `title.singleRevision` | How to generate the title when an MR has only one revision on top of its parent(s) | `firstRevisionFirstLine` \| `firstRevisionFullMessage` \| `headRevisionFirstLine` \| `headRevisionFullMessage` \| `bookmarkName` \| (custom template, see below) | No | `firstRevisionFirstLine` |
+| `title.multipleRevisions` | How to generate the title when an MR has multiple revisions on top of its parent(s) | `firstRevisionFirstLine` \| `firstRevisionFullMessage` \| `headRevisionFirstLine` \| `headRevisionFullMessage` \| `bookmarkName` \| (custom template, see below) | No | `bookmarkName` |
 
 ### Custom Title Templates
 

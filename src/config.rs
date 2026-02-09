@@ -88,7 +88,7 @@ impl ForgeType {
 /// Stack visualization format
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
-pub enum DescriptionFormat {
+pub enum DescriptionDiagramFormat {
     /// Do not render this stack visualization
     None,
 
@@ -277,20 +277,6 @@ impl<'de> Deserialize<'de> for TitleFormat {
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
                 formatter.write_str("a title format")
-            }
-
-            fn visit_string<E>(self, v: String) -> std::result::Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                Ok(match v.as_str() {
-                    "firstRevisionFirstLine" => TitleFormat::FirstRevisionFirstLine,
-                    "firstRevisionFullMessage" => TitleFormat::FirstRevisionFullMessage,
-                    "headRevisionFirstLine" => TitleFormat::HeadRevisionFirstLine,
-                    "headRevisionFullMessage" => TitleFormat::HeadRevisionFullMessage,
-                    "bookmarkName" => TitleFormat::BookmarkName,
-                    _ => TitleFormat::Other(v),
-                })
             }
 
             fn visit_str<E>(self, v: &str) -> std::result::Result<Self::Value, E>
@@ -513,56 +499,58 @@ impl AzureDevOpsConfig {
     }
 }
 
-fn default_initial_single_revision() -> InitialDescriptionMode {
-    InitialDescriptionMode::NotFirstLine
+fn default_description_single_revision() -> DescriptionMode {
+    DescriptionMode::NotFirstLine
 }
 
-fn default_initial_multiple_revisions() -> InitialDescriptionMode {
-    InitialDescriptionMode::CommitListFull
+fn default_description_multiple_revisions() -> DescriptionMode {
+    DescriptionMode::CommitListFull
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DescriptionConfig {
     /// Whether to enable or disable description generation entirely.
+    #[serde(default = "default_true")]
     pub enabled: bool,
 
-    /// How to handle the initial description for newly created pull/merge
-    /// request when there is only one revision in the pull/merge request (which
-    /// means that the title of the PR/MR uses the first line of the commit
-    /// message). If changes are made later, the description will not be updated
-    /// automatically
-    #[serde(default = "default_initial_single_revision")]
-    pub initial_single_revision: InitialDescriptionMode,
+    /// Whether to sync the description of a pull/merge request every time the
+    /// bookmark is submitted. Defaults to false.
+    #[serde(default)]
+    pub sync: bool,
 
-    /// How to handle the initial description for newly created pull/merge
-    /// requests, when there are multiple revisions in the pull/merge request
-    /// (which means that the title of the PR/MR uses the bookmark name).
-    /// If changes are made later, the description will not be updated
-    /// automatically.
-    #[serde(default = "default_initial_multiple_revisions")]
-    pub initial_multiple_revisions: InitialDescriptionMode,
+    /// How to handle the description for pull/merge
+    /// requests, when there is only one revision in the pull/merge request. By
+    /// default, includes the first line of the commit message.
+    #[serde(default = "default_description_single_revision")]
+    pub single_revision: DescriptionMode,
+
+    /// How to handle the description for pull/merge
+    /// requests, when there are multiple revisions in the pull/merge request.
+    /// By default, includes the full commit messages of all revisions.
+    #[serde(default = "default_description_multiple_revisions")]
+    pub multiple_revisions: DescriptionMode,
 
     /// How to render the description for different types of pull/merge request
     /// stacks.
     #[serde(default)]
-    pub format: DescriptionFormatsConfig,
+    pub diagram: DescriptionDiagramConfig,
 }
 
 impl Default for DescriptionConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            format: Default::default(),
-            initial_single_revision: InitialDescriptionMode::NotFirstLine,
-            initial_multiple_revisions: InitialDescriptionMode::CommitListFull,
+            sync: false,
+            diagram: Default::default(),
+            single_revision: DescriptionMode::NotFirstLine,
+            multiple_revisions: DescriptionMode::CommitListFull,
         }
     }
 }
 
-#[derive(Debug, Clone, Copy, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum InitialDescriptionMode {
+#[derive(Debug, Clone)]
+pub enum DescriptionMode {
     /// Do not render a description.
     None,
 
@@ -580,36 +568,77 @@ pub enum InitialDescriptionMode {
     /// Render a list of all commits in the branch, with their
     /// hashes and full commit messages.
     CommitListFull,
+
+    /// Include the contents of a file at the given path as the description.
+    File(String),
+}
+
+impl<'de> Deserialize<'de> for DescriptionMode {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct DescriptionModeVisitor;
+        impl<'de> Visitor<'de> for DescriptionModeVisitor {
+            type Value = DescriptionMode;
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a description mode")
+            }
+
+            fn visit_str<E>(self, v: &str) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                match v {
+                    "none" => Ok(DescriptionMode::None),
+                    "notFirstLine" => Ok(DescriptionMode::NotFirstLine),
+                    "fullMessage" => Ok(DescriptionMode::FullMessage),
+                    "commitListFirstLine" => Ok(DescriptionMode::CommitListFirstLine),
+                    "commitListFull" => Ok(DescriptionMode::CommitListFull),
+                    mode if mode.starts_with("file(") && mode.ends_with(")") => {
+                        Ok(DescriptionMode::File(
+                            mode.trim_start_matches("file(")
+                                .trim_end_matches(")")
+                                .to_string(),
+                        ))
+                    }
+                    _ => Err(E::custom(format!("invalid description mode: {v}"))),
+                }
+            }
+        }
+
+        deserializer.deserialize_string(DescriptionModeVisitor)
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct DescriptionFormatsConfig {
+pub struct DescriptionDiagramConfig {
     /// How to render a single pull/merge request, without any parents or
     /// children besides the trunk. Defaults to not rendering a description.
-    pub single: DescriptionFormat,
+    pub single: DescriptionDiagramFormat,
 
     /// How to render a linear stack of MRs.
     /// Defaults to a linear numbered list.
-    pub linear: DescriptionFormat,
+    pub linear: DescriptionDiagramFormat,
 
     /// How to render a tree of MRs, where two MRs merge into a common parent.
     /// Defaults to a linear numbered list.
-    pub tree: DescriptionFormat,
+    pub tree: DescriptionDiagramFormat,
 
     /// How to render a complex graph of MRs, where two MRs merge into a common
     /// parent, or any pull/merge request has multiple parents.
     /// Defaults to a linear numbered list.
-    pub complex: DescriptionFormat,
+    pub complex: DescriptionDiagramFormat,
 }
 
-impl Default for DescriptionFormatsConfig {
+impl Default for DescriptionDiagramConfig {
     fn default() -> Self {
         Self {
-            single: DescriptionFormat::None,
-            linear: DescriptionFormat::Linear,
-            tree: DescriptionFormat::Linear,
-            complex: DescriptionFormat::Linear,
+            single: DescriptionDiagramFormat::None,
+            linear: DescriptionDiagramFormat::Linear,
+            tree: DescriptionDiagramFormat::Linear,
+            complex: DescriptionDiagramFormat::Linear,
         }
     }
 }
@@ -906,20 +935,20 @@ mod tests {
 
         assert!(config.description.enabled);
         assert!(matches!(
-            config.description.format.single,
-            DescriptionFormat::None
+            config.description.diagram.single,
+            DescriptionDiagramFormat::None
         ));
         assert!(matches!(
-            config.description.format.linear,
-            DescriptionFormat::Linear
+            config.description.diagram.linear,
+            DescriptionDiagramFormat::Linear
         ));
         assert!(matches!(
-            config.description.format.tree,
-            DescriptionFormat::Linear
+            config.description.diagram.tree,
+            DescriptionDiagramFormat::Linear
         ));
         assert!(matches!(
-            config.description.format.complex,
-            DescriptionFormat::Linear
+            config.description.diagram.complex,
+            DescriptionDiagramFormat::Linear
         ));
     }
 
@@ -966,20 +995,20 @@ mod tests {
 
         assert!(!config.description.enabled);
         assert!(matches!(
-            config.description.format.single,
-            DescriptionFormat::None
+            config.description.diagram.single,
+            DescriptionDiagramFormat::None
         ));
         assert!(matches!(
-            config.description.format.linear,
-            DescriptionFormat::Linear
+            config.description.diagram.linear,
+            DescriptionDiagramFormat::Linear
         ));
         assert!(matches!(
-            config.description.format.tree,
-            DescriptionFormat::Linear
+            config.description.diagram.tree,
+            DescriptionDiagramFormat::Linear
         ));
         assert!(matches!(
-            config.description.format.complex,
-            DescriptionFormat::Linear
+            config.description.diagram.complex,
+            DescriptionDiagramFormat::Linear
         ));
     }
 
