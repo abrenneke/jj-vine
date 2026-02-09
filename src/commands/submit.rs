@@ -147,7 +147,7 @@ pub async fn submit(config: &SubmitCommandConfig, cli_config: &CliConfig<'_>) ->
     ));
 
     let changes = jj.log(format!(
-        "(({}) & mine() & bookmarks()) ~ trunk()",
+        "(({}) & mine() & bookmarks()) ~ immutable()",
         bookmarks
             .iter()
             .map(|b| format!("::{}", b.name_for_jj()))

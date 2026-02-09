@@ -166,7 +166,7 @@ pub async fn plan(ctx: SubmitContext<'_>) -> Result<SubmissionPlan> {
                                 _ => None,
                             })
                         })),
-                        BookmarkRef::Trunk => None,
+                        BookmarkRef::Immutable => None,
                     })
                     .flatten(),
             );

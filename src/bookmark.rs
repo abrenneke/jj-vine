@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use itertools::Itertools;
 
 use crate::{
+    config::Config,
     error::{BookmarkNotFoundSnafu, Error, Result},
     jj::{BookmarkInfo, Change, Jujutsu},
 };
@@ -127,7 +128,7 @@ impl ChangeComponent<'_> {
 
             to_process.extend(bookmark.parents.iter().filter_map(|parent| match parent {
                 BookmarkRef::Bookmark(b) => Some(b),
-                BookmarkRef::Trunk => None,
+                BookmarkRef::Immutable => None,
             }))
         }
         None
@@ -163,7 +164,7 @@ impl ChangeComponent<'_> {
 
             to_process.extend(bookmark.parents.iter().filter_map(|parent| match parent {
                 BookmarkRef::Bookmark(b) => Some(b),
-                BookmarkRef::Trunk => None,
+                BookmarkRef::Immutable => None,
             }))
         }
 
@@ -223,7 +224,7 @@ impl ChangeComponent<'_> {
                     .iter()
                     .filter_map(|p| match p {
                         BookmarkRef::Bookmark(b) => Some(b.name()),
-                        BookmarkRef::Trunk => None,
+                        BookmarkRef::Immutable => None,
                     })
                     .collect(),
             );
@@ -282,8 +283,8 @@ pub enum BookmarkRef<'a> {
     /// A regular bookmark.
     Bookmark(BookmarkWithPointers<'a>),
 
-    /// Any change that is part of trunk().
-    Trunk,
+    /// Any change that is part of immutable().
+    Immutable,
 }
 
 impl BookmarkRef<'_> {
@@ -291,7 +292,7 @@ impl BookmarkRef<'_> {
     pub fn find(&self, name: &str) -> Option<&BookmarkWithPointers<'_>> {
         match self {
             BookmarkRef::Bookmark(b) => b.find(name),
-            BookmarkRef::Trunk => None,
+            BookmarkRef::Immutable => None,
         }
     }
 
@@ -299,21 +300,21 @@ impl BookmarkRef<'_> {
     pub fn downstack(&self) -> Vec<Bookmark<'_>> {
         match self {
             BookmarkRef::Bookmark(b) => b.downstack(),
-            BookmarkRef::Trunk => Vec::new(),
+            BookmarkRef::Immutable => Vec::new(),
         }
     }
 
     pub fn name(&self) -> Option<&str> {
         match self {
             BookmarkRef::Bookmark(b) => Some(b.name()),
-            BookmarkRef::Trunk => None,
+            BookmarkRef::Immutable => None,
         }
     }
 
     pub fn has_parent(&self, name: &str) -> bool {
         match self {
             BookmarkRef::Bookmark(b) => b.has_parent_bookmark(name),
-            BookmarkRef::Trunk => false,
+            BookmarkRef::Immutable => false,
         }
     }
 }
@@ -322,7 +323,7 @@ impl<'a> JJName for BookmarkRef<'a> {
     fn raw_name(&self) -> String {
         match self {
             BookmarkRef::Bookmark(b) => b.raw_name(),
-            BookmarkRef::Trunk => "trunk".to_string(),
+            BookmarkRef::Immutable => "immutable".to_string(),
         }
     }
 
@@ -331,7 +332,7 @@ impl<'a> JJName for BookmarkRef<'a> {
     fn name_for_jj(&self) -> String {
         match self {
             BookmarkRef::Bookmark(b) => b.name_for_jj(),
-            BookmarkRef::Trunk => "trunk()".to_string(),
+            BookmarkRef::Immutable => "immutable()".to_string(),
         }
     }
 }
@@ -355,14 +356,69 @@ impl BookmarkWithPointers<'_> {
         self.bookmark.name()
     }
 
-    /// Gets the name of the parent bookmark, or the default branch if there is
-    /// no parent or the parent is the trunk.
-    pub fn parent_name(&self, default_branch: &str) -> String {
+    /// Gets the names of the parent bookmarks of this bookmark. Multiple
+    /// parents will only be returned if there is a merge commit within this
+    /// bookmark and its revisions, or if the immutable bookmarks finder
+    /// cannot disambiguate between multiple immutable bookmarks.
+    pub fn parent_names(&self, jj: &Jujutsu, config: &Config) -> Result<Vec<String>> {
         // TODO let user pick target branch
-        match self.parents.first() {
-            Some(BookmarkRef::Bookmark(b)) => b.name().to_string(),
-            Some(BookmarkRef::Trunk) | None => default_branch.to_string(),
-        }
+        let actual_parents = if self.parents.len() == 0 {
+            &[BookmarkRef::Immutable]
+        } else {
+            &self.parents[..]
+        };
+
+        Ok(actual_parents
+            .iter()
+            .sorted_by(|a, b| a.raw_name().cmp(&b.raw_name()))
+            .dedup()
+            .map(|parent| match parent {
+                BookmarkRef::Bookmark(b) => Ok(vec![b.name().to_string()]),
+                BookmarkRef::Immutable => {
+                    let candidates = jj.log(format!(
+                        "heads(immutable() & ::{}):: & immutable() & remote_bookmarks() & {}",
+                        self.name_for_jj(),
+                        config.valid_bases
+                    ))?;
+
+                    if candidates.len() >= 1 {
+                        Ok(candidates
+                            .into_iter()
+                            .flat_map(|c| {
+                                c.bookmarks
+                                    .iter()
+                                    .map(|b| b.name().to_string())
+                                    .collect::<Vec<_>>()
+                            })
+                            .collect())
+                    } else {
+                        // Well, we didn't find anything using valid_bases, so try non-valid
+                        // bases... maybe you're making a PR into someone else's random branch.
+                        let candidates = jj.log(format!(
+                            "heads(immutable() & ::{}):: & immutable() & remote_bookmarks()",
+                            self.name_for_jj(),
+                        ))?;
+
+                        if candidates.len() >= 1 {
+                            Ok(candidates
+                                .into_iter()
+                                .flat_map(|c| {
+                                    c.bookmarks
+                                        .iter()
+                                        .map(|b| b.name().to_string())
+                                        .collect::<Vec<_>>()
+                                })
+                                .collect())
+                        } else {
+                            Ok(Vec::new())
+                        }
+                    }
+                }
+            })
+            .collect::<Result<Vec<_>>>()?
+            .into_iter()
+            .flatten()
+            .collect())
     }
 
     /// Finds a bookmark in the bookmark or its parents by name.
@@ -405,7 +461,7 @@ impl BookmarkWithPointers<'_> {
                     }
                     current = b;
                 }
-                [BookmarkRef::Trunk] => {
+                [BookmarkRef::Immutable] => {
                     return true;
                 }
                 _ => {
@@ -418,7 +474,7 @@ impl BookmarkWithPointers<'_> {
     pub fn has_parent_bookmark(&self, name: &str) -> bool {
         self.parents.iter().any(|p| match p {
             BookmarkRef::Bookmark(b) => b.name() == name,
-            BookmarkRef::Trunk => false,
+            BookmarkRef::Immutable => false,
         })
     }
 
@@ -427,7 +483,7 @@ impl BookmarkWithPointers<'_> {
     }
 
     pub fn revisions(&self, jj: &Jujutsu) -> Result<Vec<Change>> {
-        let revset = [BookmarkRef::Trunk]
+        let revset = [BookmarkRef::Immutable]
             .into_iter()
             .chain(
                 self.parents
@@ -483,7 +539,7 @@ impl<'a> BookmarkGraph<'a> {
         let mut adjacency_list = BTreeMap::new();
 
         for bookmark in &local_bookmarks {
-            if jj.any_in_revset(format!("({}) & trunk()", bookmark.change.change_id))? {
+            if jj.any_in_revset(format!("({}) & immutable()", bookmark.change.change_id))? {
                 bookmark_lookup.remove(bookmark.name());
                 continue;
             }
@@ -589,7 +645,7 @@ impl<'a> BookmarkGraph<'a> {
                             .map(BookmarkRef::Bookmark)
                             .collect()
                     })
-                    .unwrap_or(vec![BookmarkRef::Trunk]),
+                    .unwrap_or(vec![BookmarkRef::Immutable]),
             }
         }
 
@@ -670,7 +726,7 @@ impl<'a> BookmarkGraph<'a> {
     ) -> Result<Vec<Change>> {
         let mut ancestors = Vec::new();
 
-        let parents = jj.log(format!("{}- ~ ::trunk()", from.commit_id))?;
+        let parents = jj.log(format!("{}- ~ immutable()", from.commit_id))?;
 
         for parent in parents {
             let bookmarks: Vec<_> = if skip_untracked_local_bookmarks {

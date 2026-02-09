@@ -108,6 +108,10 @@ const fn default_true() -> bool {
     true
 }
 
+fn default_valid_bases() -> String {
+    "trunk()".to_string()
+}
+
 /// Configuration for jj-vine
 #[derive(Debug, Clone, Deserialize, Builder)]
 #[serde(rename_all = "camelCase")]
@@ -115,12 +119,20 @@ pub struct Config {
     /// Which forge to use.
     pub forge: ForgeType,
 
-    /// The branch name to use for MRs into `trunk()`. You will generally only
-    /// need to set this explicitly if you use a branch name other than
-    /// `main`, `master`, or `trunk`, and jj-vine is having difficulty
-    /// detecting the correct branch name automatically.
-    #[serde(default)]
-    pub default_base_branch: Option<String>,
+    /// The revset to use to identify valid base bookmarks for MRs. Defaults to
+    /// `trunk()`. You can change this value to widen the bookmarks that are
+    /// considered valid base bookmarks. It is recommended to use the
+    /// `remote_bookmarks()` function.
+    ///
+    /// Examples:
+    /// - `remote_bookmarks("develop" | "staging" | "production")` - will
+    ///   consider `develop`, `staging`, and `production` as valid base
+    ///   bookmarks.
+    /// - `remote_bookmarks(glob:"feature/*")` - will consider any branch name
+    ///   that starts with `feature/` as valid base bookmarks.
+    #[serde(default = "default_valid_bases")]
+    #[builder(default = default_valid_bases())]
+    pub valid_bases: String,
 
     // ===== Common Configuration =====
     /// Git remote name (defaults to "origin").

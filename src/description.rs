@@ -94,7 +94,7 @@ impl LinearListFormatter {
             })
             .collect();
 
-        for (idx, bookmark) in [BookmarkRef::Trunk]
+        for (idx, bookmark) in [BookmarkRef::Immutable]
             .iter()
             .chain(ordered_bookmarks.iter())
             .enumerate()
@@ -130,7 +130,7 @@ impl LinearListFormatter {
             })
             .collect();
 
-        for (idx, bookmark) in [BookmarkRef::Trunk]
+        for (idx, bookmark) in [BookmarkRef::Immutable]
             .iter()
             .chain(ordered_bookmarks.iter())
             .enumerate()
@@ -166,7 +166,7 @@ impl LinearListFormatter {
             })
             .collect();
 
-        for (idx, bookmark) in [BookmarkRef::Trunk]
+        for (idx, bookmark) in [BookmarkRef::Immutable]
             .iter()
             .chain(ordered_bookmarks.iter())
             .enumerate()
@@ -174,7 +174,7 @@ impl LinearListFormatter {
             let (num_siblings, parents) = match bookmark {
                 BookmarkRef::Bookmark(bookmark) => {
                     let parent = match &bookmark.parents[..] {
-                        [] => &BookmarkRef::Trunk,
+                        [] => &BookmarkRef::Immutable,
                         [parent] => parent,
                         _ => panic!(
                             "Bookmark in tree should have exactly one parent. Has: {:?}",
@@ -189,7 +189,7 @@ impl LinearListFormatter {
                         .count();
                     (num_siblings, Some(&bookmark.parents[..]))
                 }
-                BookmarkRef::Trunk => (0, None),
+                BookmarkRef::Immutable => (0, None),
             };
 
             lines.push(Self::format_bookmark(
@@ -231,7 +231,7 @@ impl LinearListFormatter {
 
         let mut seen = HashSet::new();
 
-        for (idx, bookmark) in [BookmarkRef::Trunk]
+        for (idx, bookmark) in [BookmarkRef::Immutable]
             .iter()
             .chain(ordered_bookmarks.iter())
             .enumerate()
@@ -250,13 +250,13 @@ impl LinearListFormatter {
                         .filter(|b| {
                             b.parents.iter().any(|p| match p {
                                 BookmarkRef::Bookmark(p) => bookmark.has_parent_bookmark(p.name()),
-                                BookmarkRef::Trunk => false,
+                                BookmarkRef::Immutable => false,
                             })
                         })
                         .count();
                     (num_siblings, Some(&bookmark.parents[..]))
                 }
-                BookmarkRef::Trunk => (0, None),
+                BookmarkRef::Immutable => (0, None),
             };
 
             lines.push(Self::format_bookmark(
@@ -296,7 +296,7 @@ impl LinearListFormatter {
                                         .format_merge_request
                                         .format_merge_request_id(mr.iid())
                                 }
-                                BookmarkRef::Trunk => format!("`{}`", context.base_branch),
+                                BookmarkRef::Immutable => format!("`{}`", context.base_branch),
                             })
                             .join(", ")
                     }
@@ -334,7 +334,7 @@ impl LinearListFormatter {
                     format!("{list_indicator} `{}`", bookmark.name())
                 }
             }
-            BookmarkRef::Trunk => {
+            BookmarkRef::Immutable => {
                 format!("{list_indicator} `{}`", context.base_branch)
             }
         }
@@ -352,7 +352,7 @@ impl TreeFormatter {
             "This {mr_name} is part of a stack containing 1 {mr_name}:\n",
         ));
 
-        self.format_tree_recursive(&BookmarkRef::Trunk, None, 0, context, &mut lines, 0, 0);
+        self.format_tree_recursive(&BookmarkRef::Immutable, None, 0, context, &mut lines, 0, 0);
 
         lines.join("\n")
     }
@@ -366,7 +366,7 @@ impl TreeFormatter {
             context.component.len()
         ));
 
-        self.format_tree_recursive(&BookmarkRef::Trunk, None, 0, context, &mut lines, 0, 0);
+        self.format_tree_recursive(&BookmarkRef::Immutable, None, 0, context, &mut lines, 0, 0);
 
         lines.join("\n")
     }
@@ -380,7 +380,7 @@ impl TreeFormatter {
             context.component.len()
         ));
 
-        self.format_tree_recursive(&BookmarkRef::Trunk, None, 0, context, &mut lines, 0, 0);
+        self.format_tree_recursive(&BookmarkRef::Immutable, None, 0, context, &mut lines, 0, 0);
 
         lines.join("\n")
     }
@@ -394,7 +394,7 @@ impl TreeFormatter {
             context.component.len()
         ));
 
-        self.format_tree_recursive(&BookmarkRef::Trunk, None, 0, context, &mut lines, 0, 0);
+        self.format_tree_recursive(&BookmarkRef::Immutable, None, 0, context, &mut lines, 0, 0);
 
         lines.join("\n")
     }
@@ -424,9 +424,9 @@ impl TreeFormatter {
             .all_bookmarks()
             .into_iter()
             .filter(|b| match b.parents[..] {
-                [] => *item == BookmarkRef::Trunk,
+                [] => *item == BookmarkRef::Immutable,
                 [..] => b.parents.iter().any(|p| match (item, p) {
-                    (BookmarkRef::Trunk, BookmarkRef::Trunk) => true,
+                    (BookmarkRef::Immutable, BookmarkRef::Immutable) => true,
                     (BookmarkRef::Bookmark(parent_b), BookmarkRef::Bookmark(child_p)) => {
                         parent_b.name() == child_p.name()
                     }
@@ -458,7 +458,7 @@ impl TreeFormatter {
     ) -> String {
         let parents = match bookmark {
             BookmarkRef::Bookmark(bookmark) => &bookmark.parents[..],
-            BookmarkRef::Trunk => &[],
+            BookmarkRef::Immutable => &[],
         };
 
         let indent = "    ".repeat(depth);
@@ -479,7 +479,7 @@ impl TreeFormatter {
                                 .format_merge_request
                                 .format_merge_request_id(mr.iid())
                         }
-                        BookmarkRef::Trunk => format!("`{}`", context.base_branch),
+                        BookmarkRef::Immutable => format!("`{}`", context.base_branch),
                     })
                     .join(", ")
             )
@@ -519,7 +519,7 @@ impl TreeFormatter {
                     format!("{indent}{list_indicator} `{}`", bookmark.name())
                 }
             }
-            BookmarkRef::Trunk => {
+            BookmarkRef::Immutable => {
                 format!("{indent}{list_indicator} `{}`", context.base_branch)
             }
         }

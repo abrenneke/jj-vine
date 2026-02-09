@@ -15,7 +15,7 @@ pub fn get_mr_title(
     bookmark: BookmarkWithPointers<'_>,
     component: &ChangeComponent<'_>,
 ) -> Result<String> {
-    let parents_or = [BookmarkRef::Trunk]
+    let parents_or = [BookmarkRef::Immutable]
         .iter()
         .chain(bookmark.parents.iter())
         .map(|p| p.name_for_jj())

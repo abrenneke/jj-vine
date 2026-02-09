@@ -186,7 +186,7 @@ Submit a bookmark and its dependencies as pull/merge requests.
 jj-vine submit <revset/bookmark>
 jj-vine submit -r <revset/bookmark>
 
-# Submit all tracked bookmarks. Roughly equivalent to `(mine() & tracked_remote_bookmarks()) ~ trunk()`, but has additional stipulations. See `jj-vine submit --help` for more details.
+# Submit all tracked bookmarks. Roughly equivalent to `(mine() & tracked_remote_bookmarks()) ~ immutable()`, but has additional stipulations. See `jj-vine submit --help` for more details.
 # This is the recommended command to use!
 jj-vine submit --tracked
 

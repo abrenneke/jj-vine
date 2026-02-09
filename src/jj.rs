@@ -568,7 +568,7 @@ impl Jujutsu {
         Ok(!output.stdout.is_empty())
     }
 
-    pub fn default_branch(&self) -> Result<&str> {
+    pub fn trunk_name(&self) -> Result<&str> {
         Ok(self
             .default_branch
             .get_or_init(|| {

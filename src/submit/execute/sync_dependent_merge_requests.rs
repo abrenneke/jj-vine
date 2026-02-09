@@ -84,7 +84,7 @@ impl ExecuteAction for SyncDependentMergeRequestsAction {
             .iter()
             .filter_map(|p| match p {
                 BookmarkRef::Bookmark(b) => Some(b),
-                BookmarkRef::Trunk => None,
+                BookmarkRef::Immutable => None,
             })
             .map(|parent_bookmark| async move {
                 let mr = ctx
