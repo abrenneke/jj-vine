@@ -858,7 +858,7 @@ struct NotePositionLine {
     line_code: String,
 
     #[serde(rename = "type")]
-    position_type: String,
+    position_type: Option<String>,
 
     old_line: Option<u32>,
     new_line: Option<u32>,
