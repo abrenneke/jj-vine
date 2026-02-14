@@ -306,7 +306,7 @@ impl ForgejoForge {
 
         let client = client_builder.build().map_err(|e| {
             ConfigSnafu {
-                message: format!("Failed to build HTTP client: {}", e),
+                message: format!("Failed to build HTTP client: {:?}", e),
             }
             .build()
         })?;
