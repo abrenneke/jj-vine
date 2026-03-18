@@ -212,8 +212,8 @@ impl ChangeMap {
     }
 
     pub fn create_bookmark_map(&self) -> BTreeMap<String, Bookmark<'_>> {
-        self.iter()
-            .flat_map(|(_, change)| {
+        self.values()
+            .flat_map(|change| {
                 change
                     .bookmarks
                     .iter()

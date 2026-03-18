@@ -1021,7 +1021,7 @@ query GetDiscussions($owner: String!, $name: String!, $pr_number: Int!) {
 
         Ok(root_comments
             .iter()
-            .chain(review_comments.into_iter())
+            .chain(review_comments)
             .cloned()
             .collect())
     }
