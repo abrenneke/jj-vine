@@ -187,8 +187,14 @@ pub async fn plan(ctx: SubmitContext<'_>) -> Result<SubmissionPlan> {
                     }
                 }
                 None => {
-                    let title =
-                        get_mr_title(ctx.jj, &ctx.config.title, bookmark.clone(), component)?;
+                    let revisions = bookmark.revisions(ctx.jj)?;
+                    let title = get_mr_title(
+                        ctx.jj,
+                        &ctx.config.title,
+                        bookmark.clone(),
+                        component,
+                        revisions,
+                    )?;
 
                     let description = generate_description(
                         &ctx.config.description,
@@ -223,7 +229,8 @@ pub async fn plan(ctx: SubmitContext<'_>) -> Result<SubmissionPlan> {
     }
 
     let title_description_batch = (ctx.config.description.enabled
-        || ctx.config.title.sync
+        || ctx.config.title.sync_single_revision
+        || ctx.config.title.sync_multiple_revisions
         || ctx.config.description.sync)
         .then(|| {
             let actions = ctx
@@ -239,12 +246,20 @@ pub async fn plan(ctx: SubmitContext<'_>) -> Result<SubmissionPlan> {
                             whatever!("No MR found for {}", bookmark.name())
                         };
 
-                        let maybe_title = if ctx.config.title.sync {
+                        let revisions = bookmark.revisions(ctx.jj)?;
+
+                        let should_sync_title = match revisions.len() {
+                            1 => ctx.config.title.sync_single_revision,
+                            _ => ctx.config.title.sync_multiple_revisions,
+                        };
+
+                        let maybe_title = if should_sync_title {
                             let new_title = get_mr_title(
                                 ctx.jj,
                                 &ctx.config.title,
                                 bookmark.clone(),
                                 component,
+                                revisions,
                             )?;
 
                             if new_title != *current_title {

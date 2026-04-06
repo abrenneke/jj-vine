@@ -426,6 +426,8 @@ impl BookmarkWithPointers<'_> {
         self.parents.iter().any(|p| p == parent)
     }
 
+    /// Gets the revisions that are unique to this bookmark (i.e. what would be
+    /// merged into its parents).
     pub fn revisions(&self, jj: &Jujutsu) -> Result<Vec<Change>> {
         let revset = [BookmarkRef::Trunk]
             .into_iter()

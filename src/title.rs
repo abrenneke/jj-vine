@@ -1,9 +1,8 @@
-use itertools::Itertools;
 use regex::Regex;
 use snafu::whatever;
 
 use crate::{
-    bookmark::{BookmarkRef, BookmarkWithPointers, ChangeComponent, JJName},
+    bookmark::{BookmarkWithPointers, ChangeComponent},
     config::{TitleConfig, TitleFormat},
     error::{Error, Result},
     jj::{Change, Jujutsu},
@@ -14,20 +13,8 @@ pub fn get_mr_title(
     config: &TitleConfig,
     bookmark: BookmarkWithPointers<'_>,
     component: &ChangeComponent<'_>,
+    revisions: Vec<Change>,
 ) -> Result<String> {
-    let parents_or = [BookmarkRef::Trunk]
-        .iter()
-        .chain(bookmark.parents.iter())
-        .map(|p| p.name_for_jj())
-        .join(" | ");
-
-    // Revisions that are in `bookmark`, but not in any of its parents.
-    let revisions = if !parents_or.is_empty() {
-        jj.log(format!("::{}  ~ ::({parents_or})", bookmark.name_for_jj()))?
-    } else {
-        jj.log(format!("::{}", bookmark.name_for_jj()))?
-    };
-
     let default_branch = jj.default_branch()?;
 
     Ok(get_mr_title_from_revisions(

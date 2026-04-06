@@ -211,17 +211,22 @@ pub struct Config {
 #[derive(Debug, Clone, Deserialize, Builder)]
 #[serde(rename_all = "camelCase")]
 pub struct TitleConfig {
-    /// Whether to sync MR titles on every submit, or only once at MR creation.
-    /// Defaults to true.
+    /// Whether to sync MR titles on every submit, or only once at PR/MR
+    /// creation, when a PR/MR has only one revision. Defaults to true.
     #[serde(default = "default_true")]
-    pub sync: bool,
+    pub sync_single_revision: bool,
 
-    /// How to generate the title when an MR has only one revision.
+    /// How to generate the title when a PR/MR has only one revision.
     /// Defaults to "firstCommitFirstLine".
     #[serde(default = "default_single_revision")]
     pub single_revision: TitleFormat,
 
-    /// How to generate the title when an MR has multiple revisions.
+    /// Whether to sync MR titles on every submit, or only once at PR/MR
+    /// creation, when a PR/MR has multiple revisions. Defaults to true.
+    #[serde(default = "default_true")]
+    pub sync_multiple_revisions: bool,
+
+    /// How to generate the title when a PR/MR has multiple revisions.
     #[serde(default = "default_multiple_revisions")]
     pub multiple_revisions: TitleFormat,
 }
@@ -237,8 +242,9 @@ fn default_multiple_revisions() -> TitleFormat {
 impl Default for TitleConfig {
     fn default() -> Self {
         Self {
-            sync: default_true(),
+            sync_single_revision: default_true(),
             single_revision: default_single_revision(),
+            sync_multiple_revisions: default_true(),
             multiple_revisions: default_multiple_revisions(),
         }
     }

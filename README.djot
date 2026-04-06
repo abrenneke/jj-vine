@@ -13,49 +13,50 @@ Supports the following code forges:
 
 ## Table of Contents
 
-- [Overview](#overview)
-- [Main Features](#main-features)
-- [Planned Features](#planned-features)
-- [Installation](#installation)
+- [Overview](#Overview)
+- [Main Features](#Main-Features)
+- [Planned Features](#Planned-Features)
+- [Installation](#Installation)
 
-  - [Cargo Binstall](#cargo-binstall)
-  - [Mise](#mise)
-  - [Pre-built Binaries](#pre-built-binaries)
-  - [Attestations](#attestations)
-  - [Alias Setup](#alias-setup)
-- [Quick Start](#quick-start)
-- [Commands](#commands)
+  - [Cargo Binstall](#Cargo-Binstall)
+  - [Mise](#Mise)
+  - [Pre-built Binaries](#Pre-built-Binaries)
+  - [Attestations](#Attestations)
+  - [Alias Setup](#Alias-Setup)
+- [Quick Start](#Quick-Start)
+- [Commands](#Commands)
 
   - [submit](#submit)
   - [init](#init)
   - [status](#status)
-- [Configuration](#configuration)
+- [Configuration](#Configuration)
 
-  - [Forge-Specific Settings](#forge-specific-settings)
+  - [Forge-Specific Settings](#Forge-Specific-Settings)
 
-    - [Forge](#forge)
-    - [GitLab](#gitlab)
-    - [GitHub](#github)
-    - [Forgejo/Codeberg/Gitea](#forgejo-codeberg-gitea)
-    - [Azure DevOps](#azure-devops)
-  - [Common Settings](#common-settings)
-- [Description Generation / Stack Visualization](#description-generation--stack-visualization)
+    - [Forge](#Forge)
+    - [GitLab](#GitLab)
+    - [GitHub](#GitHub)
+    - [Forgejo/Codeberg/Gitea](#ForgejoCodebergGitea)
+    - [Azure DevOps](#Azure-DevOps)
+  - [Common Settings](#Common-Settings)
+- [Description Generation / Stack Visualization](#Description-Generation-Stack-Visualization)
 
-  - [Configuration](#description-configuration)
-  - [Linear Format](#linear-format)
-  - [Tree Format](#tree-format)
-  - [Description Generation](#description-generation)
-- [Title Generation](#title-generation)
-  - [Configuration](#title-configuration)
-  - [Custom Title Templates](#custom-title-templates)
-- [Credits](#credits)
-- [FAQs](#faqs)
+  - [Configuration](#Description-Configuration)
+  - [Linear Format](#Linear-Format)
+  - [Tree Format](#Tree-Format)
+  - [Description Generation](#Description-Generation)
+- [Title Generation](#Title-Generation)
 
-  - [Is this vibe-coded slop?](#is-this-vibe-coded-slop)
-  - [Ok, but really?](#ok-but-really)
-  - [Why a new project?](#why-a-new-project)
-- [Contributing](#contributing)
-- [License](#license)
+  - [Configuration](#Title-Configuration)
+  - [Custom Title Templates](#Custom-Title-Templates)
+  - [Credits](#Credits)
+- [FAQs](#FAQs)
+
+  - [Is this vibe-coded slop?](#Is-this-vibe-coded-slop)
+  - [Ok, but really?](#Ok-but-really)
+  - [Why a new project?](#Why-a-new-project)
+- [Contributing](#Contributing)
+- [License](#License)
 
 ## Overview
 
@@ -341,7 +342,7 @@ will always be kept in sync with your PR/MR stack upon submitting your bookmark(
 If you would like description generation, but not a stack diagram, you can set each value of `description.diagram` to `none`. Alternatively, if you would
 like to only generate a stack diagram, you can set `description.singleRevision` and `description.multipleRevisions` to `none`.
 
-### Configuration{#description-configuration}
+### Configuration{#Description-Configuration}
 
 | Setting | Description | Type | Required | Default |
 |---------|-------------|------|----------|---------|
@@ -555,15 +556,16 @@ By default, the title is generated as:
 - When there is only one revision in an MR/PR, the first line of the revision description.
 - When there are multiple revisions in an MR/PR, the name of the bookmark.
 
-### Configuration{#title-configuration}
+### Configuration{#Title-Configuration}
 
 The title generation is highly configurable, using the below settings:
 
 | Setting | Description | Type | Required | Default |
 |---------|-------------|------|----------|---------|
-| `title.sync` | Whether to sync/update the title of a pull/merge request every time the bookmark is submitted. If enabled, this will overwrite any changes you may have manually made to the title. | Boolean | No | true |
-| `title.singleRevision` | How to generate the title when an MR has only one revision on top of its parent(s) | `firstRevisionFirstLine` \| `firstRevisionFullMessage` \| `headRevisionFirstLine` \| `headRevisionFullMessage` \| `bookmarkName` \| (custom template, see below) | No | `firstRevisionFirstLine` |
-| `title.multipleRevisions` | How to generate the title when an MR has multiple revisions on top of its parent(s) | `firstRevisionFirstLine` \| `firstRevisionFullMessage` \| `headRevisionFirstLine` \| `headRevisionFullMessage` \| `bookmarkName` \| (custom template, see below) | No | `bookmarkName` |
+| `title.singleRevision` | How to generate the title when an MR has only one revision on top of the bookmark's parent(s) | `firstRevisionFirstLine` \| `firstRevisionFullMessage` \| `headRevisionFirstLine` \| `headRevisionFullMessage` \| `bookmarkName` \| (custom template, see below) | No | `firstRevisionFirstLine` |
+| `title.syncSingleRevision` | Whether to sync/update the title of a pull/merge request every time the bookmark is submitted, when there is only one revision on top of the bookmark's parent(s). If enabled, this will overwrite any changes you may have manually made to the title. | Boolean | No | true |
+| `title.multipleRevisions` | How to generate the title when an MR has multiple revisions on top of the bookmark's parent(s) | `firstRevisionFirstLine` \| `firstRevisionFullMessage` \| `headRevisionFirstLine` \| `headRevisionFullMessage` \| `bookmarkName` \| (custom template, see below) | No | `bookmarkName` |
+| `title.syncMultipleRevisions` | Whether to sync/update the title of a pull/merge request every time the bookmark is submitted, when there are multiple revisions on top of the bookmark's parent(s). If enabled, this will overwrite any changes you may have manually made to the title. | Boolean | No | true |
 
 ### Custom Title Templates
 
