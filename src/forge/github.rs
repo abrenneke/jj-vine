@@ -865,6 +865,10 @@ impl FormatMergeRequest for GitHubForge {
     fn mr_name(&self) -> &'static str {
         "PR"
     }
+
+    fn id_expands_title(&self) -> bool {
+        true
+    }
 }
 
 impl GitHubForge {

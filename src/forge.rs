@@ -1141,6 +1141,16 @@ impl FormatMergeRequest for ForgeImpl {
             ForgeImpl::AzureDevOps(forge) => forge.mr_name(),
         }
     }
+
+    fn id_expands_title(&self) -> bool {
+        match self {
+            ForgeImpl::GitLab(forge) => forge.id_expands_title(),
+            ForgeImpl::GitHub(forge) => forge.id_expands_title(),
+            ForgeImpl::Forgejo(forge) => forge.id_expands_title(),
+            ForgeImpl::Test(forge) => forge.id_expands_title(),
+            ForgeImpl::AzureDevOps(forge) => forge.id_expands_title(),
+        }
+    }
 }
 
 impl ForgeImpl {

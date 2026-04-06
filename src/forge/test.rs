@@ -26,6 +26,7 @@ pub struct TestForge {
     source_project_id: String,
     target_project_id: String,
     base_url: String,
+    id_expands_title: bool,
     users: HashMap<String, TestForgeUser>,
     current_user: TestForgeUser,
     state: RwLock<TestForgeState>,
@@ -61,6 +62,7 @@ impl TestForge {
         #[builder(default)] source_project_id: String,
         #[builder(default)] target_project_id: String,
         #[builder(default)] base_url: String,
+        #[builder(default)] id_expands_title: bool,
 
         current_user: Option<TestForgeUser>,
         #[builder(default)] users: HashMap<String, TestForgeUser>,
@@ -71,6 +73,7 @@ impl TestForge {
             source_project_id,
             target_project_id,
             base_url,
+            id_expands_title,
             users,
             current_user: current_user.unwrap_or_else(|| TestForgeUser {
                 id: "test".to_string(),
@@ -299,6 +302,10 @@ impl FormatMergeRequest for TestForge {
 
     fn mr_name(&self) -> &'static str {
         "MR"
+    }
+
+    fn id_expands_title(&self) -> bool {
+        self.id_expands_title
     }
 }
 

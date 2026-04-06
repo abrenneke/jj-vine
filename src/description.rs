@@ -25,6 +25,11 @@ pub trait FormatMergeRequest {
 
     /// Gets e.g. "MR" or "PR" for the merge request.
     fn mr_name(&self) -> &'static str;
+
+    /// Returns true if the forge expands the MR/PR ID to the full title.
+    fn id_expands_title(&self) -> bool {
+        false
+    }
 }
 
 pub enum DescriptionFormatter {
@@ -308,36 +313,7 @@ impl LinearListFormatter {
 
         let list_indicator = format!("{}.", idx + 1);
 
-        match bookmark {
-            BookmarkRef::Bookmark(bookmark) => {
-                if bookmark.bookmark.name() == context.this_bookmark {
-                    let title = context
-                        .merge_request_lookup
-                        .get(bookmark.name())
-                        .expect("Self-bookmark should always have an MR")
-                        .title();
-                    format!(
-                        r#"{list_indicator} **"{title}" (this {}){into}**"#,
-                        context.format_merge_request.mr_name()
-                    )
-                } else if let Some(mr) = context.merge_request_lookup.get(bookmark.name()) {
-                    format!(
-                        r#"{list_indicator} {} "{}"{}"#,
-                        context
-                            .format_merge_request
-                            .format_merge_request_id(mr.iid()),
-                        mr.title(),
-                        into
-                    )
-                } else {
-                    // Bookmark without MR (yet)
-                    format!("{list_indicator} `{}`", bookmark.name())
-                }
-            }
-            BookmarkRef::Trunk => {
-                format!("{list_indicator} `{}`", context.base_branch)
-            }
-        }
+        format_bookmark_entry(bookmark, "", &list_indicator, &into, context)
     }
 }
 
@@ -493,35 +469,44 @@ impl TreeFormatter {
             "-".to_string()
         };
 
-        match bookmark {
-            BookmarkRef::Bookmark(bookmark) => {
-                if bookmark.bookmark.name() == context.this_bookmark {
-                    let title = context
-                        .merge_request_lookup
-                        .get(bookmark.name())
-                        .expect("Self-bookmark should always have an MR")
-                        .title();
-                    format!(
-                        r#"{indent}{list_indicator} **"{title}" (this {}){also}**"#,
-                        context.format_merge_request.mr_name()
-                    )
-                } else if let Some(mr) = context.merge_request_lookup.get(bookmark.name()) {
-                    format!(
-                        r#"{indent}{list_indicator} {} "{}"{}"#,
-                        context
-                            .format_merge_request
-                            .format_merge_request_id(mr.iid()),
-                        mr.title(),
-                        also
-                    )
+        format_bookmark_entry(bookmark, &indent, &list_indicator, &also, context)
+    }
+}
+
+fn format_bookmark_entry(
+    bookmark: &BookmarkRef<'_>,
+    prefix: &str,
+    list_indicator: &str,
+    suffix: &str,
+    context: &FormatContext,
+) -> String {
+    match bookmark {
+        BookmarkRef::Bookmark(bookmark) => {
+            if bookmark.bookmark.name() == context.this_bookmark {
+                let title = context
+                    .merge_request_lookup
+                    .get(bookmark.name())
+                    .expect("Self-bookmark should always have an MR")
+                    .title();
+                let mr_name = context.format_merge_request.mr_name();
+                format!(r#"{prefix}{list_indicator} **"{title}" (this {mr_name}){suffix}**"#)
+            } else if let Some(mr) = context.merge_request_lookup.get(bookmark.name()) {
+                let id = context
+                    .format_merge_request
+                    .format_merge_request_id(mr.iid());
+                let title = if context.format_merge_request.id_expands_title() {
+                    String::new()
                 } else {
-                    // Bookmark without MR (yet)
-                    format!("{indent}{list_indicator} `{}`", bookmark.name())
-                }
+                    format!(r#" "{}""#, mr.title())
+                };
+                format!("{prefix}{list_indicator} {id}{title}{suffix}")
+            } else {
+                // Bookmark without MR (yet)
+                format!("{prefix}{list_indicator} `{}`", bookmark.name())
             }
-            BookmarkRef::Trunk => {
-                format!("{indent}{list_indicator} `{}`", context.base_branch)
-            }
+        }
+        BookmarkRef::Trunk => {
+            format!("{prefix}{list_indicator} `{}`", context.base_branch)
         }
     }
 }
@@ -1728,6 +1713,416 @@ mod tests {
                 Path::new("")
             ),
             ""
+        );
+    }
+
+    #[test]
+    fn test_linear_generate_linear_component_github_style() {
+        let changes = Change::mock_stack_map([
+            Change::mock_from_bookmark("feature-a"),
+            Change::mock_from_bookmark("feature-b"),
+            Change::mock_from_bookmark("feature-c"),
+        ]);
+
+        let graph = BookmarkGraph::from_lookups(
+            changes.create_bookmark_map(),
+            changes.create_adjacency_list(),
+        );
+
+        let component = &graph.components()[0];
+        let formatter = DescriptionFormatter::LinearList(LinearListFormatter);
+
+        let forge = TestForge::builder()
+            .merge_requests(HashMap::from([
+                (
+                    "feature-a".to_string(),
+                    MergeRequest::builder()
+                        .id("1".to_string())
+                        .title("Feature A".to_string())
+                        .source_branch("feature-a".to_string())
+                        .target_branch("main".to_string())
+                        .build(),
+                ),
+                (
+                    "feature-b".to_string(),
+                    MergeRequest::builder()
+                        .id("2".to_string())
+                        .title("Feature B".to_string())
+                        .source_branch("feature-b".to_string())
+                        .target_branch("main".to_string())
+                        .build(),
+                ),
+                (
+                    "feature-c".to_string(),
+                    MergeRequest::builder()
+                        .id("3".to_string())
+                        .title("Feature C".to_string())
+                        .source_branch("feature-c".to_string())
+                        .target_branch("main".to_string())
+                        .build(),
+                ),
+            ]))
+            .id_expands_title(true)
+            .build();
+
+        let context = FormatContext {
+            component: component.clone(),
+            this_bookmark: "feature-b".to_string(),
+            merge_request_lookup: &forge.merge_request_lookup(),
+            base_branch: "main".to_string(),
+            format_merge_request: &ForgeImpl::Test(forge),
+        };
+        let description = formatter.format_linear(&context);
+
+        assert_str_eq!(
+            description,
+            r#"This MR is part of a stack containing 3 MRs:
+
+1. `main`
+2. #1
+3. **"Feature B" (this MR)**
+4. #3"#
+        );
+    }
+
+    #[test]
+    fn test_linear_generate_tree_component_github_style() {
+        let mut changes = Change::mock_stack_map([
+            Change::mock_from_bookmark("feature-a"),
+            Change::mock_from_bookmark("feature-b"),
+            Change::mock_from_bookmark("feature-c"),
+        ]);
+
+        changes.insert(
+            Change::mock_from_bookmark("feature-d").with_mock_parent_bookmarks(["feature-a"]),
+        );
+
+        changes.insert(
+            Change::mock_from_bookmark("feature-e").with_mock_parent_bookmarks(["feature-b"]),
+        );
+
+        changes.insert(
+            Change::mock_from_bookmark("feature-f").with_mock_parent_bookmarks(["feature-c"]),
+        );
+
+        changes.extend(Change::mock_stack_map([
+            Change::mock_from_bookmark("feature-g").with_mock_parent_bookmarks(["feature-c"]),
+            Change::mock_from_bookmark("feature-h"),
+        ]));
+
+        let graph = BookmarkGraph::from_lookups(
+            changes.create_bookmark_map(),
+            changes.create_adjacency_list(),
+        );
+
+        let component = &graph.components()[0];
+        let formatter = DescriptionFormatter::LinearList(LinearListFormatter);
+
+        let forge = TestForge::builder()
+            .merge_requests(HashMap::from([
+                (
+                    "feature-a".to_string(),
+                    MergeRequest::builder()
+                        .id("1".to_string())
+                        .title("Feature A".to_string())
+                        .source_branch("feature-a".to_string())
+                        .target_branch("main".to_string())
+                        .build(),
+                ),
+                (
+                    "feature-b".to_string(),
+                    MergeRequest::builder()
+                        .id("2".to_string())
+                        .title("Feature B".to_string())
+                        .source_branch("feature-b".to_string())
+                        .target_branch("main".to_string())
+                        .build(),
+                ),
+                (
+                    "feature-c".to_string(),
+                    MergeRequest::builder()
+                        .id("3".to_string())
+                        .title("Feature C".to_string())
+                        .source_branch("feature-c".to_string())
+                        .target_branch("main".to_string())
+                        .build(),
+                ),
+                (
+                    "feature-d".to_string(),
+                    MergeRequest::builder()
+                        .id("4".to_string())
+                        .title("Feature D".to_string())
+                        .source_branch("feature-d".to_string())
+                        .target_branch("main".to_string())
+                        .build(),
+                ),
+                (
+                    "feature-e".to_string(),
+                    MergeRequest::builder()
+                        .id("5".to_string())
+                        .title("Feature E".to_string())
+                        .source_branch("feature-e".to_string())
+                        .target_branch("main".to_string())
+                        .build(),
+                ),
+                (
+                    "feature-f".to_string(),
+                    MergeRequest::builder()
+                        .id("6".to_string())
+                        .title("Feature F".to_string())
+                        .source_branch("feature-f".to_string())
+                        .target_branch("main".to_string())
+                        .build(),
+                ),
+                (
+                    "feature-g".to_string(),
+                    MergeRequest::builder()
+                        .id("7".to_string())
+                        .title("Feature G".to_string())
+                        .source_branch("feature-g".to_string())
+                        .target_branch("main".to_string())
+                        .build(),
+                ),
+                (
+                    "feature-h".to_string(),
+                    MergeRequest::builder()
+                        .id("8".to_string())
+                        .title("Feature H".to_string())
+                        .source_branch("feature-h".to_string())
+                        .target_branch("main".to_string())
+                        .build(),
+                ),
+            ]))
+            .id_expands_title(true)
+            .build();
+
+        let context = FormatContext {
+            component: component.clone(),
+            this_bookmark: "feature-e".to_string(),
+            merge_request_lookup: &forge.merge_request_lookup(),
+            base_branch: "main".to_string(),
+            format_merge_request: &ForgeImpl::Test(forge),
+        };
+        let description = formatter.format_tree(&context);
+
+        assert_str_eq!(
+            description,
+            r#"This MR is part of a tree containing 8 MRs:
+
+1. `main`
+2. #1 → `main`
+3. #4 → #1
+4. #2 → #1
+5. **"Feature E" (this MR) → #2**
+6. #3 → #2
+7. #7 → #3
+8. #8 → #7
+9. #6 → #3"#
+        );
+    }
+
+    #[test]
+    fn test_tree_generate_linear_component_github_style() {
+        let changes = Change::mock_stack_map([
+            Change::mock_from_bookmark("feature-a"),
+            Change::mock_from_bookmark("feature-b"),
+            Change::mock_from_bookmark("feature-c"),
+        ]);
+
+        let graph = BookmarkGraph::from_lookups(
+            changes.create_bookmark_map(),
+            changes.create_adjacency_list(),
+        );
+
+        let component = &graph.components()[0];
+        let formatter = DescriptionFormatter::Tree(TreeFormatter);
+
+        let forge = TestForge::builder()
+            .merge_requests(HashMap::from([
+                (
+                    "feature-a".to_string(),
+                    MergeRequest::builder()
+                        .id("1".to_string())
+                        .title("Feature A".to_string())
+                        .source_branch("feature-a".to_string())
+                        .target_branch("main".to_string())
+                        .build(),
+                ),
+                (
+                    "feature-b".to_string(),
+                    MergeRequest::builder()
+                        .id("2".to_string())
+                        .title("Feature B".to_string())
+                        .source_branch("feature-b".to_string())
+                        .target_branch("main".to_string())
+                        .build(),
+                ),
+                (
+                    "feature-c".to_string(),
+                    MergeRequest::builder()
+                        .id("3".to_string())
+                        .title("Feature C".to_string())
+                        .source_branch("feature-c".to_string())
+                        .target_branch("main".to_string())
+                        .build(),
+                ),
+            ]))
+            .id_expands_title(true)
+            .build();
+
+        let context = FormatContext {
+            component: component.clone(),
+            this_bookmark: "feature-b".to_string(),
+            merge_request_lookup: &forge.merge_request_lookup(),
+            base_branch: "main".to_string(),
+            format_merge_request: &ForgeImpl::Test(forge),
+        };
+        let description = formatter.format_linear(&context);
+
+        assert_str_eq!(
+            description,
+            r#"This MR is part of a stack containing 3 MRs:
+
+- `main`
+    - #1
+        - **"Feature B" (this MR)**
+            - #3"#
+        );
+    }
+
+    #[test]
+    fn test_tree_generate_tree_component_github_style() {
+        let mut changes = Change::mock_stack_map([
+            Change::mock_from_bookmark("feature-a"),
+            Change::mock_from_bookmark("feature-b"),
+            Change::mock_from_bookmark("feature-c"),
+        ]);
+
+        changes.insert(
+            Change::mock_from_bookmark("feature-d").with_mock_parent_bookmarks(["feature-a"]),
+        );
+
+        changes.insert(
+            Change::mock_from_bookmark("feature-e").with_mock_parent_bookmarks(["feature-b"]),
+        );
+
+        changes.insert(
+            Change::mock_from_bookmark("feature-f").with_mock_parent_bookmarks(["feature-c"]),
+        );
+
+        changes.extend(Change::mock_stack_map([
+            Change::mock_from_bookmark("feature-g").with_mock_parent_bookmarks(["feature-c"]),
+            Change::mock_from_bookmark("feature-h"),
+        ]));
+
+        let graph = BookmarkGraph::from_lookups(
+            changes.create_bookmark_map(),
+            changes.create_adjacency_list(),
+        );
+
+        let component = &graph.components()[0];
+        let formatter = DescriptionFormatter::Tree(TreeFormatter);
+
+        let forge = TestForge::builder()
+            .merge_requests(HashMap::from([
+                (
+                    "feature-a".to_string(),
+                    MergeRequest::builder()
+                        .id("1".to_string())
+                        .title("Feature A".to_string())
+                        .source_branch("feature-a".to_string())
+                        .target_branch("main".to_string())
+                        .build(),
+                ),
+                (
+                    "feature-b".to_string(),
+                    MergeRequest::builder()
+                        .id("2".to_string())
+                        .title("Feature B".to_string())
+                        .source_branch("feature-b".to_string())
+                        .target_branch("main".to_string())
+                        .build(),
+                ),
+                (
+                    "feature-c".to_string(),
+                    MergeRequest::builder()
+                        .id("3".to_string())
+                        .title("Feature C".to_string())
+                        .source_branch("feature-c".to_string())
+                        .target_branch("main".to_string())
+                        .build(),
+                ),
+                (
+                    "feature-d".to_string(),
+                    MergeRequest::builder()
+                        .id("4".to_string())
+                        .title("Feature D".to_string())
+                        .source_branch("feature-d".to_string())
+                        .target_branch("main".to_string())
+                        .build(),
+                ),
+                (
+                    "feature-e".to_string(),
+                    MergeRequest::builder()
+                        .id("5".to_string())
+                        .title("Feature E".to_string())
+                        .source_branch("feature-e".to_string())
+                        .target_branch("main".to_string())
+                        .build(),
+                ),
+                (
+                    "feature-f".to_string(),
+                    MergeRequest::builder()
+                        .id("6".to_string())
+                        .title("Feature F".to_string())
+                        .source_branch("feature-f".to_string())
+                        .target_branch("main".to_string())
+                        .build(),
+                ),
+                (
+                    "feature-g".to_string(),
+                    MergeRequest::builder()
+                        .id("7".to_string())
+                        .title("Feature G".to_string())
+                        .source_branch("feature-g".to_string())
+                        .target_branch("main".to_string())
+                        .build(),
+                ),
+                (
+                    "feature-h".to_string(),
+                    MergeRequest::builder()
+                        .id("8".to_string())
+                        .title("Feature H".to_string())
+                        .source_branch("feature-h".to_string())
+                        .target_branch("main".to_string())
+                        .build(),
+                ),
+            ]))
+            .id_expands_title(true)
+            .build();
+
+        let context = FormatContext {
+            component: component.clone(),
+            this_bookmark: "feature-e".to_string(),
+            merge_request_lookup: &forge.merge_request_lookup(),
+            base_branch: "main".to_string(),
+            format_merge_request: &ForgeImpl::Test(forge),
+        };
+        let description = formatter.format_tree(&context);
+
+        assert_str_eq!(
+            description,
+            r#"This MR is part of a tree containing 8 MRs:
+
+- `main`
+    - #1
+        1. #2
+            1. #3
+                1. #7
+                    - #8
+                2. #6
+            2. **"Feature E" (this MR)**
+        2. #4"#
         );
     }
 }
