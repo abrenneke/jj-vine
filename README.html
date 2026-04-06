@@ -1,0 +1,1302 @@
+<section id="jj-vine">
+<h1><code>jj-vine</code></h1>
+<p>A tool for submitting stacked Pull/Merge Requests from Jujutsu bookmarks.</p>
+<p>Supports the following code forges:</p>
+<ul>
+<li>
+GitLab (<a href="https://gitlab.com">gitlab.com</a> or self-hosted)
+</li>
+<li>
+<a href="https://github.com">GitHub</a> or GitHub Enterprise
+</li>
+<li>
+<a href="https://forgejo.org">Forgejo</a> / <a href="https://codeberg.org">Codeberg</a> / Gitea
+</li>
+<li>
+<a href="https://azure.microsoft.com/en-us/products/devops">Azure DevOps</a>
+</li>
+</ul>
+<p><strong>The canonical location for <code>jj-vine</code> is <a href="https://codeberg.org/abrenneke/jj-vine">codeberg.org/abrenneke/jj-vine</a>. GitHub is used as a mirror and CI only.</strong></p>
+<section id="Table-of-Contents">
+<h2>Table of Contents</h2>
+<ul>
+<li>
+<a href="#overview">Overview</a>
+</li>
+<li>
+<a href="#main-features">Main Features</a>
+</li>
+<li>
+<a href="#planned-features">Planned Features</a>
+</li>
+<li>
+<a href="#installation">Installation</a>
+<ul>
+<li>
+<a href="#cargo-binstall">Cargo Binstall</a>
+</li>
+<li>
+<a href="#mise">Mise</a>
+</li>
+<li>
+<a href="#pre-built-binaries">Pre-built Binaries</a>
+</li>
+<li>
+<a href="#attestations">Attestations</a>
+</li>
+<li>
+<a href="#alias-setup">Alias Setup</a>
+</li>
+</ul>
+</li>
+<li>
+<a href="#quick-start">Quick Start</a>
+</li>
+<li>
+<a href="#commands">Commands</a>
+<ul>
+<li>
+<a href="#submit">submit</a>
+</li>
+<li>
+<a href="#init">init</a>
+</li>
+<li>
+<a href="#status">status</a>
+</li>
+</ul>
+</li>
+<li>
+<a href="#configuration">Configuration</a>
+<ul>
+<li>
+<a href="#forge-specific-settings">Forge-Specific Settings</a>
+<ul>
+<li>
+<a href="#forge">Forge</a>
+</li>
+<li>
+<a href="#gitlab">GitLab</a>
+</li>
+<li>
+<a href="#github">GitHub</a>
+</li>
+<li>
+<a href="#forgejo-codeberg-gitea">Forgejo/Codeberg/Gitea</a>
+</li>
+<li>
+<a href="#azure-devops">Azure DevOps</a>
+</li>
+</ul>
+</li>
+<li>
+<a href="#common-settings">Common Settings</a>
+</li>
+</ul>
+</li>
+<li>
+<a href="#description-generation-stack-visualization">Description Generation / Stack Visualization</a>
+<ul>
+<li>
+<a href="#description-configuration">Configuration</a>
+</li>
+<li>
+<a href="#linear-format">Linear Format</a>
+</li>
+<li>
+<a href="#tree-format">Tree Format</a>
+</li>
+<li>
+<a href="#description-generation">Description Generation</a>
+</li>
+</ul>
+</li>
+<li>
+<a href="#title-generation">Title Generation</a>
+<ul>
+<li>
+<a href="#title-configuration">Configuration</a>
+</li>
+<li>
+<a href="#custom-title-templates">Custom Title Templates</a>
+</li>
+<li>
+<a href="#credits">Credits</a>
+</li>
+</ul>
+</li>
+<li>
+<a href="#faqs">FAQs</a>
+<ul>
+<li>
+<a href="#is-this-vibe-coded-slop">Is this vibe-coded slop?</a>
+</li>
+<li>
+<a href="#ok-but-really">Ok, but really?</a>
+</li>
+<li>
+<a href="#why-a-new-project">Why a new project?</a>
+</li>
+</ul>
+</li>
+<li>
+<a href="#contributing">Contributing</a>
+</li>
+<li>
+<a href="#license">License</a>
+</li>
+</ul>
+</section>
+<section id="Overview">
+<h2><span id="overview">Overview</span></h2>
+<p>As <code>jj</code> is so flexible, it can sometimes be tedious to manage pull/merge requests for a <code>jj</code> repository. Additionally, many people like the “stacked pull/merge request” workflow, where a tool can manage your stack of pull/merge requests for you, including modifying the base branch, description, and other settings. <code>jj-vine</code> aims to smooth out the process of managing pull/merge requests for a <code>jj</code> repository.</p>
+<p>There are several tools these days that aim to solve this problem, most notably <a href="https://github.com/LucioFranco/jj-spr"><code>jj-spr</code></a> and <a href="https://github.com/keanemind/jj-stack"><code>jj-stack</code></a>. <code>jj-vine</code> has its own design choices, and may not be a direct replacement for these tools. Take a look at the differences &amp; features below to see if <code>jj-vine</code> is a good fit for you.</p>
+<p>Major differences:</p>
+<ul>
+<li>
+<code>jj-vine</code> is bookmark-based, rather than change-based. It expects you to create your bookmarks before submitting them, and (usually) expects you to push them (e.g. <code>jj git push -c @</code>) as well. This means that you can have multiple commits in each pull/merge request.
+</li>
+<li>
+<code>jj-spr</code> aims to more be a full workflow rather than a lightweight tool. <code>jj-vine</code> is less opinionated.
+</li>
+<li>
+<code>jj-vine</code> is primarily based around the <code>submit --tracked</code> command. This submits <strong>all</strong> (your) tracked bookmarks at once. Other tools often require you to submit each bookmark individually. The idea is to simply “sync your current state to the code forge”.
+</li>
+<li>
+Bookmarks are not automatically forwarded. You’ll need to use <code>jj bookmark set</code> to update the target of a bookmark.
+</li>
+</ul>
+</section>
+<section id="Main-Features">
+<h2>Main <span id="main-features">Features</span></h2>
+<ul>
+<li>
+<p><strong><strong>Stacked pull/merge request creation</strong></strong></p>
+<p>Automatically creates pull/merge requests with correct base branches based on bookmark dependencies. Works great for single branches as well.</p>
+</li>
+<li>
+<p><strong><strong><a href="#description-generation--stack-visualization">Stack visualization</a></strong></strong></p>
+<p>Adds a navigable stack diagram to pull/merge request descriptions with links to related pull/merge requests. Can be customized and disabled.</p>
+</li>
+<li>
+<p><strong><strong>Unopinionated</strong></strong></p>
+<p><code>jj-vine</code> is not opinionated about how you should structure your commits, bookmarks, and pull/merge requests. It can work with what you have. It also works great with auto-generated bookmarks (<code>jj git push -c &lt;rev&gt;</code>).</p>
+</li>
+<li>
+<p><strong><strong><a href="#complex-graph-of-bookmarks">Complex branching</a></strong></strong></p>
+<p>Not only does <code>jj-vine</code> support trees of bookmarks, but it fully supports complex (DAG) graphs of changes just like <code>jj</code> itself does. While actual forge support for PRs/MRs with multiple parents may be limited, <code>jj-vine</code> can still visualize and manage them.</p>
+</li>
+<li>
+<p><strong><strong><a href="#status">Status</a></strong></strong></p>
+<p>Can easily report the status of your bookmarks and their pull/merge requests.</p>
+</li>
+<li>
+<p><strong><strong>Automatic syncing</strong></strong></p>
+<p>Updates pull/merge request base branches &amp; all related descriptions when stack structure changes.</p>
+</li>
+</ul>
+</section>
+<section id="Planned-Features">
+<h2>Planned <span id="planned-features">Features</span></h2>
+<ul>
+<li>
+<p><strong><strong>Automatic rebasing</strong></strong></p>
+<p>Once a pull/merge request is merged, rebases the stack on top of the trunk</p>
+</li>
+<li>
+<p><strong><strong>Landing</strong></strong></p>
+<p>Merge a pull/merge request and automatically rebase dependent pull/merge requests on top of the trunk</p>
+</li>
+</ul>
+</section>
+<section id="Installation">
+<h2><span id="installation">Installation</span></h2>
+<section id="Cargo-Binstall">
+<h3>Cargo <span id="cargo-binstall">Binstall</span></h3>
+<p>The preferred way to install <code>jj-vine</code> is to use <a href="https://github.com/cargo-bins/cargo-binstall"><code>cargo-binstall</code></a>:</p>
+<pre><code class="language-bash"># Will put the binary in $HOME/.cargo/bin
+cargo binstall jj-vine
+</code></pre>
+</section>
+<section id="Mise">
+<h3><span id="mise">Mise</span></h3>
+<p>If you use <a href="https://mise.jdx.dev/">mise</a>, you can install with:</p>
+<pre><code class="language-bash">mise use -g cargo:jj-vine
+</code></pre>
+</section>
+<section id="Pre-built-Binaries">
+<h3>Pre-built <span id="pre-built-binaries">Binaries</span></h3>
+<p>Pre-built binaries are available for Linux, macOS, and Windows (ARM64 and x86_64 for all). You can download directly from the <a href="https://codeberg.org/abrenneke/jj-vine/releases">releases page</a>.</p>
+</section>
+<section id="Attestations">
+<h3><span id="attestations">Attestations</span></h3>
+<p>Binaries are built with GitHub attestations. You may <a href="https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations#verifying-artifact-attestations-with-the-github-cli">verify the provenance of a binary</a> by running:</p>
+<pre><code class="language-bash">gh attestation verify &lt;binary&gt; -R abrenneke/jj-vine
+</code></pre>
+</section>
+<section id="Alias-Setup">
+<h3>Alias <span id="alias-setup">Setup</span></h3>
+<p>You can set up a <code>jj</code> alias to make it easier to use <code>jj-vine</code>. Aliases that work great are <code>jj pr</code>, <code>jj mr</code>, or <code>jj vine</code>. You can run the following command to install an alias:</p>
+<pre><code class="language-bash"># Take your pick:
+jj config set --user aliases.pr '["util", "exec", "--", "jj-vine"]'
+jj config set --user aliases.mr '["util", "exec", "--", "jj-vine"]'
+jj config set --user aliases.vine '["util", "exec", "--", "jj-vine"]'
+</code></pre>
+</section>
+</section>
+<section id="Quick-Start">
+<h2>Quick <span id="quick-start">Start</span></h2>
+<ol>
+<li>
+<p>Run <code>jj-vine init</code> to set up your code forge configuration for your repository. This is stored in <code>.jj/repo/config.toml</code>. You may also move any configuration settings to the global config file <code>~/.config/jj/config.toml</code>.</p>
+<pre><code class="language-bash">jj-vine init
+</code></pre>
+</li>
+<li>
+<p>Push up some bookmarks (auto-generated bookmarks work great!)</p>
+<pre><code class="language-bash">jj new main
+
+jj commit -m "Add feature A"
+# Make some changes
+jj git push -c @-
+
+jj commit -m "Add feature B"
+# Make some changes
+jj git push -c @-
+</code></pre>
+</li>
+<li>
+<p>Submit all tracked bookmarks at once:</p>
+<pre><code class="language-bash">jj-vine submit --tracked
+</code></pre>
+<p>This creates two pull/merge requests:</p>
+<ul>
+<li>
+<code>feature-a</code> targeting <code>main</code>
+</li>
+<li>
+<code>feature-b</code> targeting <code>feature-a</code>
+</li>
+</ul>
+</li>
+</ol>
+</section>
+<section id="Commands">
+<h2><span id="commands">Commands</span></h2>
+<section id="submit">
+<h3><code id="submit">submit</code></h3>
+<p>Submit a bookmark and its dependencies as pull/merge requests.</p>
+<pre><code class="language-bash"># Submit a single bookmark or revset (and its dependencies!)
+jj-vine submit &lt;revset/bookmark&gt;
+jj-vine submit -r &lt;revset/bookmark&gt;
+
+# Submit all tracked bookmarks. Roughly equivalent to `(mine() &amp; tracked_remote_bookmarks()) ~ trunk()`, but has additional stipulations. See `jj-vine submit --help` for more details.
+# This is the recommended command to use!
+jj-vine submit --tracked
+
+# Preview without making changes
+jj-vine submit &lt;options&gt; --dry-run
+</code></pre>
+<p>See all options and additional help with <code>jj-vine submit --help</code>.</p>
+</section>
+<section id="init">
+<h3><code id="init">init</code></h3>
+<p>Interactive setup wizard to configure jj-vine for your repository.</p>
+<pre><code class="language-bash">jj-vine init
+</code></pre>
+</section>
+<section id="status">
+<h3><code id="status">status</code></h3>
+<p>Show the status of tracked bookmarks and their pull/merge requests.</p>
+<pre><code class="language-bash"># Show the status of all my bookmarks
+jj-vine status
+
+# Show the status of all tracked bookmarks
+jj-vine status --tracked
+
+# Show the status of a specific revset that includes bookmarks
+jj-vine status -r &lt;revset&gt;
+</code></pre>
+<p>The output will look roughly like this (but with colors):</p>
+<pre><code class="language-bash">!100 "This is the title of the first merge request"
+     push-xxxxxxxa • ✓ Checks OK • Needs approval (0/1) • 2 open discussions • 24d 21h old • https://forge-url.example/100
+
+!101 "This is the title of the second merge request"
+     push-xxxxxxxb • [READY] • ✓ Checks OK • Approved (1/1) • 16d 18h old • https://forge-url.example/101
+
+!102 "Third title"
+     push-xxxxxxxc • ✓ Checks OK • Needs approval (0/1) • 5d 6h old • https://forge-url.example/102
+
+!103 "Fourth merge request title"
+     push-xxxxxxxd • ✓ Checks OK • Needs approval (0/1) • 19h old • https://forge-url.example/103
+
+!104 "Fifth title"
+     push-xxxxxxxe • ✗ Checks failing • Needs approval (0/1) • 1 open discussion • 19h old • https://forge-url.example/104
+
+wip No merge request
+
+wip-2 No merge request
+</code></pre>
+<p>See all options and additional help with <code>jj-vine status --help</code>.</p>
+</section>
+</section>
+<section id="Configuration">
+<h2><span id="configuration">Configuration</span></h2>
+<p>Configuration is stored in <a href="https://docs.jj-vcs.dev/latest/config/">jj’s configuration system</a> under the <code>jj-vine</code> section. You can use <code>jj config edit --repo</code> to edit the configuration for a specific repository or <code>jj config edit --user</code> to edit the global configuration. You can also use <code>jj config set --repo &lt;key&gt; &lt;value&gt;</code> to set a configuration value for a specific repository:</p>
+<pre><code class="language-bash">jj config set --repo jj-vine.deleteSourceBranch true
+jj config set --repo jj-vine.defaultReviewers '["alice", "bob"]'
+</code></pre>
+<section id="Forge-Specific-Settings">
+<h3>Forge-Specific <span id="forge-specific-settings">Settings</span></h3>
+<p>All listed settings are under the <code>jj-vine</code> section so should be prefixed with <code>jj-vine.</code>.</p>
+<section id="Forge">
+<h4><span id="forge">Forge</span></h4>
+<p>Ad a minimum, the <code>jj-vine.forge</code> configuration setting must be set to the type of forge you are using.</p>
+<table>
+<tr>
+<th>Setting</th>
+<th>Description</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+</tr>
+<tr>
+<td><code>forge</code></td>
+<td>The type of forge you are using</td>
+<td>“gitlab” | “github” | “forgejo” | “azure”</td>
+<td>Yes</td>
+<td>-</td>
+</tr>
+</table>
+</section>
+<section id="GitLab">
+<h4><span id="gitlab">GitLab</span></h4>
+<p>Required when <code>jj-vine.forge</code> is set to <code>gitlab</code>.</p>
+<table>
+<tr>
+<th>Setting</th>
+<th>Description</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+</tr>
+<tr>
+<td><code>gitlab.host</code></td>
+<td>GitLab instance URL (e.g., <code>https://gitlab.example.com</code>)</td>
+<td>String</td>
+<td>Yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>gitlab.project</code></td>
+<td>Project ID where branches are pushed (<code>group/project</code> or numeric ID like <code>12345</code>)</td>
+<td>String</td>
+<td>Yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>gitlab.token</code></td>
+<td>Personal Access Token with <code>api</code> scope</td>
+<td>String</td>
+<td>Yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>gitlab.targetProject</code></td>
+<td>Target project ID for merge requests (e.g., <code>upstream/project</code>). Use if you are using a fork.</td>
+<td>String</td>
+<td>No</td>
+<td>(same as <code>gitlab.project</code>)</td>
+</tr>
+<tr>
+<td><code>gitlab.createMergeRequestDependencies</code></td>
+<td>Whether to create dependencies between merge requests, requiring that all parent merge requests are merged before the child merge request can be merged.</td>
+<td>Boolean</td>
+<td>No</td>
+<td>true</td>
+</tr>
+</table>
+</section>
+<section id="GitHub">
+<h4><span id="github">GitHub</span></h4>
+<p>Required when <code>jj-vine.forge</code> is set to <code>github</code>.</p>
+<table>
+<tr>
+<th>Setting</th>
+<th>Description</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+</tr>
+<tr>
+<td><code>github.host</code></td>
+<td>GitHub API URL (defaults to <code>https://api.github.com</code> for GitHub.com, or <code>https://github.example.com/api/v3</code> for Enterprise)</td>
+<td>String</td>
+<td>Yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>github.project</code></td>
+<td>Repository where branches are pushed in <code>owner/repo</code> format</td>
+<td>String</td>
+<td>Yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>github.token</code></td>
+<td>Personal Access Token with <code>repo</code> scope</td>
+<td>String</td>
+<td>Yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>github.targetProject</code></td>
+<td>Target repository for pull requests (e.g., <code>upstream-owner/repo</code>). Use if you are using a fork.</td>
+<td>String</td>
+<td>No</td>
+<td>(same as <code>github.project</code>)</td>
+</tr>
+</table>
+</section>
+<section id="ForgejoCodebergGitea">
+<h4><span id="forgejo-codeberg-gitea">Forgejo/Codeberg/Gitea</span></h4>
+<p>Required when <code>jj-vine.forge</code> is set to <code>forgejo</code>.</p>
+<table>
+<tr>
+<th>Setting</th>
+<th>Description</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+</tr>
+<tr>
+<td><code>forgejo.host</code></td>
+<td>Forgejo/Codeberg/Gitea instance URL (e.g., <code>https://codeberg.org</code>)</td>
+<td>String</td>
+<td>Yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>forgejo.project</code></td>
+<td>Repository where branches are pushed in <code>owner/repo</code> format</td>
+<td>String</td>
+<td>Yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>forgejo.token</code></td>
+<td>API access token with <code>repo</code> scope</td>
+<td>String</td>
+<td>Yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>forgejo.targetProject</code></td>
+<td>Target repository for pull requests (e.g., <code>upstream-owner/repo</code>). Use if you are using a fork.</td>
+<td>String</td>
+<td>No</td>
+<td>(same as <code>forgejo.project</code>)</td>
+</tr>
+<tr>
+<td><code>forgejo.wipPrefix</code></td>
+<td>Prefix for WIP/draft pull requests. What counts as a draft pull request is configurable per-repository on Forgejo.</td>
+<td>String</td>
+<td>No</td>
+<td>“WIP: ”</td>
+</tr>
+</table>
+</section>
+<section id="Azure-DevOps">
+<h4>Azure <span id="azure-devops">DevOps</span></h4>
+<p>Required when <code>jj-vine.forge</code> is set to <code>azure</code>.</p>
+<table>
+<tr>
+<th>Setting</th>
+<th>Description</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+</tr>
+<tr>
+<td><code>azure.host</code></td>
+<td>Azure DevOps instance URL (e.g., <code>https://dev.azure.com</code>)</td>
+<td>String</td>
+<td>Yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>azure.vsspsHost</code></td>
+<td>Azure DevOps Security (VSSP) host (e.g., <code>https://vssps.dev.azure.com</code>). Used to look up other users for automatic review requests.</td>
+<td>String</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>azure.project</code></td>
+<td>Organization and project where branches are pushed, formatted as <code>organization/project</code></td>
+<td>String</td>
+<td>Yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>azure.sourceRepositoryName</code></td>
+<td>Name of the repository in the project where branches are pushed</td>
+<td>String</td>
+<td>Required if <code>azure.sourceRepositoryId</code> is not set</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>azure.sourceRepositoryId</code></td>
+<td>ID of the repository in the project where branches are pushed</td>
+<td>String</td>
+<td>Required if <code>azure.sourceRepositoryName</code> is not set</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>azure.token</code></td>
+<td>Personal Access Token</td>
+<td>String</td>
+<td>Yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>azure.targetProject</code></td>
+<td>Target organization &amp; project for pull requests (e.g., <code>upstream-organization/project</code>). Use if you are using a fork.</td>
+<td>String</td>
+<td>No</td>
+<td>(same as <code>azure.project</code>)</td>
+</tr>
+<tr>
+<td><code>azure.targetRepositoryName</code></td>
+<td>Name of the repository in the target project for pull requests</td>
+<td>String</td>
+<td>Required if <code>azure.targetRepositoryId</code> is not set and <code>azure.targetProject</code> is different from <code>azure.project</code></td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>azure.targetRepositoryId</code></td>
+<td>ID of the repository in the target project for pull requests</td>
+<td>String</td>
+<td>Required if <code>azure.targetRepositoryName</code> is not set and <code>azure.targetProject</code> is different from <code>azure.project</code></td>
+<td>-</td>
+</tr>
+</table>
+</section>
+</section>
+<section id="Common-Settings">
+<h3>Common <span id="common-settings">Settings</span></h3>
+<p>These settings apply to all forges:</p>
+<table>
+<tr>
+<th>Setting</th>
+<th>Description</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+</tr>
+<tr>
+<td><code>remoteName</code></td>
+<td>The remote name to use for pushing and pulling branches</td>
+<td>String</td>
+<td>No</td>
+<td>“origin”</td>
+</tr>
+<tr>
+<td><code>deleteSourceBranch</code></td>
+<td>Configures the pull/merge request to delete the source branch when merged. Currently has no effect for GitHub and Forgejo (is a repository-level setting and on-merge flag only)</td>
+<td>Boolean</td>
+<td>No</td>
+<td>true</td>
+</tr>
+<tr>
+<td><code>squashCommits</code></td>
+<td>Configures the pull/merge request to squash commits when merging. Currently has no effect for GitHub and Forgejo (is a repository-level setting and on-merge flag only)</td>
+<td>Boolean</td>
+<td>No</td>
+<td>false</td>
+</tr>
+<tr>
+<td><code>assignToSelf</code></td>
+<td>Automatically assign created pull/merge requests to yourself. Has no effect for AzureDevOps</td>
+<td>Boolean</td>
+<td>No</td>
+<td>false</td>
+</tr>
+<tr>
+<td><code>defaultReviewers</code></td>
+<td>List of usernames to automatically add as reviewers when creating pull/merge requests. For Azure DevOps, this should be a list of “user descriptors” and <code>azure.vsspsHost</code> must be set</td>
+<td>Array&lt;String&gt;</td>
+<td>No</td>
+<td>[]</td>
+</tr>
+<tr>
+<td><code>caBundle</code></td>
+<td>Path to CA certificate bundle for custom TLS</td>
+<td>String | null</td>
+<td>No</td>
+<td>null</td>
+</tr>
+<tr>
+<td><code>tlsAcceptNonCompliantCerts</code></td>
+<td>Accept non-compliant TLS certificates (for certificates that don’t meet strict X.509 standards). This is almost always unnecessary unless you have a unique situation.</td>
+<td>Boolean</td>
+<td>No</td>
+<td>false</td>
+</tr>
+<tr>
+<td><code>defaultBaseBranch</code></td>
+<td>Default target branch for pull/merge requests into <code>trunk()</code></td>
+<td>String</td>
+<td>No</td>
+<td>(detected automatically using the <code>trunk()</code> revset)</td>
+</tr>
+<tr>
+<td><code>openAsDraft</code></td>
+<td>Open newly created pull/merge requests as drafts</td>
+<td>Boolean</td>
+<td>No</td>
+<td>false</td>
+</tr>
+<tr>
+<td><code>description</code></td>
+<td>Configuration for pull/merge request description generation</td>
+<td>Object (see below)</td>
+<td>No</td>
+<td>(see below)</td>
+</tr>
+</table>
+</section>
+</section>
+<section id="Description-Generation-Stack-Visualization">
+<h2>Description Generation / Stack <span id="description-generation-stack-visualization">Visualization</span></h2>
+<p>If enabled, <code>jj-vine</code> can generate both a description/body for a pull/merge request, and a stack diagram to include in the description. The stack diagram
+will always be kept in sync with your PR/MR stack upon submitting your bookmark(s). The description generation will only sync if <code>description.sync</code> is enabled, otherwise the description generation will only happen when a pull/merge request is first created.</p>
+<p>If you would like description generation, but not a stack diagram, you can set each value of <code>description.diagram</code> to <code>none</code>. Alternatively, if you would
+like to only generate a stack diagram, you can set <code>description.singleRevision</code> and <code>description.multipleRevisions</code> to <code>none</code>.</p>
+<section id="Configuration-1">
+<h3><span id="description-configuration">Configuration</span></h3>
+<table>
+<tr>
+<th>Setting</th>
+<th>Description</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+</tr>
+<tr>
+<td><code>description.enabled</code></td>
+<td>Whether to enable or disable description generation entirely. If false, pull/merge request descriptions will not be touched</td>
+<td>Boolean</td>
+<td>No</td>
+<td>true</td>
+</tr>
+<tr>
+<td><code>description.sync</code></td>
+<td>Whether to sync the description of a pull/merge request every time the bookmark is submitted. If this is enabled, any changes you make to the description will be overwritten by the generated description on the next submission. Defaults to false</td>
+<td>Boolean</td>
+<td>No</td>
+<td>false</td>
+</tr>
+<tr>
+<td><code>description.diagram</code></td>
+<td>How to render the stack diagram for different types of merge request stacks</td>
+<td>Object</td>
+<td>No</td>
+<td>(see next rows)</td>
+</tr>
+<tr>
+<td><code>description.singleRevision</code></td>
+<td>How to generate the non-stack part of the description for a pull/merge request when there is only one revision in the pull/merge request</td>
+<td><code>none</code> | <code>notFirstLine</code> | <code>fullMessage</code> | <code>commitListFirstLine</code> | <code>commitListFull</code> | <code>file(path_to_file)</code> (see below)</td>
+<td>No</td>
+<td><code>notFirstLine</code></td>
+</tr>
+<tr>
+<td><code>description.multipleRevisions</code></td>
+<td>How to generate the non-stack part of the description for a pull/merge request when there are multiple revisions in the pull/merge request</td>
+<td><code>none</code> | <code>notFirstLine</code> | <code>fullMessage</code> | <code>commitListFirstLine</code> | <code>commitListFull</code> | <code>file(path_to_file)</code> (see below)</td>
+<td>No</td>
+<td><code>commitListFull</code></td>
+</tr>
+<tr>
+<td><code>description.diagram.single</code></td>
+<td>How to render a <strong><strong>single</strong></strong> pull/merge request, without any parents or children besides the trunk</td>
+<td><code>none</code> | <code>linear</code> | <code>tree</code></td>
+<td>No</td>
+<td><code>none</code></td>
+</tr>
+<tr>
+<td><code>description.diagram.linear</code></td>
+<td>How to render a <strong><strong>linear</strong></strong> stack of bookmarks. This means that no tracked bookmark has multiple parents or multiple children</td>
+<td><code>none</code> | <code>linear</code> | <code>tree</code></td>
+<td>No</td>
+<td><code>linear</code></td>
+</tr>
+<tr>
+<td><code>description.diagram.tree</code></td>
+<td>How to render a <strong><strong>tree</strong></strong> of bookmarks, where two bookmarks merge into a common parent, but no bookmark has multiple parents</td>
+<td><code>none</code> | <code>linear</code> | <code>tree</code></td>
+<td>No</td>
+<td><code>tree</code></td>
+</tr>
+<tr>
+<td><code>description.diagram.complex</code></td>
+<td>How to render a <strong><strong>complex</strong></strong> (DAG) graph of bookmarks, where any bookmark has multiple parents. Because forges only support a pull/merge request merging into a single parent, in this situation you may see commits of one pull/merge request included in other pull/merge requests</td>
+<td><code>none</code> | <code>linear</code> | <code>tree</code></td>
+<td>No</td>
+<td><code>complex</code></td>
+</tr>
+</table>
+<p>The following sections show examples of the different stack formats.</p>
+</section>
+<section id="Linear-Format">
+<h3>Linear <span id="linear-format">Format</span></h3>
+<section id="LinearSingle-Bookmark-Stack">
+<h4>Linear/Single Bookmark Stack</h4>
+<p>(<code>description.diagram.single = "linear"</code> and <code>description.diagram.linear = "linear"</code>)</p>
+<p>This PR is part of a stack containing 5 PRs:</p>
+<ol>
+<li>
+<code>main</code>
+</li>
+<li>
+<a href="#">#1</a> “Feature A”
+</li>
+<li>
+<strong><strong>“Feature B” (this PR)</strong></strong>
+</li>
+<li>
+<a href="#">#3</a> “Feature C”
+</li>
+<li>
+<a href="#">#4</a> “Feature D”
+</li>
+<li>
+<a href="#">#5</a> “Feature E”
+</li>
+</ol>
+</section>
+<section id="Tree-Bookmarks">
+<h4>Tree Bookmarks</h4>
+<p>(<code>description.diagram.tree = "linear"</code>)</p>
+<p>This PR is part of a tree containing 8 PRs:</p>
+<ol>
+<li>
+<code>main</code>
+</li>
+<li>
+<a href="#">#1</a> “Feature A” → <code>main</code>
+</li>
+<li>
+<a href="#">#4</a> “Feature D” → <a href="#">#1</a>
+</li>
+<li>
+<a href="#">#2</a> “Feature B” → <a href="#">#1</a>
+</li>
+<li>
+<strong><strong>“Feature E” (this PR) → <a href="#">#2</a></strong></strong>
+</li>
+<li>
+<a href="#">#3</a> “Feature C” → <a href="#">#2</a>
+</li>
+<li>
+<a href="#">#7</a> “Feature G” → <a href="#">#3</a>
+</li>
+<li>
+<a href="#">#8</a> “Feature H” → <a href="#">#7</a>
+</li>
+<li>
+<a href="#">#6</a> “Feature F” → <a href="#">#3</a>
+</li>
+</ol>
+</section>
+<section id="Complex-Graph-of-Bookmarks">
+<h4>Complex Graph of Bookmarks</h4>
+<p>(<code>description.diagram.complex = "linear"</code>)</p>
+<p>This PR is part of a complex set of PRs containing 10 PRs:</p>
+<ol>
+<li>
+<code>main</code>
+</li>
+<li>
+<a href="#">#9</a> “Feature I” → <code>main</code>
+</li>
+<li>
+<a href="#">#10</a> “Feature J” → <a href="#">#9</a>
+</li>
+<li>
+<a href="#">#1</a> “Feature A” → <code>main</code>
+</li>
+<li>
+<a href="#">#2</a> “Feature B” → <a href="#">#1</a>
+</li>
+<li>
+<strong><strong>“Feature E” (this PR) → <a href="#">#2</a>, <a href="#">#10</a></strong></strong>
+</li>
+<li>
+<a href="#">#4</a> “Feature D” → <a href="#">#1</a>, <a href="#">#2</a>
+</li>
+<li>
+<a href="#">#3</a> “Feature C” → <a href="#">#2</a>
+</li>
+<li>
+<a href="#">#7</a> “Feature G” → <a href="#">#3</a>, <a href="#">#5</a>, <a href="#">#10</a>
+</li>
+<li>
+<a href="#">#8</a> “Feature H” → <a href="#">#7</a>
+</li>
+<li>
+<a href="#">#6</a> “Feature F” → <a href="#">#3</a>, <a href="#">#9</a>
+</li>
+</ol>
+</section>
+</section>
+<section id="Tree-Format">
+<h3>Tree <span id="tree-format">Format</span></h3>
+<section id="LinearSingle-Bookmark-Stack-1">
+<h4>Linear/Single Bookmark Stack</h4>
+<p>(<code>description.diagram.single = "tree"</code> and <code>description.diagram.linear = "tree"</code>)</p>
+<p>This PR is part of a stack containing 5 PRs:</p>
+<ul>
+<li>
+<code>main</code>
+<ul>
+<li>
+<a href="#">#1</a> “Feature A”
+<ul>
+<li>
+<strong><strong>“Feature B” (this PR)</strong></strong>
+<ul>
+<li>
+<a href="#">#3</a> “Feature C”
+<ul>
+<li>
+<a href="#">#4</a> “Feature D”
+<ul>
+<li>
+<a href="#">#5</a> “Feature E”
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</section>
+<section id="Tree-of-Bookmarks">
+<h4>Tree of Bookmarks</h4>
+<p>(<code>description.diagram.tree = "tree"</code>)</p>
+<p>This PR is part of a tree containing 8 PRs:</p>
+<ul>
+<li>
+<code>main</code>
+<ul>
+<li>
+<a href="#">#1</a> “Feature A”
+<ol>
+<li>
+<a href="#">#2</a> “Feature B”
+<ol>
+<li>
+<a href="#">#3</a> “Feature C”
+<ol>
+<li>
+<a href="#">#7</a> “Feature G”
+<ul>
+<li>
+<a href="#">#8</a> “Feature H”
+</li>
+</ul>
+</li>
+<li>
+<a href="#">#6</a> “Feature F”
+</li>
+</ol>
+</li>
+<li>
+<strong><strong>“Feature E” (this PR)</strong></strong>
+</li>
+</ol>
+</li>
+<li>
+<a href="#">#4</a> “Feature D”
+</li>
+</ol>
+</li>
+</ul>
+</li>
+</ul>
+</section>
+<section id="Complex-Graph-of-Bookmarks-1">
+<h4>Complex Graph of Bookmarks</h4>
+<p>(<code>description.diagram.complex = "tree"</code>)</p>
+<p>This PR is part of a complex set of PRs containing 10 PRs:</p>
+<ul>
+<li>
+<code>main</code>
+<ol>
+<li>
+<a href="#">#9</a> “Feature I”
+<ol>
+<li>
+<a href="#">#10</a> “Feature J”
+<ol>
+<li>
+<a href="#">#7</a> “Feature G” (→ <a href="#">#3</a>, <a href="#">#5</a> also)
+<ul>
+<li>
+<a href="#">#8</a> “Feature H”
+</li>
+</ul>
+</li>
+<li>
+<strong><strong>“Feature E” (this PR) (→ <a href="#">#2</a> also)</strong></strong>
+<ul>
+<li>
+<a href="#">#7</a> “Feature G” (→ <a href="#">#3</a>, <a href="#">#10</a> also)
+<ul>
+<li>
+<a href="#">#8</a> “Feature H”
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ol>
+</li>
+<li>
+<a href="#">#6</a> “Feature F” (→ <a href="#">#3</a> also)
+</li>
+</ol>
+</li>
+<li>
+<a href="#">#1</a> “Feature A”
+<ol>
+<li>
+<a href="#">#2</a> “Feature B”
+<ol>
+<li>
+<strong><strong>“Feature E” (this PR) (→ <a href="#">#10</a> also)</strong></strong>
+<ul>
+<li>
+<a href="#">#7</a> “Feature G” (→ <a href="#">#3</a>, <a href="#">#10</a> also)
+<ul>
+<li>
+<a href="#">#8</a> “Feature H”
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li>
+<a href="#">#3</a> “Feature C”
+<ol>
+<li>
+<a href="#">#7</a> “Feature G” (→ <a href="#">#5</a>, <a href="#">#10</a> also)
+<ul>
+<li>
+<a href="#">#8</a> “Feature H”
+</li>
+</ul>
+</li>
+<li>
+<a href="#">#6</a> “Feature F” (→ <a href="#">#9</a> also)
+</li>
+</ol>
+</li>
+<li>
+<a href="#">#4</a> “Feature D” (→ <a href="#">#1</a> also)
+</li>
+</ol>
+</li>
+<li>
+<a href="#">#4</a> “Feature D” (→ <a href="#">#2</a> also)
+</li>
+</ol>
+</li>
+</ol>
+</li>
+</ul>
+</section>
+</section>
+<section id="Description-Generation">
+<h3>Description <span id="description-generation">Generation</span></h3>
+<p>jj-vine can generate a description for a pull/merge request when it is created. Note that this description will not be updated automatically if changes are made later (in case you want to remove it entirely, or change it, etc).</p>
+<p>You can configure how the description is generated by setting the <code>description.singleRevision</code> and <code>description.multipleRevisions</code> settings. <code>singleRevision</code> is used when there is only one revision in the pull/merge request, and <code>multipleRevisions</code> is used when there are multiple revisions in the pull/merge request.</p>
+<p>If <code>jj-vine.description.enabled</code> is false, the description will not be generated.</p>
+<p>The following options are available:</p>
+<section id="none">
+<h4><code>none</code></h4>
+<p>Do not generate a description in this situation.</p>
+</section>
+<section id="notFirstLine">
+<h4><code>notFirstLine</code></h4>
+<p>Take the commit message of the head commit in the branch, trim the first line, and use the rest as the description. This is the default behavior for when there is only one revision in the pull/merge request (because the title of the PR/MR uses the first line of the commit message).</p>
+</section>
+<section id="fullMessage">
+<h4><code>fullMessage</code></h4>
+<p>Use the full commit message of the head commit in the branch as the description.</p>
+</section>
+<section id="commitListFirstLine">
+<h4><code>commitListFirstLine</code></h4>
+<p>Generate a list of all commits in the branch, with their hashes and the first line of each commit message. For example:</p>
+<ul>
+<li>
+<code>xxxxxxxa</code> Head Commit Message
+</li>
+<li>
+<code>xxxxxxxb</code> Parent 1 Message
+</li>
+<li>
+<code>xxxxxxxc</code> Parent 2 Message
+</li>
+</ul>
+</section>
+<section id="commitListFull">
+<h4><code>commitListFull</code></h4>
+<p>Generate a list of all commits in the branch, with their hashes and the full commit messages. This is the default behavior for when there are multiple revisions in the pull/merge request (because the default title of the PR/MR uses the bookmark name). For example:</p>
+<ul>
+<li>
+<code>xxxxxxxa</code> Head Commit Message<br>
+Message line 2<br>
+Message line 3
+</li>
+<li>
+<code>xxxxxxxb</code> Parent 1 Message<br>
+Message line 2<br>
+<br>
+Message line 3<br>
+Message line 4
+</li>
+<li>
+<code>xxxxxxxc</code> Parent 2 Message<br>
+Message line 2<br>
+Message line 3
+</li>
+</ul>
+</section>
+<section id="filepath_to_file">
+<h4><code>file(path_to_file)</code></h4>
+<p>Include the contents of a file at the given path as the description. This is useful if you use pull request templates. For example, <code>file(.github/pull_request_template.md)</code> will include the contents of <code>.github/pull_request_template.md</code> as the description. The file path is relative to the root of the repository.</p>
+</section>
+</section>
+</section>
+<section id="Title-Generation">
+<h2>Title <span id="title-generation">Generation</span></h2>
+<p><code>jj-vine</code> will automatically generate a title for a pull/merge request when it is created. It can also optionally sync the title of a pull/merge request every time the bookmark is submitted (default on).</p>
+<p>By default, the title is generated as:</p>
+<ul>
+<li>
+When there is only one revision in an MR/PR, the first line of the revision description.
+</li>
+<li>
+When there are multiple revisions in an MR/PR, the name of the bookmark.
+</li>
+</ul>
+<section id="Configuration-2">
+<h3><span id="title-configuration">Configuration</span></h3>
+<p>The title generation is highly configurable, using the below settings:</p>
+<table>
+<tr>
+<th>Setting</th>
+<th>Description</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+</tr>
+<tr>
+<td><code>title.singleRevision</code></td>
+<td>How to generate the title when an MR has only one revision on top of the bookmark’s parent(s)</td>
+<td><code>firstRevisionFirstLine</code> | <code>firstRevisionFullMessage</code> | <code>headRevisionFirstLine</code> | <code>headRevisionFullMessage</code> | <code>bookmarkName</code> | (custom template, see below)</td>
+<td>No</td>
+<td><code>firstRevisionFirstLine</code></td>
+</tr>
+<tr>
+<td><code>title.syncSingleRevision</code></td>
+<td>Whether to sync/update the title of a pull/merge request every time the bookmark is submitted, when there is only one revision on top of the bookmark’s parent(s). If enabled, this will overwrite any changes you may have manually made to the title.</td>
+<td>Boolean</td>
+<td>No</td>
+<td>true</td>
+</tr>
+<tr>
+<td><code>title.multipleRevisions</code></td>
+<td>How to generate the title when an MR has multiple revisions on top of the bookmark’s parent(s)</td>
+<td><code>firstRevisionFirstLine</code> | <code>firstRevisionFullMessage</code> | <code>headRevisionFirstLine</code> | <code>headRevisionFullMessage</code> | <code>bookmarkName</code> | (custom template, see below)</td>
+<td>No</td>
+<td><code>bookmarkName</code></td>
+</tr>
+<tr>
+<td><code>title.syncMultipleRevisions</code></td>
+<td>Whether to sync/update the title of a pull/merge request every time the bookmark is submitted, when there are multiple revisions on top of the bookmark’s parent(s). If enabled, this will overwrite any changes you may have manually made to the title.</td>
+<td>Boolean</td>
+<td>No</td>
+<td>true</td>
+</tr>
+</table>
+</section>
+<section id="Custom-Title-Templates">
+<h3>Custom Title <span id="custom-title-templates">Templates</span></h3>
+<p>You can use custom templates to generate the title of a pull or merge request. While the full power of jj’s template language is planned, at the moment you can use any string with the following placeholders replaced with the corresponding values:</p>
+<table>
+<tr>
+<th>Placeholder</th>
+<th>Description</th>
+</tr>
+<tr>
+<td><code>{first.id}</code></td>
+<td>The jj commit/revision ID of the first (bottommost) revision in the PR/MR.</td>
+</tr>
+<tr>
+<td><code>{first.change_id}</code></td>
+<td>The jj change ID of the first (bottommost) revision in the PR/MR.</td>
+</tr>
+<tr>
+<td><code>{first.description}</code></td>
+<td>The full description of the first (bottommost) revision in the PR/MR.</td>
+</tr>
+<tr>
+<td><code>{first.description_first_line}</code></td>
+<td>The first line of the description of the first (bottommost) revision in the PR/MR.</td>
+</tr>
+<tr>
+<td><code>{first.description_not_first_line}</code></td>
+<td>The description of the first (bottommost) revision in the PR/MR, excluding the first line (trimmed).</td>
+</tr>
+<tr>
+<td><code>{head.id}</code></td>
+<td>The jj commit/revision ID of the head revision in the PR/MR.</td>
+</tr>
+<tr>
+<td><code>{head.change_id}</code></td>
+<td>The jj change ID of the head revision in the PR/MR.</td>
+</tr>
+<tr>
+<td><code>{head.description}</code></td>
+<td>The full description of the head revision in the PR/MR.</td>
+</tr>
+<tr>
+<td><code>{head.description_first_line}</code></td>
+<td>The first line of the description of the head revision in the PR/MR.</td>
+</tr>
+<tr>
+<td><code>{head.description_not_first_line}</code></td>
+<td>The description of the head revision in the PR/MR, excluding the first line (trimmed).</td>
+</tr>
+<tr>
+<td><code>{stack_index</code>}</td>
+<td>The 1-based index of the revision in the stack.</td>
+</tr>
+<tr>
+<td><code>{stack_count}</code></td>
+<td>The total number of revisions in the stack.</td>
+</tr>
+<tr>
+<td><code>{bookmark_name}</code></td>
+<td>The name of the bookmark.</td>
+</tr>
+<tr>
+<td><code>{parent_bookmark_name}</code></td>
+<td>The name of the parent bookmark (i.e. the target branch).</td>
+</tr>
+</table>
+<p>Some examples:</p>
+<ul>
+<li>
+<code>{bookmark_name}: {head.description_first_line}</code>
+<ul>
+<li>
+feature-a: Add feature A
+</li>
+<li>
+feature-b: Add feature B
+</li>
+</ul>
+</li>
+<li>
+<code>[{stack_index}/{stack_count}] {first.description_first_line}</code>
+<ul>
+<li>
+[1/2] Add feature A
+</li>
+<li>
+[2/2] Add feature B
+</li>
+</ul>
+</li>
+<li>
+<code>{stack_index}/N: {head.description_first_line} ({bookmark_name} -&gt; {parent_bookmark_name})</code>
+<ul>
+<li>
+1/N: Add feature A (feature-a -&gt; main)
+</li>
+<li>
+2/N: Add feature B (feature-b -&gt; feature-a)
+</li>
+</ul>
+</li>
+<li>
+<code>{bookmark_name} → {parent_bookmark_name}: {first.description_first_line}</code>
+<ul>
+<li>
+feature-a → main: Add feature A
+</li>
+<li>
+feature-b → feature-a: Add feature B
+</li>
+</ul>
+</li>
+<li>
+<code>[{head.change_id}] {head.description_first_line}</code>
+<ul>
+<li>
+[kxqpmsyz] Add feature A
+</li>
+<li>
+[rlvkpnkp] Add feature B
+</li>
+</ul>
+</li>
+</ul>
+</section>
+</section>
+<section id="Credits">
+<h2><span id="credits">Credits</span></h2>
+<ul>
+<li>
+<a href="https://github.com/LucioFranco/jj-spr"><code>jj-spr</code></a> heavily for inspiration &amp; code approaches
+</li>
+<li>
+<a href="https://github.com/keanemind/jj-stack"><code>jj-stack</code></a> heavily for inspiration &amp; code approaches
+</li>
+</ul>
+</section>
+<section id="FAQs">
+<h2><span id="faqs">FAQs</span></h2>
+<section id="Is-this-vibe-coded-slop">
+<h3>Is this vibe-coded <span id="is-this-vibe-coded-slop">slop?</span></h3>
+<p>Don’t worry, I berated Claude with profanity until things looked good.</p>
+</section>
+<section id="Ok-but-really">
+<h3>Ok, but <span id="ok-but-really">really?</span></h3>
+<p>Nah. It may have started out as a test to see how well Claude Code was (conclusion: meh not great), but large swathes of the code has been rewritten by hand at this point. AI-generated code is so verbose and inelegant at times, often 2x the size of the hand-written code that uses Rust best practices. I’m not against AI coding, nor think it will replace developers. Be measured, people.</p>
+<p>There are a decent amount of tests, but there could always be more.</p>
+</section>
+<section id="Why-a-new-project">
+<h3>Why a new <span id="why-a-new-project">project?</span></h3>
+<p>Well primarily, existing tools did not support GitLab (though <code>jj-vine</code> now supports GitLab, GitHub, Forgejo, and Azure DevOps). <code>jj-spr</code> was too heavy-handed - it imposes a strict “one pull request per commit” workflow. <code>jj-stack</code> was in TypeScript (nothing against it, but seems sane for a <code>jj</code> tool to also be built in Rust). My current <code>jj</code> workflow was also just different enough that those existing tools did not fit my needs.</p>
+</section>
+</section>
+<section id="Contributing">
+<h2><span id="contributing">Contributing</span></h2>
+<p>All contributions extremely welcome! Please feel free to open an issue or pull request. See <a href="./CONTRIBUTING.djot">CONTRIBUTING.djot</a> for more details.</p>
+</section>
+<section id="License">
+<h2><span id="license">License</span></h2>
+<p><a href="./LICENSE">MIT License</a></p>
+</section>
+</section>

@@ -13,52 +13,52 @@ Supports the following code forges:
 
 ## Table of Contents
 
-- [Overview](#Overview)
-- [Main Features](#Main-Features)
-- [Planned Features](#Planned-Features)
-- [Installation](#Installation)
+- [Overview](#overview)
+- [Main Features](#main-features)
+- [Planned Features](#planned-features)
+- [Installation](#installation)
 
-  - [Cargo Binstall](#Cargo-Binstall)
-  - [Mise](#Mise)
-  - [Pre-built Binaries](#Pre-built-Binaries)
-  - [Attestations](#Attestations)
-  - [Alias Setup](#Alias-Setup)
-- [Quick Start](#Quick-Start)
-- [Commands](#Commands)
+  - [Cargo Binstall](#cargo-binstall)
+  - [Mise](#mise)
+  - [Pre-built Binaries](#pre-built-binaries)
+  - [Attestations](#attestations)
+  - [Alias Setup](#alias-setup)
+- [Quick Start](#quick-start)
+- [Commands](#commands)
 
   - [submit](#submit)
   - [init](#init)
   - [status](#status)
-- [Configuration](#Configuration)
+- [Configuration](#configuration)
 
-  - [Forge-Specific Settings](#Forge-Specific-Settings)
+  - [Forge-Specific Settings](#forge-specific-settings)
 
-    - [Forge](#Forge)
-    - [GitLab](#GitLab)
-    - [GitHub](#GitHub)
-    - [Forgejo/Codeberg/Gitea](#ForgejoCodebergGitea)
-    - [Azure DevOps](#Azure-DevOps)
-  - [Common Settings](#Common-Settings)
-- [Description Generation / Stack Visualization](#Description-Generation-Stack-Visualization)
+    - [Forge](#forge)
+    - [GitLab](#gitlab)
+    - [GitHub](#github)
+    - [Forgejo/Codeberg/Gitea](#forgejo-codeberg-gitea)
+    - [Azure DevOps](#azure-devops)
+  - [Common Settings](#common-settings)
+- [Description Generation / Stack Visualization](#description-generation-stack-visualization)
 
-  - [Configuration](#Description-Configuration)
-  - [Linear Format](#Linear-Format)
-  - [Tree Format](#Tree-Format)
-  - [Description Generation](#Description-Generation)
-- [Title Generation](#Title-Generation)
+  - [Configuration](#description-configuration)
+  - [Linear Format](#linear-format)
+  - [Tree Format](#tree-format)
+  - [Description Generation](#description-generation)
+- [Title Generation](#title-generation)
 
-  - [Configuration](#Title-Configuration)
-  - [Custom Title Templates](#Custom-Title-Templates)
-  - [Credits](#Credits)
-- [FAQs](#FAQs)
+  - [Configuration](#title-configuration)
+  - [Custom Title Templates](#custom-title-templates)
+  - [Credits](#credits)
+- [FAQs](#faqs)
 
-  - [Is this vibe-coded slop?](#Is-this-vibe-coded-slop)
-  - [Ok, but really?](#Ok-but-really)
-  - [Why a new project?](#Why-a-new-project)
-- [Contributing](#Contributing)
-- [License](#License)
+  - [Is this vibe-coded slop?](#is-this-vibe-coded-slop)
+  - [Ok, but really?](#ok-but-really)
+  - [Why a new project?](#why-a-new-project)
+- [Contributing](#contributing)
+- [License](#license)
 
-## Overview
+## Overview{#overview}
 
 As `jj` is so flexible, it can sometimes be tedious to manage pull/merge requests for a `jj` repository. Additionally, many people like the "stacked pull/merge request" workflow, where a tool can manage your stack of pull/merge requests for you, including modifying the base branch, description, and other settings. `jj-vine` aims to smooth out the process of managing pull/merge requests for a `jj` repository.
 
@@ -71,7 +71,7 @@ Major differences:
 - `jj-vine` is primarily based around the `submit --tracked` command. This submits *all* (your) tracked bookmarks at once. Other tools often require you to submit each bookmark individually. The idea is to simply "sync your current state to the code forge".
 - Bookmarks are not automatically forwarded. You'll need to use `jj bookmark set` to update the target of a bookmark.
 
-## Main Features
+## Main Features{#main-features}
 
 - **Stacked pull/merge request creation**
 
@@ -92,7 +92,7 @@ Major differences:
 
     Updates pull/merge request base branches & all related descriptions when stack structure changes.
 
-## Planned Features
+## Planned Features{#planned-features}
 
 - **Automatic rebasing**
 
@@ -101,9 +101,9 @@ Major differences:
 
     Merge a pull/merge request and automatically rebase dependent pull/merge requests on top of the trunk
 
-## Installation
+## Installation{#installation}
 
-### Cargo Binstall
+### Cargo Binstall{#cargo-binstall}
 
 The preferred way to install `jj-vine` is to use [`cargo-binstall`](https://github.com/cargo-bins/cargo-binstall):
 
@@ -112,7 +112,7 @@ The preferred way to install `jj-vine` is to use [`cargo-binstall`](https://gith
 cargo binstall jj-vine
 ```
 
-### Mise
+### Mise{#mise}
 
 If you use [mise](https://mise.jdx.dev/), you can install with:
 
@@ -120,11 +120,11 @@ If you use [mise](https://mise.jdx.dev/), you can install with:
 mise use -g cargo:jj-vine
 ```
 
-### Pre-built Binaries
+### Pre-built Binaries{#pre-built-binaries}
 
 Pre-built binaries are available for Linux, macOS, and Windows (ARM64 and x86_64 for all). You can download directly from the [releases page](https://codeberg.org/abrenneke/jj-vine/releases).
 
-### Attestations
+### Attestations{#attestations}
 
 Binaries are built with GitHub attestations. You may [verify the provenance of a binary](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations#verifying-artifact-attestations-with-the-github-cli) by running:
 
@@ -132,7 +132,7 @@ Binaries are built with GitHub attestations. You may [verify the provenance of a
 gh attestation verify <binary> -R abrenneke/jj-vine
 ```
 
-### Alias Setup
+### Alias Setup{#alias-setup}
 
 You can set up a `jj` alias to make it easier to use `jj-vine`. Aliases that work great are `jj pr`, `jj mr`, or `jj vine`. You can run the following command to install an alias:
 
@@ -143,7 +143,7 @@ jj config set --user aliases.mr '["util", "exec", "--", "jj-vine"]'
 jj config set --user aliases.vine '["util", "exec", "--", "jj-vine"]'
 ```
 
-## Quick Start
+## Quick Start{#quick-start}
 
 1. Run `jj-vine init` to set up your code forge configuration for your repository. This is stored in `.jj/repo/config.toml`. You may also move any configuration settings to the global config file `~/.config/jj/config.toml`.
 
@@ -176,9 +176,9 @@ jj config set --user aliases.vine '["util", "exec", "--", "jj-vine"]'
     - `feature-a` targeting `main`
     - `feature-b` targeting `feature-a`
 
-## Commands
+## Commands{#commands}
 
-### `submit`
+### `submit`{#submit}
 
 Submit a bookmark and its dependencies as pull/merge requests.
 
@@ -197,7 +197,7 @@ jj-vine submit <options> --dry-run
 
 See all options and additional help with `jj-vine submit --help`.
 
-### `init`
+### `init`{#init}
 
 Interactive setup wizard to configure jj-vine for your repository.
 
@@ -205,7 +205,7 @@ Interactive setup wizard to configure jj-vine for your repository.
 jj-vine init
 ```
 
-### `status`
+### `status`{#status}
 
 Show the status of tracked bookmarks and their pull/merge requests.
 
@@ -254,11 +254,11 @@ jj config set --repo jj-vine.deleteSourceBranch true
 jj config set --repo jj-vine.defaultReviewers '["alice", "bob"]'
 ```
 
-### Forge-Specific Settings
+### Forge-Specific Settings{#forge-specific-settings}
 
 All listed settings are under the `jj-vine` section so should be prefixed with `jj-vine.`.
 
-#### Forge
+#### Forge{#forge}
 
 Ad a minimum, the `jj-vine.forge` configuration setting must be set to the type of forge you are using.
 
@@ -266,7 +266,7 @@ Ad a minimum, the `jj-vine.forge` configuration setting must be set to the type 
 |---------|-------------|------|----------|---------|
 | `forge` | The type of forge you are using | "gitlab" \| "github" \| "forgejo" \| "azure" | Yes | - |
 
-#### GitLab
+#### GitLab{#gitlab}
 
 Required when `jj-vine.forge` is set to `gitlab`.
 
@@ -278,7 +278,7 @@ Required when `jj-vine.forge` is set to `gitlab`.
 | `gitlab.targetProject` | Target project ID for merge requests (e.g., `upstream/project`). Use if you are using a fork. | String | No | (same as `gitlab.project`) |
 | `gitlab.createMergeRequestDependencies` | Whether to create dependencies between merge requests, requiring that all parent merge requests are merged before the child merge request can be merged. | Boolean | No | true |
 
-#### GitHub
+#### GitHub{#github}
 
 Required when `jj-vine.forge` is set to `github`.
 
@@ -289,7 +289,7 @@ Required when `jj-vine.forge` is set to `github`.
 | `github.token` | Personal Access Token with `repo` scope | String | Yes | - |
 | `github.targetProject` | Target repository for pull requests (e.g., `upstream-owner/repo`). Use if you are using a fork. | String | No | (same as `github.project`) |
 
-#### Forgejo/Codeberg/Gitea
+#### Forgejo/Codeberg/Gitea{#forgejo-codeberg-gitea}
 
 Required when `jj-vine.forge` is set to `forgejo`.
 
@@ -301,7 +301,7 @@ Required when `jj-vine.forge` is set to `forgejo`.
 | `forgejo.targetProject` | Target repository for pull requests (e.g., `upstream-owner/repo`). Use if you are using a fork. | String | No | (same as `forgejo.project`) |
 | `forgejo.wipPrefix` | Prefix for WIP/draft pull requests. What counts as a draft pull request is configurable per-repository on Forgejo. | String | No | "WIP: " |
 
-#### Azure DevOps
+#### Azure DevOps{#azure-devops}
 
 Required when `jj-vine.forge` is set to `azure`.
 
@@ -317,7 +317,7 @@ Required when `jj-vine.forge` is set to `azure`.
 | `azure.targetRepositoryName` | Name of the repository in the target project for pull requests | String | Required if `azure.targetRepositoryId` is not set and `azure.targetProject` is different from `azure.project` | - |
 | `azure.targetRepositoryId` | ID of the repository in the target project for pull requests | String | Required if `azure.targetRepositoryName` is not set and `azure.targetProject` is different from `azure.project` | - |
 
-### Common Settings
+### Common Settings{#common-settings}
 
 These settings apply to all forges:
 
@@ -334,7 +334,7 @@ These settings apply to all forges:
 | `openAsDraft` | Open newly created pull/merge requests as drafts | Boolean | No | false |
 | `description` | Configuration for pull/merge request description generation | Object (see below) | No | (see below) |
 
-## Description Generation / Stack Visualization
+## Description Generation / Stack Visualization{#description-generation-stack-visualization}
 
 If enabled, `jj-vine` can generate both a description/body for a pull/merge request, and a stack diagram to include in the description. The stack diagram
 will always be kept in sync with your PR/MR stack upon submitting your bookmark(s). The description generation will only sync if `description.sync` is enabled, otherwise the description generation will only happen when a pull/merge request is first created.
@@ -342,7 +342,7 @@ will always be kept in sync with your PR/MR stack upon submitting your bookmark(
 If you would like description generation, but not a stack diagram, you can set each value of `description.diagram` to `none`. Alternatively, if you would
 like to only generate a stack diagram, you can set `description.singleRevision` and `description.multipleRevisions` to `none`.
 
-### Configuration{#Description-Configuration}
+### Configuration{#description-configuration}
 
 | Setting | Description | Type | Required | Default |
 |---------|-------------|------|----------|---------|
@@ -358,7 +358,7 @@ like to only generate a stack diagram, you can set `description.singleRevision` 
 
 The following sections show examples of the different stack formats.
 
-### Linear Format
+### Linear Format{#linear-format}
 
 #### Linear/Single Bookmark Stack
 
@@ -407,7 +407,7 @@ This PR is part of a complex set of PRs containing 10 PRs:
 10. [#8](#) "Feature H" → [#7](#)
 11. [#6](#) "Feature F" → [#3](#), [#9](#)
 
-### Tree Format
+### Tree Format{#tree-format}
 
 #### Linear/Single Bookmark Stack
 
@@ -497,7 +497,7 @@ This PR is part of a complex set of PRs containing 10 PRs:
 
         2. [#4](#) "Feature D" (→ [#2](#) also)
 
-### Description Generation
+### Description Generation{#description-generation}
 
 jj-vine can generate a description for a pull/merge request when it is created. Note that this description will not be updated automatically if changes are made later (in case you want to remove it entirely, or change it, etc).
 
@@ -547,7 +547,7 @@ Message line 3
 
 Include the contents of a file at the given path as the description. This is useful if you use pull request templates. For example, `file(.github/pull_request_template.md)` will include the contents of `.github/pull_request_template.md` as the description. The file path is relative to the root of the repository.
 
-## Title Generation
+## Title Generation{#title-generation}
 
 `jj-vine` will automatically generate a title for a pull/merge request when it is created. It can also optionally sync the title of a pull/merge request every time the bookmark is submitted (default on).
 
@@ -556,7 +556,7 @@ By default, the title is generated as:
 - When there is only one revision in an MR/PR, the first line of the revision description.
 - When there are multiple revisions in an MR/PR, the name of the bookmark.
 
-### Configuration{#Title-Configuration}
+### Configuration{#title-configuration}
 
 The title generation is highly configurable, using the below settings:
 
@@ -567,7 +567,7 @@ The title generation is highly configurable, using the below settings:
 | `title.multipleRevisions` | How to generate the title when an MR has multiple revisions on top of the bookmark's parent(s) | `firstRevisionFirstLine` \| `firstRevisionFullMessage` \| `headRevisionFirstLine` \| `headRevisionFullMessage` \| `bookmarkName` \| (custom template, see below) | No | `bookmarkName` |
 | `title.syncMultipleRevisions` | Whether to sync/update the title of a pull/merge request every time the bookmark is submitted, when there are multiple revisions on top of the bookmark's parent(s). If enabled, this will overwrite any changes you may have manually made to the title. | Boolean | No | true |
 
-### Custom Title Templates
+### Custom Title Templates{#custom-title-templates}
 
 You can use custom templates to generate the title of a pull or merge request. While the full power of jj's template language is planned, at the moment you can use any string with the following placeholders replaced with the corresponding values:
 
@@ -611,31 +611,31 @@ Some examples:
     - [kxqpmsyz] Add feature A
     - [rlvkpnkp] Add feature B
 
-## Credits
+## Credits{#credits}
 
 - [`jj-spr`](https://github.com/LucioFranco/jj-spr) heavily for inspiration & code approaches
 - [`jj-stack`](https://github.com/keanemind/jj-stack) heavily for inspiration & code approaches
 
-## FAQs
+## FAQs{#faqs}
 
-### Is this vibe-coded slop?
+### Is this vibe-coded slop?{#is-this-vibe-coded-slop}
 
 Don't worry, I berated Claude with profanity until things looked good.
 
-### Ok, but really?
+### Ok, but really?{#ok-but-really}
 
 Nah. It may have started out as a test to see how well Claude Code was (conclusion: meh not great), but large swathes of the code has been rewritten by hand at this point. AI-generated code is so verbose and inelegant at times, often 2x the size of the hand-written code that uses Rust best practices. I'm not against AI coding, nor think it will replace developers. Be measured, people.
 
 There are a decent amount of tests, but there could always be more.
 
-### Why a new project?
+### Why a new project?{#why-a-new-project}
 
 Well primarily, existing tools did not support GitLab (though `jj-vine` now supports GitLab, GitHub, Forgejo, and Azure DevOps). `jj-spr` was too heavy-handed - it imposes a strict "one pull request per commit" workflow. `jj-stack` was in TypeScript (nothing against it, but seems sane for a `jj` tool to also be built in Rust). My current `jj` workflow was also just different enough that those existing tools did not fit my needs.
 
-## Contributing
+## Contributing{#contributing}
 
 All contributions extremely welcome! Please feel free to open an issue or pull request. See [CONTRIBUTING.djot](./CONTRIBUTING.djot) for more details.
 
-## License
+## License{#license}
 
 [MIT License](./LICENSE)
