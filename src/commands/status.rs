@@ -44,13 +44,19 @@ pub struct StatusCommandConfig {
     #[command(flatten)]
     pub revset_options: StatusCommandRevsetOptions,
 
-    /// Include draft merge requests. Default true.
+    /// Include draft pull/merge requests. Default true.
     #[arg(long, overrides_with = "no_drafts", num_args = 0..=1)]
     pub drafts: Option<bool>,
 
-    /// Exclude draft merge requests
+    /// Exclude draft pull/merge requests
     #[arg(long)]
     pub no_drafts: bool,
+
+    /// Set to true to only show approved pull/merge requests. Set to false to
+    /// only show unapproved pull/merge requests. If not set, will show all
+    /// pull/merge requests.
+    #[arg(long)]
+    pub approved: Option<bool>,
 }
 
 impl StatusCommandConfig {
@@ -139,6 +145,7 @@ pub async fn status(
         no_drafts,
         output_mode,
         revset_options,
+        approved: approved_filter,
     }: &StatusCommandConfig,
     cli_config: &CliConfig<'_>,
 ) -> Result<()> {
@@ -191,6 +198,15 @@ pub async fn status(
                             bookmark: bookmark.name().to_string(),
                             error,
                         })?;
+
+                    match (&status.approval_status.satisfaction, approved_filter) {
+                        (ApprovalSatisfaction::Satisfied, Some(false))
+                        | (ApprovalSatisfaction::Unsatisfied, Some(true)) => {
+                            return Ok(None);
+                        }
+                        _ => {}
+                    }
+
                     BookmarkStatus::HasMergeRequest {
                         bookmark: bookmark.name().to_string(),
                         merge_request,
