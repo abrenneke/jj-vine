@@ -36,6 +36,6 @@ where
     T: AsRef<str>,
 {
     fn visual_width(&self) -> usize {
-        strip_ansi_escapes::strip_str(self).graphemes(true).count()
+        strip_ansi::strip_str(self.as_ref()).graphemes(true).count()
     }
 }

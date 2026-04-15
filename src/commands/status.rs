@@ -19,7 +19,7 @@ use crate::{
     commands::{GetBookmarksOptions, StrVisualWidth},
     config::Config,
     description::FormatMergeRequest,
-    error::{ConfigSnafu, Error, InvalidComponentSnafu, Result},
+    error::{ConfigSnafu, Error, Result},
     forge::{
         AnyForgeMergeRequest,
         ApprovalSatisfaction,
@@ -35,10 +35,11 @@ use crate::{
 
 #[derive(Args)]
 pub struct StatusCommandConfig {
-    /// Output mode
-    /// - two-line-compact: Two-lines per merge request
-    #[arg(short = 'o', long = "output", default_value = "two-line-compact")]
-    pub output_mode: DisplayStatusMode,
+    /// Output format
+    /// - two-line-compact: Two-lines per merge request (default)
+    /// - slack: Suitable for posting in Slack
+    #[arg(short = 'f', long, default_value = "two-line-compact")]
+    pub format: StatusFormat,
 
     /// Options for the revset
     #[command(flatten)]
@@ -143,7 +144,7 @@ pub async fn status(
     StatusCommandConfig {
         drafts,
         no_drafts,
-        output_mode,
+        format,
         revset_options,
         approved: approved_filter,
     }: &StatusCommandConfig,
@@ -231,7 +232,7 @@ pub async fn status(
         })
         .collect();
 
-    let rendered = output_mode.render(statuses, &forge, output).await;
+    let rendered = format.render(statuses, &forge, output).await;
 
     output.finish();
 
@@ -241,18 +242,22 @@ pub async fn status(
 }
 
 #[derive(ValueEnum, Clone, Copy)]
-pub enum DisplayStatusMode {
+pub enum StatusFormat {
     /// Render the status of merge requests in a two-line compact format.
     #[value(id = "two-line-compact")]
     TwoLineCompact,
+
+    // Render the status of pull/merge requests suitable for posting in Slack.
+    #[value(id = "slack")]
+    Slack,
 }
 
-impl std::str::FromStr for DisplayStatusMode {
+impl std::str::FromStr for StatusFormat {
     type Err = Error;
 
     fn from_str(s: &str) -> Result<Self> {
         match s {
-            "flat" => Ok(DisplayStatusMode::TwoLineCompact),
+            "flat" => Ok(StatusFormat::TwoLineCompact),
             _ => Err(ConfigSnafu {
                 message: format!("Invalid output mode: {}. Valid modes are: flat", s),
             }
@@ -261,7 +266,7 @@ impl std::str::FromStr for DisplayStatusMode {
     }
 }
 
-impl DisplayStatusMode {
+impl StatusFormat {
     async fn render(
         &self,
         statuses: Vec<Result<BookmarkStatus, BookmarkStatusError>>,
@@ -269,9 +274,8 @@ impl DisplayStatusMode {
         output: &dyn Output,
     ) -> String {
         match self {
-            DisplayStatusMode::TwoLineCompact => {
-                print_two_line_compact(statuses, forge, output).await
-            }
+            StatusFormat::TwoLineCompact => print_two_line_compact(statuses, forge, output).await,
+            StatusFormat::Slack => print_slack_status(statuses, forge, output).await,
         }
     }
 }
@@ -392,6 +396,79 @@ async fn two_line_compact_status(
     }
 }
 
+// TODO bad, dedupe
+async fn print_slack_status(
+    statuses: Vec<Result<BookmarkStatus, BookmarkStatusError>>,
+    forge: &ForgeImpl,
+    output: &dyn Output,
+) -> String {
+    let futures: FuturesOrdered<_> = sorted_statuses(&statuses)
+        .map(|status| slack_status(status, forge, output))
+        .collect();
+
+    futures
+        .collect::<Vec<_>>()
+        .await
+        .into_iter()
+        .flatten()
+        .join("\n\n")
+}
+
+async fn slack_status(
+    status: &Result<BookmarkStatus, BookmarkStatusError>,
+    forge: &ForgeImpl,
+    output: &dyn Output,
+) -> Option<String> {
+    let output = match status {
+        Ok(BookmarkStatus::HasMergeRequest {
+            bookmark,
+            merge_request,
+            status,
+        }) => {
+            let _substep =
+                output.start_substep(&forge.format_merge_request_id(merge_request.iid()));
+
+            let data = StatusData::new(
+                forge,
+                bookmark.clone(),
+                merge_request.clone(),
+                status.clone(),
+            );
+
+            // TODO would love templating language like jj has
+            let line = match parse_components(
+                "iid_linked_slack title • ready • checks • approval • num_discussions • created",
+            ) {
+                Ok(line) => line,
+                Err(e) => return Some(e.to_string()),
+            };
+
+            let line = match render_components(line, &data).await {
+                Ok(lines) => lines,
+                Err(err) => return Some(err.to_string()),
+            };
+
+            let line = line.join(" ");
+
+            // Just remove duplicates for now, need to improve this whole system
+            let line = regex::Regex::new(r"(• )+")
+                .unwrap()
+                .replace_all(&line, "• ")
+                .to_string();
+
+            Some(line)
+        }
+        Ok(BookmarkStatus::NoMergeRequest { .. }) => None,
+        Err(BookmarkStatusError { bookmark, error }) => Some(format!(
+            "Failed to get status for bookmark {}: {}",
+            bookmark.magenta(),
+            error
+        )),
+    };
+
+    output.map(|output| strip_ansi::strip_str(&output).to_string())
+}
+
 fn parse_components(line: &str) -> Result<Vec<StatusComponentImpl>> {
     line.split_whitespace()
         .map(get_component)
@@ -421,6 +498,7 @@ fn get_component(name: &str) -> Result<StatusComponentImpl> {
     match name {
         "bookmark" => Ok(BookmarkNameComponent {}.into()),
         "iid" => Ok(MergeRequestIIDComponent {}.into()),
+        "iid_linked_slack" => Ok(MergeRequestIIDLinkedSlackComponent {}.into()),
         "title" => Ok(MergeRequestTitleComponent {}.into()),
         "ready" => Ok(ReadyToMergeComponent {}.into()),
         "checks" => Ok(ChecksStatusComponent {}.into()),
@@ -428,10 +506,10 @@ fn get_component(name: &str) -> Result<StatusComponentImpl> {
         "created" => Ok(CreatedAtComponent {}.into()),
         "url" => Ok(MergeRequestURLComponent {}.into()),
         "num_discussions" => Ok(NumOpenDiscussionsComponent {}.into()),
-        _ => Err(InvalidComponentSnafu {
-            component: name.to_string(),
+        literal => Ok(LiteralComponent {
+            literal: literal.to_string(),
         }
-        .build()),
+        .into()),
     }
 }
 
@@ -444,6 +522,8 @@ trait StatusComponent: Send + Sync {
 enum StatusComponentImpl {
     BookmarkName(BookmarkNameComponent),
     MergeRequestIID(MergeRequestIIDComponent),
+    MergeRequestIIDLinkedSlack(MergeRequestIIDLinkedSlackComponent),
+
     MergeRequestTitle(MergeRequestTitleComponent),
     ReadyToMerge(ReadyToMergeComponent),
     ChecksStatus(ChecksStatusComponent),
@@ -451,6 +531,7 @@ enum StatusComponentImpl {
     CreatedAt(CreatedAtComponent),
     MergeRequestURL(MergeRequestURLComponent),
     NumOpenDiscussions(NumOpenDiscussionsComponent),
+    Literal(LiteralComponent),
 }
 
 macro_rules! component {
@@ -500,6 +581,16 @@ component!(MergeRequestIIDComponent, async |data: &StatusData<'_>| {
             .to_string(),
     ))
 });
+
+component!(
+    MergeRequestIIDLinkedSlackComponent,
+    async |data: &StatusData<'_>| {
+        Ok(Some(linked_markdownish(
+            data.forge.format_merge_request_id(data.merge_request.iid()),
+            data.merge_request.url(),
+        )))
+    }
+);
 
 component!(MergeRequestTitleComponent, async |data: &StatusData<'_>| {
     Ok(Some(format!("\"{}\"", data.merge_request.title().white())))
@@ -614,3 +705,17 @@ component!(NumOpenDiscussionsComponent, async |data: &StatusData<
         )),
     }
 });
+
+struct LiteralComponent {
+    literal: String,
+}
+
+impl StatusComponent for LiteralComponent {
+    async fn render(&self, _status: &StatusData<'_>) -> Result<Option<String>> {
+        Ok(Some(self.literal.to_string()))
+    }
+}
+
+fn linked_markdownish(part: impl AsRef<str>, to: impl AsRef<str>) -> String {
+    format!("[{}]({})", part.as_ref(), to.as_ref())
+}

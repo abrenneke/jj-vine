@@ -92,7 +92,7 @@ impl Cli {
     pub async fn run_captured(&self) -> Result<String> {
         let buffered_output = BufferedOutput::new();
         self.run(&buffered_output).await?;
-        Ok(strip_ansi_escapes::strip_str(buffered_output.get_buffer()))
+        Ok(strip_ansi::strip_str(&buffered_output.get_buffer()).to_string())
     }
 
     pub async fn run(&self, output: &dyn Output) -> Result<()> {
