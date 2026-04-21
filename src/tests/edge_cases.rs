@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use assertables::{
     assert_any,
     assert_contains,
@@ -8,7 +10,7 @@ use assertables::{
 };
 
 use crate::{
-    bookmark::{Bookmark, BookmarkGraph, BookmarkRef},
+    bookmark::{Bookmark, BookmarkGraph, BookmarkOrPending, BookmarkRef},
     error::Result,
     submit::find_changes_to_submit,
     tests::TestRepo,
@@ -26,7 +28,9 @@ fn test_deleted_middle_bookmark() -> Result<()> {
     repo.jj.exec(["bookmark", "delete", "bookmark-b"]).unwrap();
 
     let changes = repo.jj.log("mine() & bookmarks()")?;
-    let bookmarks: Vec<_> = Bookmark::from_changes(&changes).into_iter().collect();
+    let bookmarks: Vec<_> = BookmarkOrPending::from_changes(&changes)
+        .into_iter()
+        .collect();
 
     let graph = BookmarkGraph::from_bookmarks(&repo.jj, bookmarks.iter().cloned(), false)?;
 
@@ -54,7 +58,9 @@ fn test_base_branch_not_included_in_submission() -> Result<()> {
         .create_bookmark("feature-2");
 
     let changes = repo.jj.log("::feature-2")?;
-    let bookmarks: Vec<_> = Bookmark::from_changes(&changes).into_iter().collect();
+    let bookmarks: Vec<_> = BookmarkOrPending::from_changes(&changes)
+        .into_iter()
+        .collect();
 
     let graph = BookmarkGraph::from_bookmarks(&repo.jj, bookmarks.iter().cloned(), false)?;
     let stack = graph.component_containing("feature-2").unwrap();
@@ -74,7 +80,9 @@ fn test_submit_base_branch_errors() -> Result<()> {
         .create_bookmark("feature-1");
 
     let changes = repo.jj.log("main")?;
-    let bookmarks: Vec<_> = Bookmark::from_changes(&changes).into_iter().collect();
+    let bookmarks: Vec<_> = BookmarkOrPending::from_changes(&changes)
+        .into_iter()
+        .collect();
     let graph = BookmarkGraph::from_bookmarks(&repo.jj, bookmarks.iter().cloned(), true)?;
 
     assert_is_empty!(graph.components());
@@ -103,7 +111,9 @@ fn test_graph_skips_default_branch_history() -> Result<()> {
         .create_bookmark("feature-1");
 
     let changes = repo.jj.log("mine() & bookmarks()")?;
-    let bookmarks: Vec<_> = Bookmark::from_changes(&changes).into_iter().collect();
+    let bookmarks: Vec<_> = BookmarkOrPending::from_changes(&changes)
+        .into_iter()
+        .collect();
 
     let graph = BookmarkGraph::from_bookmarks(&repo.jj, bookmarks.iter().cloned(), false)?;
 
@@ -134,20 +144,23 @@ fn test_find_changes_to_submit_with_advanced_main() -> Result<()> {
 
     // old-main --> main --> feature-2 --> feature-3
     //   /-->feature
-    
+
     // From feature-3, we expect the whole downstack back to (but not including)
     // trunk — i.e. feature-2 and feature-3.
-    let changes = find_changes_to_submit(&repo.jj, ["feature-3"])?;
+    let changes = find_changes_to_submit(&repo.jj, ["feature-3"], &HashSet::new())?;
     let mut names: Vec<_> = Bookmark::from_changes(&changes)
         .into_iter()
         .map(|b| b.name().to_string())
         .collect();
     names.sort();
-    assert_eq!(names, vec!["feature-2".to_string(), "feature-3".to_string()]);
+    assert_eq!(
+        names,
+        vec!["feature-2".to_string(), "feature-3".to_string()]
+    );
 
     // From feature, we expect just feature: it branched off old main but is
     // not in the ancestry of the new trunk, so it should not be filtered out.
-    let changes = find_changes_to_submit(&repo.jj, ["feature"])?;
+    let changes = find_changes_to_submit(&repo.jj, ["feature"], &HashSet::new())?;
     let names: Vec<_> = Bookmark::from_changes(&changes)
         .into_iter()
         .map(|b| b.name().to_string())

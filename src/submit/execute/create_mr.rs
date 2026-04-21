@@ -8,6 +8,7 @@ use crate::{
     submit::execute::{
         ActionInfo,
         ActionResultData,
+        BookmarkNameOrPendingChangeId,
         ExecuteAction,
         ExecuteActionContext,
         MRUpdate,
@@ -19,7 +20,7 @@ use crate::{
 #[derive(Debug, Clone, PartialEq, Eq, Builder)]
 pub struct CreateMRAction {
     /// The bookmark of the merge request
-    pub bookmark: String,
+    pub bookmark: BookmarkNameOrPendingChangeId,
 
     /// The target branch of the merge request
     pub target_branch: String,
@@ -47,7 +48,7 @@ impl ActionInfo for CreateMRAction {
     }
 
     fn substep_text(&self) -> String {
-        self.bookmark.clone().magenta().to_string()
+        self.bookmark.magenta().to_string()
     }
 
     fn plan_text(&self) -> String {
@@ -75,6 +76,8 @@ impl ActionInfo for CreateMRAction {
 
 impl ExecuteAction for CreateMRAction {
     async fn execute(&self, ctx: ExecuteActionContext<'_>) -> Result<ActionResultData> {
+        let bookmark = ctx.find_bookmark_name_required(&self.bookmark)?;
+
         if ctx.execute.dry_run {
             let msg = format!(
                 "Would {} {} -> {} \"{}\"",
@@ -137,7 +140,7 @@ impl ExecuteAction for CreateMRAction {
             .forge
             .create_merge_request(
                 ForgeCreateMergeRequestOptions::builder()
-                    .source_branch(self.bookmark.clone())
+                    .source_branch(bookmark.clone())
                     .target_branch(self.target_branch.clone())
                     .title(self.title.clone())
                     .remove_source_branch(ctx.execute.config.delete_source_branch)
@@ -158,7 +161,7 @@ impl ExecuteAction for CreateMRAction {
                 ));
                 Ok(ActionResultData::MRCreated(MRUpdate {
                     mr,
-                    bookmark: self.bookmark.clone(),
+                    bookmark,
                     update_type: MRUpdateType::Created,
                 }))
             }

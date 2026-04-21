@@ -20,9 +20,9 @@ impl GetBookmarksOptions {
         match self {
             GetBookmarksOptions::Revset(revset) => revset.clone(),
             GetBookmarksOptions::Tracked => {
-                "(mine() & tracked_remote_bookmarks()) ~ trunk()".to_string()
+                "(mine() & tracked_remote_bookmarks()) ~ ::trunk()".to_string()
             }
-            GetBookmarksOptions::Mine => "(mine() & bookmarks()) ~ trunk()".to_string(),
+            GetBookmarksOptions::Mine => "(mine() & bookmarks()) ~ ::trunk()".to_string(),
         }
     }
 }

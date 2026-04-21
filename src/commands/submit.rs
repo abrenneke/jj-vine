@@ -1,4 +1,4 @@
-use std::borrow::Cow;
+use std::{borrow::Cow, collections::HashSet};
 
 use clap::Args;
 use cli_table::{
@@ -8,12 +8,12 @@ use cli_table::{
 };
 use itertools::Itertools;
 use owo_colors::OwoColorize;
-use snafu::ensure_whatever;
+use snafu::{ensure_whatever, whatever};
 use tracing::info;
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{
-    bookmark::{Bookmark, BookmarkGraph},
+    bookmark::{BookmarkGraph, BookmarkOrPending},
     cli::CliConfig,
     commands::{GetBookmarksOptions, StrVisualWidth},
     config::Config,
@@ -21,7 +21,8 @@ use crate::{
     forge::ForgeImpl,
     jj::Jujutsu,
     submit::{
-        SubmitContext,
+        PlanContext,
+        RootExecuteContext,
         execute::{self, MRUpdate, MRUpdateType},
         find_changes_to_submit,
         plan,
@@ -46,6 +47,33 @@ pub struct SubmitCommandConfig {
     /// Show the submission plan and do not execute it.
     #[arg(long, conflicts_with = "dry_run")]
     pub show_plan: bool,
+
+    /// Create bookmarks for changes that don't have one (via `jj git push -c`).
+    /// A bookmark will be created for each revision in the revset for this
+    /// parameter, intersected with the main revset being submitted
+    /// ([create] & [revset]). If `--create` is passed without a value, the
+    /// value will default to `all()`, which will create one bookmark for each
+    /// revision in the revset being submitted, if it does not already have one.
+    ///
+    /// Revisions will be skipped if they already have a bookmark, tracked or
+    /// not.
+    ///
+    /// For example, if you have revision A off of `trunk()`, and B and C off of
+    /// A, then:
+    ///
+    /// `jj-vine submit 'trunk()..' -c` -> creates bookmarks for A, B, and
+    /// C
+    ///
+    /// `jj-vine submit 'trunk()..' -c C -> only creates a bookmark for C, so
+    /// the pull/merge request for C contains both A and C. A is not pushed
+    /// nor a pull or merge request created.
+    ///
+    /// You may also not specify a revset, and just use -c, in which case the
+    /// value of -c will be used as the submitting revset. For example,
+    /// `jj-vine submit -c @` is equivalent to `jj git push -c @ && jj-vine
+    /// submit @` or `jj-vine submit -r @ -c @`.
+    #[arg(short = 'c', long = "create", num_args=0..=1, require_equals=true, default_missing_value="all()")]
+    pub create: Option<String>,
 }
 
 impl SubmitCommandConfig {
@@ -79,7 +107,7 @@ Preview submitting a revset without making changes:
 }
 
 #[derive(Args, Default)]
-#[group(required = true, multiple = false)]
+#[group(required = false, multiple = false)]
 pub struct SubmitCommandRevsetOptions {
     /// The revset to submit (may use -r or not).
     #[arg(id = "revset")]
@@ -100,17 +128,25 @@ pub struct SubmitCommandRevsetOptions {
     pub tracked: bool,
 }
 
-impl SubmitCommandRevsetOptions {
-    fn to_get_bookmarks_options(&self) -> GetBookmarksOptions {
+impl SubmitCommandConfig {
+    fn to_get_bookmarks_options(&self) -> Result<GetBookmarksOptions> {
         match (
-            self.revset_positional.as_deref(),
-            self.revset.as_deref(),
-            self.tracked,
+            self.revset_options.revset_positional.as_deref(),
+            self.revset_options.revset.as_deref(),
+            self.revset_options.tracked,
+            self.create.as_deref(),
         ) {
-            (Some(revset), None, false) => GetBookmarksOptions::Revset(revset.to_string()),
-            (None, Some(revset), false) => GetBookmarksOptions::Revset(revset.to_string()),
-            (None, None, true) => GetBookmarksOptions::Tracked,
-            _ => unreachable!(),
+            (Some(revset), None, false, _) => Ok(GetBookmarksOptions::Revset(revset.to_string())),
+            (None, Some(revset), false, _) => Ok(GetBookmarksOptions::Revset(revset.to_string())),
+            (None, None, true, _) => Ok(GetBookmarksOptions::Tracked),
+
+            // Fall back to the same as -c if none of the other options are set
+            (None, None, false, Some(create)) => {
+                Ok(GetBookmarksOptions::Revset(create.to_string()))
+            }
+            _ => whatever!(
+                "You must specify a revset to submit with a positional argument, with the -r option, or with the --tracked option. You can also use the -c option to create bookmarks for changes that don't have one."
+            ),
         }
     }
 }
@@ -122,49 +158,79 @@ impl Default for SubmitCommandConfig {
             remote: "origin".to_string(),
             dry_run: false,
             show_plan: false,
+            create: None,
         }
     }
 }
 
 pub async fn submit(config: &SubmitCommandConfig, cli_config: &CliConfig<'_>) -> Result<()> {
     let jj = Jujutsu::new(&cli_config.repository)?;
+    let output = cli_config.output;
 
-    let revset = config.revset_options.to_get_bookmarks_options().to_revset();
-    let changes = jj.log(&revset)?;
-    let bookmarks: Vec<_> = Bookmark::from_changes(&changes).into_iter().collect();
+    let revset = config.to_get_bookmarks_options()?.to_revset();
+
+    let mut pending_bookmarks = HashSet::new();
+    if let Some(create) = config.create.as_deref() {
+        output.log_current("Creating and pushing bookmarks");
+
+        let changes_to_create_bookmarks_for = jj.log(format!("({create}) & ({revset})"))?;
+
+        if changes_to_create_bookmarks_for.is_empty() {
+            whatever!(
+                "Your change parameter resolved to a revset ({}) & ({}), which is empty. This is probably not what you intended, as no bookmarks would be created. Not continuing with submit.",
+                create,
+                revset
+            );
+        }
+
+        pending_bookmarks.extend(
+            changes_to_create_bookmarks_for
+                .iter()
+                .filter(|c| c.bookmarks.is_empty())
+                .map(|c| c.change_id.clone()),
+        );
+    }
+
+    let changes = jj.log_with_pending_bookmarks(&revset, &pending_bookmarks)?;
+
+    let bookmarks: Vec<_> = BookmarkOrPending::from_changes(&changes)
+        .into_iter()
+        .collect();
 
     ensure_whatever!(!bookmarks.is_empty(), "No bookmarks in revset {}", revset);
 
-    let output = cli_config.output;
     let repo_config = Config::load(&cli_config.repository)?;
     let forge = ForgeImpl::new(&repo_config)?;
 
     output.log_message(&format!(
-        "Submitting bookmarks: {}",
-        bookmarks
-            .iter()
-            .map(|b| b.name().magenta().to_string())
-            .join(", ")
+        "Submitting bookmarks{}: {}",
+        if config.dry_run {
+            " (dry run)"
+        } else if config.show_plan {
+            " (plan only)"
+        } else {
+            ""
+        },
+        bookmarks.iter().map(|b| b.magenta().to_string()).join(", ")
     ));
 
-    let changes = find_changes_to_submit(&jj, bookmarks.iter().cloned())?;
-    let bookmarks: Vec<_> = Bookmark::from_changes(&changes).into_iter().collect();
-    let bookmark_graph = BookmarkGraph::from_bookmarks(
+    let changes = find_changes_to_submit(
         &jj,
-        bookmarks.iter().cloned(),
-        config.revset_options.tracked,
+        bookmarks.iter().map(|b| b.change_id()),
+        &pending_bookmarks,
     )?;
 
-    let ctx = SubmitContext {
+    let bookmark_graph = BookmarkGraph::from_changes(&jj, &changes, config.revset_options.tracked)?;
+
+    let submission_plan = plan::plan(PlanContext {
         jj: &jj,
         forge: &forge,
         config: &repo_config,
         output,
         bookmark_graph: &bookmark_graph,
         dry_run: config.dry_run,
-    };
-
-    let submission_plan = plan::plan(ctx.clone()).await?;
+    })
+    .await?;
 
     if config.show_plan {
         info!("Submission plan:");
@@ -172,7 +238,17 @@ pub async fn submit(config: &SubmitCommandConfig, cli_config: &CliConfig<'_>) ->
         return Ok(());
     }
 
-    let result = execute::execute(ctx.into_execute_context(submission_plan)).await?;
+    let result = execute::execute(RootExecuteContext::new(
+        &jj,
+        &forge,
+        &repo_config,
+        output,
+        config.dry_run,
+        submission_plan,
+        changes.clone(),
+        config.revset_options.tracked,
+    ))
+    .await?;
 
     output.finish();
 

@@ -1,6 +1,7 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use itertools::Itertools;
+use owo_colors::OwoColorize;
 
 use crate::{
     error::{BookmarkNotFoundSnafu, Error, Result},
@@ -63,6 +64,131 @@ impl PartialEq<str> for &Bookmark<'_> {
 impl PartialEq<String> for &Bookmark<'_> {
     fn eq(&self, other: &String) -> bool {
         self.name() == other.as_str()
+    }
+}
+
+pub fn change_id_to_temp_bookmark_name(change_id: &str) -> String {
+    format!("(new bookmark for {})", &change_id[..8])
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum BookmarkOrPending<'a> {
+    Bookmark(Bookmark<'a>),
+    Pending {
+        change: &'a Change,
+        temp_bookmark_display_name: String,
+    },
+}
+
+impl<'a> BookmarkOrPending<'a> {
+    pub fn new_pending(change: &'a Change) -> Self {
+        Self::Pending {
+            temp_bookmark_display_name: change_id_to_temp_bookmark_name(&change.change_id),
+            change,
+        }
+    }
+
+    pub fn from_change(change: &'a Change) -> impl IntoIterator<Item = Self> {
+        let mut real_bookmarks: Vec<_> = Bookmark::from_change(change)
+            .into_iter()
+            .map(Self::Bookmark)
+            .collect();
+
+        if change.pending_bookmark {
+            real_bookmarks.push(Self::new_pending(change));
+        }
+
+        real_bookmarks
+    }
+
+    pub fn from_changes(
+        changes: impl IntoIterator<Item = &'a Change>,
+    ) -> impl IntoIterator<Item = Self> {
+        changes.into_iter().flat_map(Self::from_change)
+    }
+
+    pub fn is_pending(&self) -> bool {
+        matches!(self, Self::Pending { .. })
+    }
+
+    pub fn is_bookmark(&self) -> bool {
+        matches!(self, Self::Bookmark(_))
+    }
+
+    pub fn as_pending(&self) -> Option<&Change> {
+        match self {
+            Self::Pending { change, .. } => Some(change),
+            Self::Bookmark(_) => None,
+        }
+    }
+
+    pub fn change_id(&self) -> &str {
+        match self {
+            Self::Bookmark(bookmark) => bookmark.change.change_id.as_str(),
+            Self::Pending { change, .. } => change.change_id.as_str(),
+        }
+    }
+
+    pub fn is_local(&self) -> bool {
+        match self {
+            Self::Bookmark(bookmark) => bookmark.info.is_local(),
+            Self::Pending { .. } => true,
+        }
+    }
+
+    pub fn is_tracked(&self) -> bool {
+        match self {
+            Self::Bookmark(bookmark) => bookmark.info.is_tracked(),
+            Self::Pending { .. } => true, /* Since a pending bookmark *will* be tracked, it's
+                                           * effectively tracked. */
+        }
+    }
+
+    pub fn name(&self) -> &str {
+        match self {
+            Self::Bookmark(bookmark) => bookmark.name(),
+            Self::Pending {
+                temp_bookmark_display_name,
+                ..
+            } => temp_bookmark_display_name,
+        }
+    }
+
+    pub fn change(&self) -> &Change {
+        match self {
+            Self::Bookmark(bookmark) => bookmark.change,
+            Self::Pending { change, .. } => change,
+        }
+    }
+}
+
+impl std::fmt::Display for BookmarkOrPending<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Bookmark(bookmark) => write!(f, "{}", bookmark.name().magenta()),
+            Self::Pending {
+                temp_bookmark_display_name,
+                ..
+            } => {
+                write!(f, "{}", temp_bookmark_display_name,)
+            }
+        }
+    }
+}
+
+impl JJName for BookmarkOrPending<'_> {
+    fn raw_name(&self) -> String {
+        match self {
+            Self::Bookmark(bookmark) => bookmark.raw_name(),
+            Self::Pending { change, .. } => change.change_id.to_string(),
+        }
+    }
+
+    fn name_for_jj(&self) -> String {
+        match self {
+            Self::Bookmark(bookmark) => bookmark.name_for_jj(),
+            Self::Pending { change, .. } => change.change_id.to_string(),
+        }
     }
 }
 
@@ -139,7 +265,7 @@ impl ChangeComponent<'_> {
     }
 
     /// Get the downstack of a bookmark in the component
-    pub fn downstack_of(&self, name: &str) -> Result<Vec<Bookmark<'_>>> {
+    pub fn downstack_of(&self, name: &str) -> Result<Vec<BookmarkOrPending<'_>>> {
         let bookmark = self.find(name).ok_or_else(|| {
             BookmarkNotFoundSnafu {
                 name: name.to_string(),
@@ -296,7 +422,7 @@ impl BookmarkRef<'_> {
     }
 
     /// Get the downstack of the bookmark.
-    pub fn downstack(&self) -> Vec<Bookmark<'_>> {
+    pub fn downstack(&self) -> Vec<BookmarkOrPending<'_>> {
         match self {
             BookmarkRef::Bookmark(b) => b.downstack(),
             BookmarkRef::Trunk => Vec::new(),
@@ -341,7 +467,7 @@ impl<'a> JJName for BookmarkRef<'a> {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct BookmarkWithPointers<'a> {
     /// The bookmark itself.
-    pub bookmark: Bookmark<'a>,
+    pub bookmark: BookmarkOrPending<'a>,
 
     /// The parents of the bookmark. Is multiple if the bookmark is a merge
     /// commit, or if the bookmark has merge commits between it and any of
@@ -375,7 +501,7 @@ impl BookmarkWithPointers<'_> {
     }
 
     /// Get the downstack of the bookmark.
-    pub fn downstack(&self) -> Vec<Bookmark<'_>> {
+    pub fn downstack(&self) -> Vec<BookmarkOrPending<'_>> {
         let mut downstack = vec![self.bookmark.clone()];
         for parent in &self.parents {
             downstack.extend(
@@ -442,6 +568,10 @@ impl BookmarkWithPointers<'_> {
 
         jj.log(revset)
     }
+
+    pub fn is_pending(&self) -> bool {
+        matches!(self.bookmark, BookmarkOrPending::Pending { .. })
+    }
 }
 
 impl<'a> JJName for BookmarkWithPointers<'a> {
@@ -459,22 +589,33 @@ impl<'a> JJName for BookmarkWithPointers<'a> {
 #[derive(Debug, Clone, PartialEq)]
 pub struct BookmarkGraph<'a> {
     /// All bookmarks in the revset (keyed by name)
-    bookmarks: BTreeMap<String, Bookmark<'a>>,
+    bookmarks: BTreeMap<String, BookmarkOrPending<'a>>,
 
     /// Independent components of the bookmark graph
     components: Vec<ChangeComponent<'a>>,
 }
 
 impl<'a> BookmarkGraph<'a> {
+    pub fn from_changes(
+        jj: &Jujutsu,
+        changes: impl IntoIterator<Item = &'a Change>,
+        skip_untracked_local_bookmarks: bool,
+    ) -> Result<Self> {
+        let bookmarks: Vec<_> = BookmarkOrPending::from_changes(changes)
+            .into_iter()
+            .collect();
+        Self::from_bookmarks(jj, bookmarks, skip_untracked_local_bookmarks)
+    }
+
     /// Build a bookmark graph from a list of bookmarks.
     pub fn from_bookmarks(
         jj: &Jujutsu,
-        bookmarks: impl IntoIterator<Item = Bookmark<'a>>,
+        bookmarks: impl IntoIterator<Item = BookmarkOrPending<'a>>,
         skip_untracked_local_bookmarks: bool,
     ) -> Result<Self> {
         let local_bookmarks: Vec<_> = bookmarks
             .into_iter()
-            .filter(|b| b.is_local() && (!skip_untracked_local_bookmarks || b.info.is_tracked()))
+            .filter(|b| b.is_local() && (!skip_untracked_local_bookmarks || b.is_tracked()))
             .collect();
 
         let mut bookmark_lookup: BTreeMap<_, _> = local_bookmarks
@@ -482,18 +623,24 @@ impl<'a> BookmarkGraph<'a> {
             .map(|b| (b.name().to_string(), b.clone()))
             .collect();
 
+        let pending_bookmarks: HashSet<String> = local_bookmarks
+            .iter()
+            .filter_map(|b| b.as_pending().map(|c| c.change_id.clone()))
+            .collect();
+
         let mut adjacency_list = BTreeMap::new();
 
         for bookmark in &local_bookmarks {
-            if jj.any_in_revset(format!("({}) & trunk()", bookmark.change.change_id))? {
+            if jj.any_in_revset(format!("({}) & trunk()", bookmark.change_id()))? {
                 bookmark_lookup.remove(bookmark.name());
                 continue;
             }
 
             let parent_bookmarks = Self::find_nearest_bookmarked_ancestors(
                 jj,
-                bookmark.change,
+                bookmark.change(),
                 skip_untracked_local_bookmarks,
+                &pending_bookmarks,
             )?;
 
             adjacency_list
@@ -511,7 +658,7 @@ impl<'a> BookmarkGraph<'a> {
 
     /// Build independent components from the bookmark graph
     pub fn from_lookups(
-        bookmark_lookup: BTreeMap<String, Bookmark<'a>>,
+        bookmark_lookup: BTreeMap<String, BookmarkOrPending<'a>>,
         adjacency_list: BTreeMap<String, BTreeSet<String>>,
     ) -> Self {
         let parents: BTreeSet<_> = adjacency_list.values().flatten().cloned().collect();
@@ -573,7 +720,7 @@ impl<'a> BookmarkGraph<'a> {
         }
 
         fn get_pointer<'b>(
-            bookmark_lookup: &BTreeMap<String, Bookmark<'b>>,
+            bookmark_lookup: &BTreeMap<String, BookmarkOrPending<'b>>,
             adjacency_list: &BTreeMap<String, BTreeSet<String>>,
             name: &str,
         ) -> BookmarkWithPointers<'b> {
@@ -612,8 +759,8 @@ impl<'a> BookmarkGraph<'a> {
     }
 
     /// Get all bookmarks in the graph.
-    pub fn bookmarks(&self) -> impl Iterator<Item = Bookmark<'_>> {
-        self.bookmarks.values().map(Bookmark::clone)
+    pub fn bookmarks(&self) -> impl Iterator<Item = BookmarkOrPending<'_>> {
+        self.bookmarks.values().cloned()
     }
 
     pub fn bookmarks_with_pointers(&self) -> impl Iterator<Item = &BookmarkWithPointers<'_>> {
@@ -629,7 +776,7 @@ impl<'a> BookmarkGraph<'a> {
 
     /// Gets a bookmark by name. Note that this is not the same as finding a
     /// bookmark in a component - this does not contain any parent information.
-    pub fn bookmark(&self, name: &str) -> Option<Bookmark<'_>> {
+    pub fn bookmark(&self, name: &str) -> Option<BookmarkOrPending<'_>> {
         self.bookmarks.get(name).cloned()
     }
 
@@ -653,7 +800,7 @@ impl<'a> BookmarkGraph<'a> {
     /// E.g. if the component is [main, feature-a, feature-b, feature-c], and
     /// the bookmark is feature-b, the downstack is [feature-b, feature-a,
     /// main].
-    pub fn downstack_of(&self, bookmark_name: &str) -> Result<Vec<Bookmark<'_>>> {
+    pub fn downstack_of(&self, bookmark_name: &str) -> Result<Vec<BookmarkOrPending<'_>>> {
         let component = self.component_containing(bookmark_name).ok_or_else(|| {
             BookmarkNotFoundSnafu {
                 name: bookmark_name.to_string(),
@@ -669,27 +816,25 @@ impl<'a> BookmarkGraph<'a> {
         jj: &Jujutsu,
         from: &Change,
         skip_untracked_local_bookmarks: bool,
+        pending_bookmarks: &HashSet<String>,
     ) -> Result<Vec<Change>> {
         let mut ancestors = Vec::new();
 
         let parents = jj.log(format!("{}- ~ ::trunk()", from.commit_id))?;
 
         for parent in parents {
-            let bookmarks: Vec<_> = if skip_untracked_local_bookmarks {
-                parent
-                    .bookmarks
-                    .iter()
-                    .filter(|bookmark| bookmark.is_tracked())
-                    .collect()
-            } else {
-                parent.bookmarks.iter().collect()
-            };
+            let bookmarks: Vec<_> = parent
+                .bookmarks
+                .iter()
+                .filter(|bookmark| !skip_untracked_local_bookmarks || bookmark.is_tracked())
+                .collect();
 
-            if bookmarks.is_empty() {
+            if bookmarks.is_empty() && !pending_bookmarks.contains(&parent.change_id) {
                 ancestors.extend(Self::find_nearest_bookmarked_ancestors(
                     jj,
                     &parent,
                     skip_untracked_local_bookmarks,
+                    pending_bookmarks,
                 )?);
             } else {
                 ancestors.push(parent);

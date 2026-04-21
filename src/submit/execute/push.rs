@@ -1,4 +1,7 @@
+use std::collections::HashMap;
+
 use bon::Builder;
+use itertools::Itertools;
 use owo_colors::OwoColorize;
 use tracing::{debug, error};
 
@@ -7,16 +10,17 @@ use crate::{
     submit::execute::{ActionInfo, ActionResultData, ExecuteAction, ExecuteActionContext},
 };
 
-/// Push a bookmark to a remote
+/// Push bookmarks to a remote
 #[derive(Debug, Clone, PartialEq, Eq, Builder)]
 pub struct PushAction {
-    pub bookmark: String,
+    pub bookmarks: Vec<String>,
+
     pub remote: String,
 }
 
 impl ActionInfo for PushAction {
     fn id(&self) -> String {
-        format!("push:{}", self.bookmark)
+        format!("push:{}", self.bookmarks.join(","))
     }
 
     fn group_text(&self) -> String {
@@ -24,57 +28,64 @@ impl ActionInfo for PushAction {
     }
 
     fn text(&self) -> String {
-        format!("Pushing {}", self.bookmark.magenta())
+        format!(
+            "Pushing {}",
+            self.bookmarks.iter().map(|b| b.magenta()).join(", ")
+        )
     }
 
     fn substep_text(&self) -> String {
-        self.bookmark.magenta().to_string()
+        self.bookmarks.iter().map(|b| b.magenta()).join(", ")
     }
 
     fn plan_text(&self) -> String {
         format!(
-            "Push bookmark {} to remote {}",
-            self.bookmark.magenta(),
-            self.remote.cyan()
+            "Push bookmarks to remote {}: {}",
+            self.remote.cyan(),
+            self.bookmarks.iter().map(|b| b.magenta()).join(", "),
         )
     }
 }
 
 impl ExecuteAction for PushAction {
     async fn execute(&self, ctx: ExecuteActionContext<'_>) -> Result<ActionResultData> {
+        let bookmarks_string = self.bookmarks.iter().map(|b| b.magenta()).join(", ");
         if ctx.execute.dry_run {
             ctx.execute.output.log_message(&format!(
-                "Would push {} to {}",
-                self.bookmark.magenta(),
-                self.remote
+                "Would push bookmarks to remote {}: {bookmarks_string}",
+                self.remote.cyan()
             ));
+
             Ok(ActionResultData::Pushed {
-                bookmark: self.bookmark.clone(),
+                bookmarks: self.bookmarks.clone(),
+                created_bookmarks: HashMap::new(),
                 pushed: true,
             })
         } else {
             match ctx
                 .execute
                 .jj
-                .push_bookmark(&self.bookmark, Some(&self.remote))
+                .push_bookmarks(&self.bookmarks, Some(&self.remote))
             {
                 Ok(pushed) => {
                     if pushed {
                         ctx.execute
                             .output
-                            .log_completed(&format!("Pushed {}", self.bookmark.magenta()));
+                            .log_completed(&format!("Pushed {bookmarks_string}"));
                     } else {
-                        debug!("Nothing needed to be pushed for {}", self.bookmark);
+                        debug!("Nothing needed to be pushed for {bookmarks_string}");
                     }
+
                     Ok(ActionResultData::Pushed {
-                        bookmark: self.bookmark.clone(),
+                        bookmarks: self.bookmarks.clone(),
+                        created_bookmarks: HashMap::new(),
                         pushed,
                     })
                 }
                 Err(e) => {
-                    let error_msg = format!("Failed to push {}: {}", self.bookmark, e);
+                    let error_msg = format!("Failed to push {bookmarks_string}: {e}");
                     ctx.execute.output.log_message(&error_msg);
-                    error!("{}", error_msg);
+                    error!("{error_msg}");
                     Err(Error::new(error_msg))
                 }
             }

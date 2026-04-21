@@ -1533,6 +1533,7 @@ mod tests {
             change_id: format!("change_{}", commit_id),
             description: "Message\n\nBody".to_string(),
             bookmarks: vec![],
+            pending_bookmark: false,
         }
     }
 

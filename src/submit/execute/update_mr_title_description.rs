@@ -9,8 +9,8 @@ use crate::{
     forge::Forge,
     submit::execute::{
         ActionInfo,
-        ActionResult,
         ActionResultData,
+        BookmarkNameOrPendingChangeId,
         ExecuteAction,
         ExecuteActionContext,
         MRUpdate,
@@ -32,7 +32,7 @@ pub struct UpdateMRTitleDescriptionAction {
 
     pub generate_stack_in_description: bool,
 
-    pub bookmark: String,
+    pub bookmark: BookmarkNameOrPendingChangeId,
 
     pub dependencies: Option<Vec<String>>,
 }
@@ -117,43 +117,31 @@ impl ActionInfo for UpdateMRTitleDescriptionAction {
 
 impl ExecuteAction for UpdateMRTitleDescriptionAction {
     async fn execute(&self, ctx: ExecuteActionContext<'_>) -> Result<ActionResultData> {
+        let bookmark = ctx.find_bookmark_name_required(&self.bookmark)?;
+
         if ctx.execute.dry_run {
             ctx.execute.output.log_message(&format!(
                 "Would try to {} MR description for {}",
                 "update".yellow(),
-                self.bookmark.magenta()
+                bookmark.magenta()
             ));
             return Ok(ActionResultData::DryRun);
         }
 
-        let all_mrs = match ctx
-            .current_results
-            .iter()
-            .find(|result| result.id == LoadAllMRsAction.id())
-        {
-            Some(ActionResult {
-                data: Ok(ActionResultData::MRsLoaded(mrs)),
-                ..
-            }) => mrs,
-            _ => whatever!("Failed to load MRs"),
-        };
+        let all_mrs = ctx.all_mrs()?;
 
-        let Some(current_mr) = all_mrs.get(self.bookmark.as_str()) else {
-            whatever!("No MR found for {}", self.bookmark.magenta());
+        let Some(current_mr) = all_mrs.get(bookmark.as_str()) else {
+            whatever!("No MR found for {}", bookmark.magenta());
         };
 
         let default_branch = ctx.execute.jj.default_branch()?;
 
-        let Some(stack) = ctx
-            .execute
-            .bookmark_graph
-            .component_containing(self.bookmark.as_str())
-        else {
+        let Some(stack) = ctx.execute.bookmark_graph.component_containing(&bookmark) else {
             whatever!("Bookmark not found in component: {}", self.bookmark)
         };
 
         let stack_description = generate_stack_description(
-            &self.bookmark,
+            &bookmark,
             stack,
             all_mrs,
             &ctx.execute.config.description,
@@ -175,7 +163,7 @@ impl ExecuteAction for UpdateMRTitleDescriptionAction {
         if description_unchanged && self.title.is_none() {
             return Ok(ActionResultData::MRUpdated(MRUpdate {
                 mr: current_mr.clone(),
-                bookmark: self.bookmark.clone(),
+                bookmark: bookmark.clone(),
                 update_type: MRUpdateType::Unchanged,
             }));
         }
@@ -200,7 +188,7 @@ impl ExecuteAction for UpdateMRTitleDescriptionAction {
 
                 Ok(ActionResultData::MRUpdated(MRUpdate {
                     mr: updated_mr,
-                    bookmark: self.bookmark.clone(),
+                    bookmark: bookmark.clone(),
                     update_type: MRUpdateType::new_updated()
                         .old_description(current_mr.description().to_string())
                         .maybe_new_description(
@@ -212,10 +200,7 @@ impl ExecuteAction for UpdateMRTitleDescriptionAction {
                 }))
             }
             Err(e) => {
-                let error_msg = format!(
-                    "Failed to update MR description for {}: {}",
-                    self.bookmark, e
-                );
+                let error_msg = format!("Failed to update MR description for {}: {}", bookmark, e);
                 ctx.execute.output.log_message(&error_msg);
                 error!("{}", error_msg);
                 Err(Error::new(error_msg))

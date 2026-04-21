@@ -1,7 +1,7 @@
 #![cfg(test)]
 #![allow(dead_code)]
 
-use std::path::PathBuf;
+use std::{ffi::OsStr, path::PathBuf};
 
 use clap::Parser;
 use snafu::ResultExt;
@@ -580,7 +580,7 @@ impl<T> TestRepo<T> {
     }
 
     /// Run a jj command
-    pub fn jj<'a>(&self, args: impl AsRef<[&'a str]>) -> Result<&Self> {
+    pub fn jj(&self, args: impl IntoIterator<Item = impl AsRef<OsStr>>) -> Result<&Self> {
         self.jj.exec(args)?;
         Ok(self)
     }
@@ -604,7 +604,7 @@ impl<T> TestRepo<T> {
         self.exec(["new", rev])
     }
 
-    pub fn exec<'a>(&self, args: impl AsRef<[&'a str]>) -> &Self {
+    pub fn exec(&self, args: impl IntoIterator<Item = impl AsRef<OsStr>>) -> &Self {
         self.jj.exec(args).unwrap();
         self
     }

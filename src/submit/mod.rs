@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use itertools::Itertools;
 
 use crate::{
@@ -16,24 +18,30 @@ pub mod plan;
 /// Find the changes that matter for a submission starting from `targets`:
 /// bookmarked changes authored by the current user that are reachable from
 /// the targets and are not already in the trunk ancestry.
-pub fn find_changes_to_submit<N>(
+pub fn find_changes_to_submit(
     jj: &Jujutsu,
-    targets: impl IntoIterator<Item = N>,
-) -> Result<Vec<Change>>
-where
-    N: JJName,
-{
-    jj.log(format!(
-        "(({}) & mine() & bookmarks()) ~ (::trunk())",
-        targets
-            .into_iter()
-            .map(|t| format!("::{}", t.name_for_jj()))
-            .join(" | ")
-    ))
+    targets: impl IntoIterator<Item = impl JJName>,
+    change_ids_pending_bookmarks: &HashSet<String>,
+) -> Result<Vec<Change>> {
+    jj.log_with_pending_bookmarks(
+        format!(
+            "((({}) & mine() & bookmarks()) | ({})) ~ (::trunk())",
+            targets
+                .into_iter()
+                .map(|t| format!("::{}", t.name_for_jj()))
+                .join(" | "),
+            if change_ids_pending_bookmarks.is_empty() {
+                "none()".to_string()
+            } else {
+                change_ids_pending_bookmarks.iter().join(" | ")
+            }
+        ),
+        change_ids_pending_bookmarks,
+    )
 }
 
 #[derive(Clone)]
-pub struct SubmitContext<'a> {
+pub struct PlanContext<'a> {
     pub jj: &'a Jujutsu,
     pub forge: &'a ForgeImpl,
     pub config: &'a Config,
@@ -51,19 +59,56 @@ pub struct ExecuteContext<'a> {
     pub bookmark_graph: &'a BookmarkGraph<'a>,
     pub dry_run: bool,
 
-    pub plan: SubmissionPlan,
+    pub plan: &'a SubmissionPlan,
 }
 
-impl<'a> SubmitContext<'a> {
-    pub fn into_execute_context(self, plan: SubmissionPlan) -> ExecuteContext<'a> {
-        ExecuteContext {
-            jj: self.jj,
-            forge: self.forge,
-            config: self.config,
-            output: self.output,
-            bookmark_graph: self.bookmark_graph,
-            dry_run: self.dry_run,
+impl<'a> ExecuteContext<'a> {
+    pub fn new(ctx: &'a RootExecuteContext<'a>, bookmark_graph: &'a BookmarkGraph<'a>) -> Self {
+        Self {
+            jj: ctx.jj,
+            forge: ctx.forge,
+            config: ctx.config,
+            output: ctx.output,
+            bookmark_graph,
+            dry_run: ctx.dry_run,
+            plan: &ctx.plan,
+        }
+    }
+}
+
+pub struct RootExecuteContext<'a> {
+    pub jj: &'a Jujutsu,
+    pub forge: &'a ForgeImpl,
+    pub config: &'a Config,
+    pub output: &'a dyn Output,
+    pub dry_run: bool,
+
+    pub plan: SubmissionPlan,
+    pub changes: Vec<Change>,
+    pub skip_untracked_local_bookmarks: bool,
+}
+
+impl<'a> RootExecuteContext<'a> {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        jj: &'a Jujutsu,
+        forge: &'a ForgeImpl,
+        config: &'a Config,
+        output: &'a dyn Output,
+        dry_run: bool,
+        plan: SubmissionPlan,
+        changes: Vec<Change>,
+        skip_untracked_local_bookmarks: bool,
+    ) -> Self {
+        Self {
+            jj,
+            forge,
+            config,
+            output,
+            dry_run,
             plan,
+            changes,
+            skip_untracked_local_bookmarks,
         }
     }
 }

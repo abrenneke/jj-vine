@@ -9,6 +9,7 @@ use crate::{
     submit::execute::{
         ActionInfo,
         ActionResultData,
+        BookmarkNameOrPendingChangeId,
         ExecuteAction,
         ExecuteActionContext,
         MRUpdate,
@@ -19,7 +20,7 @@ use crate::{
 /// Sync dependent merge requests for a bookmark (after all MRs created)
 #[derive(Debug, Clone, PartialEq, Eq, Builder)]
 pub struct SyncDependentMergeRequestsAction {
-    pub bookmark: String,
+    pub bookmark: BookmarkNameOrPendingChangeId,
     pub dependencies: Option<Vec<String>>,
 }
 
@@ -55,6 +56,8 @@ impl ActionInfo for SyncDependentMergeRequestsAction {
 
 impl ExecuteAction for SyncDependentMergeRequestsAction {
     async fn execute(&self, ctx: ExecuteActionContext<'_>) -> Result<ActionResultData> {
+        let bookmark_name = ctx.find_bookmark_name_required(&self.bookmark)?;
+
         if ctx.execute.dry_run {
             return Ok(ActionResultData::DryRun);
         }
@@ -62,7 +65,7 @@ impl ExecuteAction for SyncDependentMergeRequestsAction {
         let bookmark = ctx
             .execute
             .bookmark_graph
-            .find_bookmark_in_components(&self.bookmark)
+            .find_bookmark_in_components(&bookmark_name)
             .ok_or_else::<Error, _>(|| make_whatever!("Bookmark not found: {}", self.bookmark))?;
 
         let default_branch = ctx.execute.jj.default_branch()?;
@@ -71,12 +74,12 @@ impl ExecuteAction for SyncDependentMergeRequestsAction {
             .execute
             .forge
             .find_merge_request_by_source_branch_base_branch(
-                &self.bookmark,
+                &bookmark_name,
                 &bookmark.parent_name(default_branch),
             )
             .await?
             .ok_or_else::<Error, _>(|| {
-                make_whatever!("No merge request found for {}", self.bookmark)
+                make_whatever!("No merge request found for {}", bookmark_name)
             })?;
 
         let dependent_merge_request_iids: Vec<_> = bookmark
@@ -121,7 +124,7 @@ impl ExecuteAction for SyncDependentMergeRequestsAction {
 
         Ok(ActionResultData::MRUpdated(MRUpdate {
             mr,
-            bookmark: self.bookmark.clone(),
+            bookmark: bookmark_name.clone(),
             update_type: if changed {
                 MRUpdateType::new_updated()
                     .synced_dependent_merge_requests(true)

@@ -9,14 +9,17 @@ use crate::{
     description::{generate_description, remove_jj_vine_stack_from_description},
     error::{Error, Result},
     forge::{AnyForgeMergeRequest, Forge},
+    output::OutputExt,
     submit::{
-        SubmitContext,
+        PlanContext,
         execute::{
             Action,
             ActionInfo,
+            BookmarkNameOrPendingChangeId,
             create_mr::CreateMRAction,
             load_all_mrs::LoadAllMRsAction,
             push::PushAction,
+            push_create::PushCreateAction,
             sync_dependent_merge_requests::SyncDependentMergeRequestsAction,
             update_mr_base::UpdateMRBaseAction,
             update_mr_title_description::UpdateMRTitleDescriptionAction,
@@ -65,7 +68,7 @@ impl PlanMergeRequest {
 }
 
 /// Create a submission plan
-pub async fn plan(ctx: SubmitContext<'_>) -> Result<SubmissionPlan> {
+pub async fn plan(ctx: PlanContext<'_>) -> Result<SubmissionPlan> {
     ctx.output.log_current("Planning submission");
 
     let default_branch = ctx.jj.default_branch()?;
@@ -73,49 +76,83 @@ pub async fn plan(ctx: SubmitContext<'_>) -> Result<SubmissionPlan> {
     let mut batches: Vec<Vec<Action>> = Vec::new();
 
     let existing_mrs: HashMap<_, _> = ctx
-        .bookmark_graph
-        .components()
-        .iter()
-        .flat_map(|component| component.all_bookmarks())
-        .map(async |bookmark| {
-            let _substep = ctx
-                .output
-                .start_substep(&bookmark.name().magenta().to_string());
+        .output
+        .run_async("Loading existing merge requests", || async {
+            Ok::<_, Error>(
+                ctx.bookmark_graph
+                    .components()
+                    .iter()
+                    .flat_map(|component| component.all_bookmarks())
+                    .filter(|bookmark| !bookmark.is_pending())
+                    .map(async |bookmark| {
+                        let _substep = ctx
+                            .output
+                            .start_substep(&bookmark.name().magenta().to_string());
 
-            if let Some(mr) = ctx
-                .forge
-                .find_merge_request_by_source_branch_base_branch(
-                    bookmark.name(),
-                    &bookmark.parent_name(default_branch),
-                )
-                .await?
-            {
-                Ok(Some((bookmark.name().to_string(), mr)))
-            } else {
-                Ok(None)
-            }
+                        if let Some(mr) = ctx
+                            .forge
+                            .find_merge_request_by_source_branch_base_branch(
+                                bookmark.name(),
+                                &bookmark.parent_name(default_branch),
+                            )
+                            .await?
+                        {
+                            Ok(Some((bookmark.name().to_string(), mr)))
+                        } else {
+                            Ok(None)
+                        }
+                    })
+                    .collect::<FuturesUnordered<_>>()
+                    .collect::<Vec<_>>()
+                    .await
+                    .into_iter()
+                    .collect::<Result<Vec<_>>>()?
+                    .into_iter()
+                    .flatten()
+                    .collect(),
+            )
         })
-        .collect::<FuturesUnordered<_>>()
-        .collect::<Vec<_>>()
-        .await
-        .into_iter()
-        .collect::<Result<Vec<_>>>()?
-        .into_iter()
-        .flatten()
-        .collect();
+        .await?;
 
     let mut push_action_ids = HashMap::new();
 
     let mut push_batch = Vec::new();
-    for bookmark in ctx.bookmark_graph.bookmarks() {
-        let push_action = PushAction::builder()
-            .bookmark(bookmark.name().to_string())
+
+    let (to_push_create, to_push_update): (Vec<_>, Vec<_>) = ctx
+        .bookmark_graph
+        .bookmarks()
+        .partition(|bookmark| bookmark.is_pending());
+
+    if !to_push_create.is_empty() {
+        let push_action = PushCreateAction::builder()
+            .change_ids(
+                to_push_create
+                    .iter()
+                    .map(|b| b.change_id().to_string())
+                    .collect(),
+            )
             .remote(ctx.config.remote_name.clone())
             .build();
 
-        push_action_ids.insert(bookmark.name().to_string(), push_action.id());
+        push_action_ids.extend(to_push_create.iter().map(|b| (b.name(), push_action.id())));
+        push_batch.push(Action::PushCreate(push_action));
+    }
+
+    if !to_push_update.is_empty() {
+        let push_action = PushAction::builder()
+            .bookmarks(
+                to_push_update
+                    .iter()
+                    .map(|b| b.name().to_string())
+                    .collect(),
+            )
+            .remote(ctx.config.remote_name.clone())
+            .build();
+
+        push_action_ids.extend(to_push_update.iter().map(|b| (b.name(), push_action.id())));
         push_batch.push(Action::Push(push_action));
     }
+
     if !push_batch.is_empty() {
         batches.push(push_batch);
     }
@@ -159,7 +196,8 @@ pub async fn plan(ctx: SubmitContext<'_>) -> Result<SubmissionPlan> {
                         BookmarkRef::Bookmark(b) => Some(batches.iter().flat_map(|batch| {
                             batch.iter().filter_map(|action| match action {
                                 Action::CreateMR(create_mr_action)
-                                    if create_mr_action.bookmark == b.name() =>
+                                    if create_mr_action.bookmark
+                                        == BookmarkNameOrPendingChangeId::new_from_pointer(b) =>
                                 {
                                     Some(create_mr_action.id())
                                 }
@@ -203,7 +241,7 @@ pub async fn plan(ctx: SubmitContext<'_>) -> Result<SubmissionPlan> {
                     );
 
                     let create_mr_action = CreateMRAction::builder()
-                        .bookmark(bookmark.name().to_string())
+                        .bookmark(BookmarkNameOrPendingChangeId::new_from_pointer(bookmark))
                         .target_branch(target_branch.to_string())
                         .title(title.clone())
                         .description(description.clone())
@@ -293,7 +331,9 @@ pub async fn plan(ctx: SubmitContext<'_>) -> Result<SubmissionPlan> {
                         if maybe_title.is_some() || ctx.config.description.enabled {
                             Ok(Some(Action::UpdateMRTitleDescription(
                                 UpdateMRTitleDescriptionAction::builder()
-                                    .bookmark(bookmark.name().to_string())
+                                    .bookmark(BookmarkNameOrPendingChangeId::new_from_pointer(
+                                        bookmark,
+                                    ))
                                     .generate_stack_in_description(ctx.config.description.enabled)
                                     .maybe_title(maybe_title)
                                     .maybe_description(maybe_description)
@@ -334,7 +374,7 @@ pub async fn plan(ctx: SubmitContext<'_>) -> Result<SubmissionPlan> {
                 .map(|bookmark| {
                     Action::SyncDependentMergeRequests(
                         SyncDependentMergeRequestsAction::builder()
-                            .bookmark(bookmark.name().to_string())
+                            .bookmark(BookmarkNameOrPendingChangeId::new_from_pointer(bookmark))
                             .build(),
                     )
                 })

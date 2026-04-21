@@ -1,6 +1,7 @@
 pub mod create_mr;
 pub mod load_all_mrs;
 pub mod push;
+pub mod push_create;
 pub mod sync_dependent_merge_requests;
 pub mod update_mr_base;
 pub mod update_mr_title_description;
@@ -11,17 +12,26 @@ use bon::bon;
 use enum_dispatch::enum_dispatch;
 use futures::{StreamExt, stream::FuturesUnordered};
 use itertools::{Either, Itertools};
+use snafu::whatever;
 use tracing::debug;
 
 use crate::{
+    bookmark::{
+        BookmarkGraph,
+        BookmarkOrPending,
+        BookmarkWithPointers,
+        change_id_to_temp_bookmark_name,
+    },
     error::{ClonableError, Error, Result},
     forge::AnyForgeMergeRequest,
     submit::{
         ExecuteContext,
+        RootExecuteContext,
         execute::{
             create_mr::CreateMRAction,
             load_all_mrs::LoadAllMRsAction,
             push::PushAction,
+            push_create::PushCreateAction,
             sync_dependent_merge_requests::SyncDependentMergeRequestsAction,
             update_mr_base::UpdateMRBaseAction,
             update_mr_title_description::UpdateMRTitleDescriptionAction,
@@ -34,11 +44,44 @@ use crate::{
 #[enum_dispatch(ExecuteAction, ActionInfo)]
 pub enum Action {
     Push(PushAction),
+    PushCreate(PushCreateAction),
     CreateMR(CreateMRAction),
     UpdateMRBase(UpdateMRBaseAction),
     LoadAllMRs(LoadAllMRsAction),
     UpdateMRTitleDescription(UpdateMRTitleDescriptionAction),
     SyncDependentMergeRequests(SyncDependentMergeRequestsAction),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BookmarkNameOrPendingChangeId {
+    Bookmark(String),
+    PendingChangeId(String),
+}
+
+impl BookmarkNameOrPendingChangeId {
+    pub fn new_from_bookmark(bookmark: &BookmarkOrPending<'_>) -> Self {
+        match bookmark {
+            BookmarkOrPending::Bookmark(b) => Self::Bookmark(b.name().to_string()),
+            BookmarkOrPending::Pending { change, .. } => {
+                Self::PendingChangeId(change.change_id.clone())
+            }
+        }
+    }
+
+    pub fn new_from_pointer(pointer: &BookmarkWithPointers<'_>) -> Self {
+        Self::new_from_bookmark(&pointer.bookmark)
+    }
+}
+
+impl std::fmt::Display for BookmarkNameOrPendingChangeId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Bookmark(name) => write!(f, "{}", name),
+            Self::PendingChangeId(change_id) => {
+                write!(f, "{}", change_id_to_temp_bookmark_name(change_id))
+            }
+        }
+    }
 }
 
 /// Result of executing a submission plan
@@ -63,7 +106,11 @@ pub struct MRUpdate {
 
 #[derive(Debug, Clone)]
 pub enum ActionResultData {
-    Pushed { bookmark: String, pushed: bool },
+    Pushed {
+        bookmarks: Vec<String>,
+        created_bookmarks: HashMap<String, String>,
+        pushed: bool,
+    },
     MRCreated(MRUpdate),
     MRUpdated(MRUpdate),
     MRsLoaded(HashMap<String, AnyForgeMergeRequest>),
@@ -79,6 +126,50 @@ pub struct ActionResult {
 pub struct ExecuteActionContext<'a> {
     pub execute: ExecuteContext<'a>,
     pub current_results: Vec<ActionResult>,
+}
+
+impl<'a> ExecuteActionContext<'a> {
+    pub fn all_mrs(&self) -> Result<&HashMap<String, AnyForgeMergeRequest>> {
+        match self
+            .current_results
+            .iter()
+            .find(|result| result.id == LoadAllMRsAction.id())
+        {
+            Some(ActionResult {
+                data: Ok(ActionResultData::MRsLoaded(mrs)),
+                ..
+            }) => Ok(mrs),
+            _ => whatever!("Failed to load MRs"),
+        }
+    }
+
+    pub fn find_bookmark_name(&self, bookmark: &BookmarkNameOrPendingChangeId) -> Option<String> {
+        match bookmark {
+            BookmarkNameOrPendingChangeId::Bookmark(name) => Some(name.clone()),
+            BookmarkNameOrPendingChangeId::PendingChangeId(change_id) => {
+                for result in &self.current_results {
+                    if let Ok(ActionResultData::Pushed {
+                        created_bookmarks, ..
+                    }) = &result.data
+                        && let Some(name) = created_bookmarks.get(change_id)
+                    {
+                        return Some(name.clone());
+                    }
+                }
+                None
+            }
+        }
+    }
+
+    pub fn find_bookmark_name_required(
+        &self,
+        bookmark: &BookmarkNameOrPendingChangeId,
+    ) -> Result<String> {
+        match self.find_bookmark_name(bookmark) {
+            Some(name) => Ok(name),
+            None => whatever!("Could not find a created bookmark for change {}", bookmark),
+        }
+    }
 }
 
 #[enum_dispatch]
@@ -159,11 +250,17 @@ impl MRUpdateType {
 }
 
 /// Execute a submission plan
-pub async fn execute(ctx: ExecuteContext<'_>) -> Result<SubmissionResult> {
+pub async fn execute(mut ctx: RootExecuteContext<'_>) -> Result<SubmissionResult> {
     let mut merge_requests = Vec::new();
     let mut errors = Vec::new();
     let mut bookmarks_pushed = Vec::new();
     let mut current_results: Vec<ActionResult> = Vec::new();
+
+    let mut bookmark_graph = BookmarkGraph::from_bookmarks(
+        ctx.jj,
+        ctx.changes.iter().map(BookmarkOrPending::new_pending),
+        ctx.skip_untracked_local_bookmarks,
+    )?;
 
     if ctx.dry_run {
         ctx.output.log_message("DRY RUN - No changes will be made");
@@ -211,7 +308,7 @@ pub async fn execute(ctx: ExecuteContext<'_>) -> Result<SubmissionResult> {
             let action_id = action.id();
 
             let action_ctx = ExecuteActionContext {
-                execute: ctx.clone(),
+                execute: ExecuteContext::new(&ctx, &bookmark_graph),
                 current_results: current_results.clone(),
             };
 
@@ -230,16 +327,42 @@ pub async fn execute(ctx: ExecuteContext<'_>) -> Result<SubmissionResult> {
         for (action_id, result) in results {
             current_results.push(ActionResult {
                 id: action_id,
-                data: result.map_err(|e| e.to_clonable_error()),
+                data: result.as_ref().map_err(|e| e.to_clonable_error()).cloned(),
             });
+
+            if let Ok(ActionResultData::Pushed {
+                created_bookmarks, ..
+            }) = &result
+            {
+                for (change_id, name) in created_bookmarks {
+                    let change = ctx
+                        .changes
+                        .iter_mut()
+                        .find(|c| c.change_id == *change_id)
+                        .unwrap_or_else(|| {
+                            panic!("Could not find change {} in changes", change_id)
+                        });
+
+                    change.solidify_bookmark(name);
+                }
+
+                // Rebuild the graph using the new changes
+                bookmark_graph = BookmarkGraph::from_changes(
+                    ctx.jj,
+                    &ctx.changes,
+                    ctx.skip_untracked_local_bookmarks,
+                )?;
+            }
         }
     }
 
     for result in current_results {
         match result.data {
-            Ok(ActionResultData::Pushed { bookmark, pushed }) => {
+            Ok(ActionResultData::Pushed {
+                bookmarks, pushed, ..
+            }) => {
                 if pushed {
-                    bookmarks_pushed.push(bookmark);
+                    bookmarks_pushed.extend(bookmarks);
                 }
             }
             Ok(ActionResultData::MRCreated(mr_update))

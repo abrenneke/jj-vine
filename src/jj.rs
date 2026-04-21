@@ -1,13 +1,15 @@
 #[cfg(test)]
 use std::collections::{BTreeMap, BTreeSet};
-use std::{cell::OnceCell, path::PathBuf, process::Command};
+use std::{cell::OnceCell, collections::HashSet, ffi::OsStr, path::PathBuf, process::Command};
 
+use itertools::Itertools;
+use owo_colors::OwoColorize;
 use serde::{Deserialize, Serialize};
 use snafu::{OptionExt, ResultExt, whatever};
 use tracing::trace;
 
 #[cfg(test)]
-use crate::bookmark::Bookmark;
+use crate::bookmark::{Bookmark, BookmarkOrPending};
 use crate::{
     bookmark::JJName,
     error::{ConfigSnafu, Error, JjCommandSnafu, JsonSnafu, ParseSnafu, Result, make_whatever},
@@ -129,11 +131,25 @@ pub struct Change {
 
     /// The bookmarks that are part of this change
     pub bookmarks: Vec<BookmarkInfo>,
+
+    /// Whether there *will* be a bookmark created for this change.
+    pub pending_bookmark: bool,
 }
 
 impl Change {
     pub fn description_first_line(&self) -> &str {
         self.description.lines().next().unwrap_or_default().trim()
+    }
+
+    /// Gets the first line of the description in quotes, or (no description
+    /// set) if the description is empty.
+    pub fn description_first_line_quoted_or_empty(&self) -> String {
+        let description = self.description_first_line();
+        if description.is_empty() {
+            "(no description set)".yellow().to_string()
+        } else {
+            format!("\"{}\"", description)
+        }
     }
 
     pub fn description_not_first_line(&self) -> &str {
@@ -147,6 +163,20 @@ impl Change {
             (None, None) => &self.description,
         }
         .trim()
+    }
+
+    pub fn change_id_short(&self) -> &str {
+        &self.change_id[..8]
+    }
+
+    pub fn solidify_bookmark(&mut self, bookmark_name: &str) {
+        assert!(self.pending_bookmark);
+        self.bookmarks.push(BookmarkInfo::Local {
+            name: bookmark_name.to_string(),
+            remote_different_from_local: false,
+            tracked: true,
+        });
+        self.pending_bookmark = false;
     }
 }
 
@@ -211,13 +241,15 @@ impl ChangeMap {
         })
     }
 
-    pub fn create_bookmark_map(&self) -> BTreeMap<String, Bookmark<'_>> {
+    pub fn create_bookmark_map(&self) -> BTreeMap<String, BookmarkOrPending<'_>> {
         self.values()
             .flat_map(|change| {
-                change
-                    .bookmarks
-                    .iter()
-                    .map(|info| (info.name().to_string(), Bookmark { info, change }))
+                change.bookmarks.iter().map(|info| {
+                    (
+                        info.name().to_string(),
+                        BookmarkOrPending::Bookmark(Bookmark { info, change }),
+                    )
+                })
             })
             .collect()
     }
@@ -297,6 +329,7 @@ impl Change {
             description: format!("description_{}", change_id),
             parent_commit_ids: vec![],
             bookmarks: vec![],
+            pending_bookmark: false,
         }
     }
 
@@ -308,6 +341,7 @@ impl Change {
             description: format!("description_{}", bookmark),
             parent_commit_ids: vec![],
             bookmarks: vec![bookmark.parse::<BookmarkInfo>().unwrap()],
+            pending_bookmark: false,
         }
     }
 
@@ -379,21 +413,26 @@ impl Jujutsu {
     }
 
     /// Run a jj command and return the output.
-    pub fn exec<'a>(&self, args: impl AsRef<[&'a str]>) -> Result<CommandOutput> {
-        let args = args.as_ref();
-        trace!("Running jj command: jj {}", args.join(" "));
+    pub fn exec<S, T>(&self, args: T) -> Result<CommandOutput>
+    where
+        S: AsRef<OsStr>,
+        T: IntoIterator<Item = S>,
+    {
+        let args: Vec<_> = args.into_iter().collect();
+        let args_string = args.iter().map(|s| s.as_ref().to_string_lossy()).join(" ");
+        trace!("Running jj command: jj {args_string}",);
 
         let jj_bin = Self::which()?;
         let output = Command::new(&jj_bin)
             .current_dir(&self.cwd)
-            .args(args.as_ref())
+            .args(args)
             .output()?;
 
         let stderr = String::from_utf8_lossy(&output.stderr);
 
         if !output.status.success() {
             return Err(JjCommandSnafu {
-                message: format!("jj {} failed: {}", args.as_ref().join(" "), stderr),
+                message: format!("jj {args_string} failed: {stderr}"),
                 output: Some(output),
             }
             .build());
@@ -497,6 +536,7 @@ impl Jujutsu {
                                 }
                             })
                             .collect(),
+                        pending_bookmark: false,
                     })
                 }
                 _ => Err(ParseSnafu {
@@ -507,41 +547,86 @@ impl Jujutsu {
             .collect()
     }
 
+    /// Gets information about changes in a given revset, with pending
+    /// bookmarks injected for changes that will have bookmarks created.
+    pub fn log_with_pending_bookmarks(
+        &self,
+        revset: impl AsRef<str>,
+        pending_bookmarks: &HashSet<String>,
+    ) -> Result<Vec<Change>> {
+        let mut changes = self.log(revset)?;
+
+        for change in &mut changes {
+            if pending_bookmarks.contains(&change.change_id) {
+                change.pending_bookmark = true;
+            }
+        }
+
+        Ok(changes)
+    }
+
     /// Track a bookmark on a remote.
-    pub fn track_bookmark(&self, bookmark: impl JJName, remote: Option<&str>) -> Result<()> {
-        let remote = remote.unwrap_or("origin");
-        self.exec([
-            "bookmark",
-            "track",
-            &bookmark.name_for_jj(),
-            "--remote",
-            remote,
-        ])
-        .map(|_| ())
+    pub fn track_bookmarks(
+        &self,
+        bookmarks: impl IntoIterator<Item = impl JJName>,
+        remote: Option<&str>,
+    ) -> Result<()> {
+        let bookmark_names: Vec<_> = bookmarks.into_iter().map(|b| b.name_for_jj()).collect();
+
+        let args: Vec<_> = ["bookmark", "track", "--remote", remote.unwrap_or("origin")]
+            .into_iter()
+            .chain(bookmark_names.iter().map(|b| b.as_str()))
+            .collect();
+
+        self.exec(args).map(|_| ())
     }
 
     /// Push a bookmark to a remote using jj git push. This will automatically
     /// track the bookmark on the remote if it's not already tracked
-    pub fn push_bookmark(
+    pub fn push_bookmarks(
         &self,
-        bookmark: impl JJName + Copy,
+        bookmarks: impl IntoIterator<Item = impl JJName + Copy>,
         remote: Option<&str>,
     ) -> Result<bool> {
-        // Try to track the bookmark first (ignore errors if already tracked)
-        let _ = self.track_bookmark(bookmark, remote);
+        let mut args = vec!["git".to_string(), "push".to_string()];
 
-        let remote = remote.unwrap_or("origin");
+        if let Some(remote) = remote {
+            args.push("--remote".to_string());
+            args.push(remote.to_string());
+        }
 
-        let output = self.exec([
-            "git",
-            "push",
-            "--remote",
-            remote,
-            "--bookmark",
-            &bookmark.name_for_jj(),
-        ])?;
+        for bookmark in bookmarks {
+            args.push("--bookmark".to_string());
+            args.push(bookmark.name_for_jj());
+        }
+
+        let output = self.exec(&args)?;
 
         Ok(!output.stderr.contains("Nothing changed."))
+    }
+
+    /// Create a bookmark for a change and push it in one step.
+    /// Uses jj's push bookmark template to generate the bookmark name.
+    pub fn push_changes_create(
+        &self,
+        change_ids: impl IntoIterator<Item = impl AsRef<str>>,
+        remote: Option<&str>,
+    ) -> Result<()> {
+        let mut args = vec!["git".to_string(), "push".to_string()];
+
+        if let Some(remote) = remote {
+            args.push("--remote".to_string());
+            args.push(remote.to_string());
+        }
+
+        for change_id in change_ids {
+            args.push("-c".to_string());
+            args.push(change_id.as_ref().to_string());
+        }
+
+        self.exec(&args)?;
+
+        Ok(())
     }
 
     /// List all remotes.
@@ -781,7 +866,7 @@ mod tests {
             &remote_dir.to_string_lossy(),
         ])?;
 
-        jj.push_bookmark("feature-a", Some("origin"))?;
+        jj.push_bookmarks(["feature-a"], Some("origin"))?;
 
         let tracked = jj.log("(mine() & tracked_remote_bookmarks()) ~ trunk()")?;
 

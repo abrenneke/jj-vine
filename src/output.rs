@@ -17,6 +17,39 @@ pub trait Output: Send + Sync {
     fn finish(&self) {}
 }
 
+pub trait OutputExt {
+    fn run<F, O>(&self, message: &str, f: F) -> O
+    where
+        F: FnOnce() -> O;
+
+    async fn run_async<F, O>(&self, message: &str, f: F) -> <O as Future>::Output
+    where
+        F: FnOnce() -> O,
+        O: Future;
+}
+
+impl<T> OutputExt for T
+where
+    T: Output + ?Sized,
+{
+    fn run<F, O>(&self, message: &str, f: F) -> O
+    where
+        F: FnOnce() -> O,
+    {
+        let _substep = self.start_substep(message);
+        f()
+    }
+
+    async fn run_async<F, O>(&self, message: &str, f: F) -> <O as Future>::Output
+    where
+        F: FnOnce() -> O,
+        O: Future,
+    {
+        let _substep = self.start_substep(message);
+        f().await
+    }
+}
+
 /// Interactive spinner mode implementation
 pub struct InteractiveOutput {
     spinner: ProgressBar,
@@ -49,18 +82,31 @@ impl Default for InteractiveOutput {
 }
 
 pub struct Substep<'a> {
+    finished: bool,
     finish: Box<dyn Fn() + 'a>,
 }
 
 impl<'a> Substep<'a> {
     pub fn new(finish: Box<dyn Fn() + 'a>) -> Self {
-        Self { finish }
+        Self {
+            finished: false,
+            finish,
+        }
+    }
+
+    pub fn done(&mut self) {
+        if self.finished {
+            return;
+        }
+
+        (self.finish)();
+        self.finished = true;
     }
 }
 
 impl<'a> Drop for Substep<'a> {
     fn drop(&mut self) {
-        (self.finish)();
+        self.done();
     }
 }
 
