@@ -10,6 +10,7 @@ use assertables::{
 use crate::{
     bookmark::{Bookmark, BookmarkGraph, BookmarkRef},
     error::Result,
+    submit::find_changes_to_submit,
     tests::TestRepo,
 };
 
@@ -108,6 +109,50 @@ fn test_graph_skips_default_branch_history() -> Result<()> {
 
     assert_none!(graph.component_containing("main"));
     assert_some!(graph.component_containing("feature-1"));
+
+    Ok(())
+}
+
+#[test]
+fn test_find_changes_to_submit_with_advanced_main() -> Result<()> {
+    let repo = TestRepo::with_local_remote();
+    repo.create_change("f1.txt", "f1", "Feature 1")
+        .create_bookmark("feature");
+
+    repo.jj.exec(["new", "main"])?;
+    repo.create_change("m1.txt", "m1", "Main advance");
+    repo.jj.exec(["bookmark", "set", "main", "--to", "@"])?;
+    repo.jj.exec(["git", "push"])?;
+
+    repo.jj.exec(["new"])?;
+    repo.create_change("f2.txt", "f2", "Feature 2")
+        .create_bookmark("feature-2");
+
+    repo.jj.exec(["new"])?;
+    repo.create_change("f3.txt", "f3", "Feature 3")
+        .create_bookmark("feature-3");
+
+    // old-main --> main --> feature-2 --> feature-3
+    //   /-->feature
+    
+    // From feature-3, we expect the whole downstack back to (but not including)
+    // trunk — i.e. feature-2 and feature-3.
+    let changes = find_changes_to_submit(&repo.jj, ["feature-3"])?;
+    let mut names: Vec<_> = Bookmark::from_changes(&changes)
+        .into_iter()
+        .map(|b| b.name().to_string())
+        .collect();
+    names.sort();
+    assert_eq!(names, vec!["feature-2".to_string(), "feature-3".to_string()]);
+
+    // From feature, we expect just feature: it branched off old main but is
+    // not in the ancestry of the new trunk, so it should not be filtered out.
+    let changes = find_changes_to_submit(&repo.jj, ["feature"])?;
+    let names: Vec<_> = Bookmark::from_changes(&changes)
+        .into_iter()
+        .map(|b| b.name().to_string())
+        .collect();
+    assert_eq!(names, vec!["feature".to_string()]);
 
     Ok(())
 }

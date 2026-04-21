@@ -13,7 +13,7 @@ use tracing::info;
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{
-    bookmark::{Bookmark, BookmarkGraph, JJName},
+    bookmark::{Bookmark, BookmarkGraph},
     cli::CliConfig,
     commands::{GetBookmarksOptions, StrVisualWidth},
     config::Config,
@@ -23,6 +23,7 @@ use crate::{
     submit::{
         SubmitContext,
         execute::{self, MRUpdate, MRUpdateType},
+        find_changes_to_submit,
         plan,
     },
 };
@@ -146,13 +147,7 @@ pub async fn submit(config: &SubmitCommandConfig, cli_config: &CliConfig<'_>) ->
             .join(", ")
     ));
 
-    let changes = jj.log(format!(
-        "(({}) & mine() & bookmarks()) ~ trunk()",
-        bookmarks
-            .iter()
-            .map(|b| format!("::{}", b.name_for_jj()))
-            .join(" | ")
-    ))?;
+    let changes = find_changes_to_submit(&jj, bookmarks.iter().cloned())?;
     let bookmarks: Vec<_> = Bookmark::from_changes(&changes).into_iter().collect();
     let bookmark_graph = BookmarkGraph::from_bookmarks(
         &jj,
