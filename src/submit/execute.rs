@@ -255,11 +255,8 @@ pub async fn execute(mut ctx: RootExecuteContext<'_>) -> Result<SubmissionResult
     let mut bookmarks_pushed = Vec::new();
     let mut current_results: Vec<ActionResult> = Vec::new();
 
-    let mut bookmark_graph = BookmarkGraph::from_bookmarks(
-        ctx.jj,
-        ctx.changes.iter().map(BookmarkOrPending::new_pending),
-        ctx.skip_untracked_local_bookmarks,
-    )?;
+    let mut bookmark_graph =
+        BookmarkGraph::from_changes(ctx.jj, &ctx.changes, ctx.skip_untracked_local_bookmarks)?;
 
     ctx.output.log_current("Preparing submission");
 
