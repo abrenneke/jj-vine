@@ -23,6 +23,7 @@ use crate::{
     forge::{
         AnyForgeMergeRequest,
         ApprovalSatisfaction,
+        ApprovalStatus,
         CheckStatus,
         Forge,
         ForgeImpl,
@@ -614,38 +615,43 @@ component!(ChecksStatusComponent, async |data: &StatusData<'_>| {
 });
 
 component!(ApprovalStatusComponent, async |data: &StatusData<'_>| {
-    let approval_status = &data.status.approval_status;
-    if approval_status.required_count == 0
-        && approval_status.satisfaction == ApprovalSatisfaction::Satisfied
-    {
-        Ok(Some(
-            pluralize("approval", approval_status.approved_count as isize, true)
+    let ApprovalStatus {
+        approved_count,
+        required_count,
+        satisfaction,
+        blocking_count,
+    } = data.status.approval_status.clone();
+
+    Ok(Some(match satisfaction {
+        ApprovalSatisfaction::Satisfied if required_count == 0 => {
+            pluralize("approval", approved_count as isize, true)
                 .white()
-                .to_string(),
-        ))
-    } else if approval_status.satisfaction == ApprovalSatisfaction::Satisfied {
-        Ok(Some(
-            format!(
-                "Approved ({}/{})",
-                approval_status.approved_count, approval_status.required_count
-            )
+                .to_string()
+        }
+        ApprovalSatisfaction::Satisfied if required_count == 1 => "Approved".green().to_string(),
+        ApprovalSatisfaction::Satisfied => format!("Approved ({approved_count}/{required_count})")
             .green()
             .to_string(),
-        ))
-    } else if approval_status.satisfaction != ApprovalSatisfaction::Unknown {
-        Ok(Some(
-            format!(
-                "Needs {} ({}/{})",
-                pluralize("approval", approval_status.required_count as isize, false),
-                approval_status.approved_count,
-                approval_status.required_count
-            )
-            .red()
+        ApprovalSatisfaction::Unsatisfied if blocking_count == 0 && required_count == 1 => {
+            "Needs approval".red().to_string()
+        }
+        ApprovalSatisfaction::Unsatisfied if blocking_count == 0 => format!(
+            "Needs {} ({approved_count}/{required_count})",
+            pluralize("approval", required_count as isize, false),
+        )
+        .red()
+        .to_string(),
+        ApprovalSatisfaction::Unsatisfied => format!(
+            "Needs {} ({approved_count}/{required_count}) ({blocking_count} blocking {})",
+            pluralize("approval", required_count as isize, false),
+            pluralize("review", blocking_count as isize, false),
+        )
+        .red()
+        .to_string(),
+        ApprovalSatisfaction::Unknown => pluralize("approval", approved_count as isize, true)
+            .white()
             .to_string(),
-        ))
-    } else {
-        Ok(None)
-    }
+    }))
 });
 
 component!(CreatedAtComponent, async |data: &StatusData<'_>| {

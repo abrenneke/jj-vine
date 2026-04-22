@@ -310,13 +310,14 @@ pub enum ApprovalSatisfaction {
 /// Approval status of a merge request
 #[derive(Debug, Clone)]
 pub struct ApprovalStatus {
-    /// Number of approvals received
+    /// Number of approvals received for the merge request
     pub approved_count: u32,
 
-    /// Number of approvals required
+    /// Number of approvals required by the project
     pub required_count: u32,
 
-    /// Number of approvals that are blocking the merge request
+    /// Number of reviews that are blocking the merge request (i.e. request
+    /// changes)
     pub blocking_count: u32,
 
     /// Whether approval requirements are satisfied
