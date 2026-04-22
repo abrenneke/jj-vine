@@ -484,7 +484,16 @@ impl Forge for ForgejoForge {
 
             let has_more = prs.len() == limit;
 
-            if let Some(pr) = prs.into_iter().find(|pr| pr.head.ref_name == branch) {
+            let is_fork = self.source_project_id != self.target_project_id;
+            if let Some(pr) = prs.into_iter().find(|pr| {
+                pr.head.ref_name == branch
+                    && (!is_fork
+                        || pr
+                            .head
+                            .repo
+                            .as_ref()
+                            .is_some_and(|r| r.full_name == self.source_project_id))
+            }) {
                 return Ok(Some(ForgejoMergeRequest {
                     pull_request: pr,
                     wip_prefix: self.wip_prefix.clone(),
@@ -506,8 +515,16 @@ impl Forge for ForgejoForge {
         source_branch: &str,
         base_branch: &str,
     ) -> Result<Option<Self::MergeRequest>> {
-        // Forgejo has an efficient implementation if you know both source and base
-        // branch names.
+        // Forgejo can look up a PR directly when both source and base branches
+        // are known, avoiding the paginated listing needed by the branch-only
+        // method. For cross-repo (fork) PRs the head parameter must use the
+        // "owner:branch" format so Forgejo resolves the correct repository.
+        let head = if self.source_project_id != self.target_project_id {
+            format!("{}:{}", self.source_owner, source_branch)
+        } else {
+            source_branch.to_string()
+        };
+
         let pr: Result<PullRequest> = self
             .request(
                 Method::GET,
@@ -516,7 +533,7 @@ impl Forge for ForgejoForge {
                     self.target_owner,
                     self.target_repo,
                     urlencoding::encode(base_branch),
-                    urlencoding::encode(source_branch),
+                    urlencoding::encode(&head),
                 ),
                 None::<()>,
             )
