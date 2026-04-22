@@ -200,9 +200,9 @@ mod e2e {
 
         let output = repo.run(["submit", "--tracked", "--dry-run"]).await;
 
-        assert_contains!(output, &format!("Would create {} -> main", a));
-        assert_contains!(output, &format!("Would create {} -> {}", b, a));
-        assert_contains!(output, &format!("Would create {} -> main", c));
+        assert_contains!(output, &format!("Would create PR {} -> main", a));
+        assert_contains!(output, &format!("Would create PR {} -> {}", b, a));
+        assert_contains!(output, &format!("Would create PR {} -> main", c));
 
         Ok(())
     }
@@ -219,7 +219,7 @@ mod e2e {
             .run(["submit", &format!("\"{name}\""), "--dry-run"])
             .await;
 
-        assert_contains!(output, &format!("Would create {name} -> main"));
+        assert_contains!(output, &format!("Would create PR {name} -> main"));
 
         Ok(())
     }
@@ -235,7 +235,7 @@ mod e2e {
 
         let output = repo.run(["submit", "--tracked", "--dry-run"]).await;
 
-        assert_contains!(output, &format!("Would create {name} -> main"));
+        assert_contains!(output, &format!("Would create PR {name} -> main"));
 
         Ok(())
     }

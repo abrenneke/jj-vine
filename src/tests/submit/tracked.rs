@@ -38,7 +38,7 @@ mod e2e {
         let output = repo.run(["submit", "--tracked", "--dry-run"]).await;
 
         assert_contains!(output, &branch);
-        assert_not_contains!(output, "Would create main");
+        assert_not_contains!(output, "Would create PR main");
 
         Ok(())
     }

@@ -4,7 +4,7 @@ use snafu::whatever;
 use tracing::error;
 
 use crate::{
-    description::{generate_stack_description, insert_stack_into_description},
+    description::{FormatMergeRequest, generate_stack_description, insert_stack_into_description},
     error::{Error, Result},
     forge::Forge,
     submit::execute::{
@@ -121,8 +121,9 @@ impl ExecuteAction for UpdateMRTitleDescriptionAction {
 
         if ctx.execute.dry_run {
             ctx.execute.output.log_message(&format!(
-                "Would try to {} MR description for {}",
+                "Would try to {} {} description for {}",
                 "update".yellow(),
+                ctx.execute.forge.mr_name(),
                 bookmark.magenta()
             ));
             return Ok(ActionResultData::DryRun);

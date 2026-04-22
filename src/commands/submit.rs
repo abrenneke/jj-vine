@@ -29,15 +29,16 @@ use crate::{
     },
 };
 
-#[derive(Args)]
+#[derive(Args, Default)]
 pub struct SubmitCommandConfig {
     /// Options for the revset
     #[command(flatten)]
     pub revset_options: SubmitCommandRevsetOptions,
 
-    /// The remote to push to.
-    #[arg(long, default_value = "origin")]
-    pub remote: String,
+    /// The remote to push to. Defaults to the `git.push` or `git.fetch`
+    /// settings.
+    #[arg(long)]
+    pub remote: Option<String>,
 
     /// Don't actually modify any merge requests or push bookmarks, only print
     /// what would be done.
@@ -151,21 +152,27 @@ impl SubmitCommandConfig {
     }
 }
 
-impl Default for SubmitCommandConfig {
-    fn default() -> Self {
-        Self {
-            revset_options: Default::default(),
-            remote: "origin".to_string(),
-            dry_run: false,
-            show_plan: false,
-            create: None,
-        }
-    }
-}
-
 pub async fn submit(config: &SubmitCommandConfig, cli_config: &CliConfig<'_>) -> Result<()> {
     let jj = Jujutsu::new(&cli_config.repository)?;
     let output = cli_config.output;
+
+    let repo_config = Config::load(&cli_config.repository)?;
+
+    if repo_config.fetch {
+        if config.dry_run {
+            output.log_message(&format!(
+                "Would fetch remote{} before planning (note that the plan may change based on newly fetched data!)",
+                config.remote.as_deref().map(|r| format!(" {r}")).unwrap_or_default())
+            );
+        } else {
+            let mut fetch_args = vec!["git", "fetch"];
+            if let Some(remote) = config.remote.as_deref() {
+                fetch_args.extend_from_slice(&["--remote", remote]);
+            }
+
+            jj.exec(fetch_args)?;
+        }
+    }
 
     let revset = config.to_get_bookmarks_options()?.to_revset();
 
@@ -199,7 +206,6 @@ pub async fn submit(config: &SubmitCommandConfig, cli_config: &CliConfig<'_>) ->
 
     ensure_whatever!(!bookmarks.is_empty(), "No bookmarks in revset {}", revset);
 
-    let repo_config = Config::load(&cli_config.repository)?;
     let forge = ForgeImpl::new(&repo_config)?;
 
     output.log_message(&format!(

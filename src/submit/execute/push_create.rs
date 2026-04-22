@@ -57,11 +57,16 @@ impl ActionInfo for PushCreateAction {
 
 impl ExecuteAction for PushCreateAction {
     async fn execute(&self, ctx: ExecuteActionContext<'_>) -> Result<ActionResultData> {
-        let change_ids_string = self.change_ids.iter().map(|b| b.magenta()).join(", ");
+        let change_ids_string = self
+            .change_ids
+            .iter()
+            .map(|b| (&b[..8]).magenta().to_string())
+            .join(", ");
 
         if ctx.execute.dry_run {
             ctx.execute.output.log_message(&format!(
-                "Would create bookmarks and push to remote {} for changes: {change_ids_string}",
+                "Would {} and push to remote {} for changes: {change_ids_string}",
+                "create bookmarks".green(),
                 self.remote.cyan()
             ));
 

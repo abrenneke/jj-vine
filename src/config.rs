@@ -182,6 +182,15 @@ pub struct Config {
     #[builder(default)]
     pub open_as_draft: bool,
 
+    /// Whether to fetch the remote before planning a submission. Defaults to
+    /// true.
+    ///
+    /// If disabled, jj-vine may recreate deleted bookmarks, so be careful when
+    /// disabling this.
+    #[serde(default = "default_true")]
+    #[builder(default)]
+    pub fetch: bool,
+
     /// Configuration for MR title generation.
     #[serde(default)]
     #[builder(default)]

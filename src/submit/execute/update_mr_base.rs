@@ -4,6 +4,7 @@ use snafu::whatever;
 use tracing::error;
 
 use crate::{
+    description::FormatMergeRequest,
     error::{Error, Result},
     forge::Forge,
     submit::execute::{
@@ -65,8 +66,9 @@ impl ExecuteAction for UpdateMRBaseAction {
     async fn execute(&self, ctx: ExecuteActionContext<'_>) -> Result<ActionResultData> {
         if ctx.execute.dry_run {
             let msg = format!(
-                "Would {} MR {} base for {} to {}",
+                "Would {} {} {} base for {} to {}",
                 "update".yellow(),
+                ctx.execute.forge.mr_name(),
                 format!("!{}", self.mr_iid).cyan(),
                 self.bookmark.magenta(),
                 self.new_target_branch.magenta()

@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use futures::{StreamExt, stream::FuturesUnordered};
 
 use crate::{
+    description::FormatMergeRequest,
     error::Result,
     forge::Forge,
     submit::execute::{ActionInfo, ActionResultData, ExecuteAction, ExecuteActionContext},
@@ -37,7 +38,10 @@ impl ActionInfo for LoadAllMRsAction {
 impl ExecuteAction for LoadAllMRsAction {
     async fn execute(&self, ctx: ExecuteActionContext<'_>) -> Result<ActionResultData> {
         if ctx.execute.dry_run {
-            ctx.execute.output.log_message("Would load all MRs");
+            ctx.execute.output.log_message(&format!(
+                "Would reload all {}s",
+                ctx.execute.forge.mr_name()
+            ));
             return Ok(ActionResultData::MRsLoaded(HashMap::new()));
         }
         // TODO deterministic

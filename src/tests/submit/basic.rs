@@ -15,7 +15,7 @@ mod e2e {
 
         let output = repo.run(["submit", "--dry-run", &branch]).await;
 
-        assert_contains!(output, &format!("Would create {} -> main", branch));
+        assert_contains!(output, &format!("Would create PR {} -> main", branch));
 
         Ok(())
     }
@@ -43,9 +43,9 @@ mod e2e {
 
         let output = repo.run(["submit", "--dry-run", &c]).await;
 
-        let a_msg = format!("Would create {} -> main", a);
-        let b_msg = format!("Would create {} -> {}", b, a);
-        let c_msg = format!("Would create {} -> {}", c, b);
+        let a_msg = format!("Would create PR {} -> main", a);
+        let b_msg = format!("Would create PR {} -> {}", b, a);
+        let c_msg = format!("Would create PR {} -> {}", c, b);
 
         assert_contains!(output, &a_msg);
         assert_contains!(output, &b_msg);

@@ -3,6 +3,7 @@ use owo_colors::OwoColorize;
 use tracing::error;
 
 use crate::{
+    description::FormatMergeRequest,
     error::{Error, Result},
     forge::{Forge, ForgeCreateMergeRequestOptions},
     submit::execute::{
@@ -81,7 +82,7 @@ impl ExecuteAction for CreateMRAction {
         if ctx.execute.dry_run {
             let msg = format!(
                 "Would {} {} -> {} \"{}\"",
-                "create".green(),
+                format!("create {}", ctx.execute.forge.mr_name()).green(),
                 self.bookmark.magenta(),
                 self.target_branch.magenta(),
                 self.title

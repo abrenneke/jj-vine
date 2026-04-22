@@ -262,10 +262,6 @@ pub async fn execute(mut ctx: RootExecuteContext<'_>) -> Result<SubmissionResult
         ctx.skip_untracked_local_bookmarks,
     )?;
 
-    if ctx.dry_run {
-        ctx.output.log_message("DRY RUN - No changes will be made");
-    }
-
     ctx.output.log_current("Preparing submission");
 
     for batch in &ctx.plan.actions {
