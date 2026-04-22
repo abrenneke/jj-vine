@@ -3,6 +3,7 @@ use owo_colors::OwoColorize;
 use tracing::error;
 
 use crate::{
+    bookmark::change_id_to_temp_bookmark_name,
     description::FormatMergeRequest,
     error::{Error, Result},
     forge::{Forge, ForgeCreateMergeRequestOptions},
@@ -79,13 +80,22 @@ impl ExecuteAction for CreateMRAction {
     async fn execute(&self, ctx: ExecuteActionContext<'_>) -> Result<ActionResultData> {
         let bookmark = ctx.find_bookmark_name_required(&self.bookmark)?;
 
+        let title =
+            if let BookmarkNameOrPendingChangeId::PendingChangeId(change_id) = &self.bookmark {
+                // Kinda hacky but 🤷 the temp name is plenty unique
+                self.title
+                    .replace(&change_id_to_temp_bookmark_name(change_id), &bookmark)
+            } else {
+                self.title.clone()
+            };
+
         if ctx.execute.dry_run {
             let msg = format!(
                 "Would {} {} -> {} \"{}\"",
                 format!("create {}", ctx.execute.forge.mr_name()).green(),
                 self.bookmark.magenta(),
                 self.target_branch.magenta(),
-                self.title
+                title
             );
             ctx.execute.output.log_message(&msg);
 
@@ -143,7 +153,7 @@ impl ExecuteAction for CreateMRAction {
                 ForgeCreateMergeRequestOptions::builder()
                     .source_branch(bookmark.clone())
                     .target_branch(self.target_branch.clone())
-                    .title(self.title.clone())
+                    .title(title)
                     .remove_source_branch(ctx.execute.config.delete_source_branch)
                     .squash(ctx.execute.config.squash_commits)
                     .description(desc.map(|s| s.to_string()))
