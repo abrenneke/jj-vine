@@ -1,5 +1,4 @@
 pub mod create_mr;
-pub mod load_all_mrs;
 pub mod push;
 pub mod push_create;
 pub mod sync_dependent_merge_requests;
@@ -29,7 +28,6 @@ use crate::{
         RootExecuteContext,
         execute::{
             create_mr::CreateMRAction,
-            load_all_mrs::LoadAllMRsAction,
             push::PushAction,
             push_create::PushCreateAction,
             sync_dependent_merge_requests::SyncDependentMergeRequestsAction,
@@ -47,7 +45,6 @@ pub enum Action {
     PushCreate(PushCreateAction),
     CreateMR(CreateMRAction),
     UpdateMRBase(UpdateMRBaseAction),
-    LoadAllMRs(LoadAllMRsAction),
     UpdateMRTitleDescription(UpdateMRTitleDescriptionAction),
     SyncDependentMergeRequests(SyncDependentMergeRequestsAction),
 }
@@ -113,7 +110,6 @@ pub enum ActionResultData {
     },
     MRCreated(MRUpdate),
     MRUpdated(MRUpdate),
-    MRsLoaded(HashMap<String, AnyForgeMergeRequest>),
     DryRun,
 }
 
@@ -129,20 +125,23 @@ pub struct ExecuteActionContext<'a> {
 }
 
 impl<'a> ExecuteActionContext<'a> {
-    pub fn all_mrs(&self) -> Result<&HashMap<String, AnyForgeMergeRequest>> {
-        match self
-            .current_results
-            .iter()
-            .find(|result| result.id == LoadAllMRsAction.id())
-        {
-            Some(ActionResult {
-                data: Ok(ActionResultData::MRsLoaded(mrs)),
-                ..
-            }) => Ok(mrs),
-            _ => whatever!("Failed to load MRs"),
-        }
-    }
+    /// Gets all MRs at the current state of execution by overlaying creations
+    /// and updates on top of MRs that existed at planning time.
+    pub fn all_mrs(&self) -> HashMap<String, AnyForgeMergeRequest> {
+        let mut all_mrs = self.execute.plan.existing_mrs.clone();
 
+        for result in &self.current_results {
+            match &result.data {
+                Ok(ActionResultData::MRCreated(update))
+                | Ok(ActionResultData::MRUpdated(update)) => {
+                    all_mrs.insert(update.bookmark.clone(), update.mr.clone());
+                }
+                _ => {}
+            }
+        }
+
+        all_mrs
+    }
     pub fn find_bookmark_name(&self, bookmark: &BookmarkNameOrPendingChangeId) -> Option<String> {
         match bookmark {
             BookmarkNameOrPendingChangeId::Bookmark(name) => Some(name.clone()),
@@ -365,7 +364,7 @@ pub async fn execute(mut ctx: RootExecuteContext<'_>) -> Result<SubmissionResult
             | Ok(ActionResultData::MRUpdated(mr_update)) => {
                 merge_requests.push(mr_update);
             }
-            Ok(ActionResultData::DryRun) | Ok(ActionResultData::MRsLoaded(_)) => {}
+            Ok(ActionResultData::DryRun) => {}
             Err(error) => {
                 errors.push(error);
             }

@@ -17,7 +17,6 @@ use crate::{
             ActionInfo,
             BookmarkNameOrPendingChangeId,
             create_mr::CreateMRAction,
-            load_all_mrs::LoadAllMRsAction,
             push::PushAction,
             push_create::PushCreateAction,
             sync_dependent_merge_requests::SyncDependentMergeRequestsAction,
@@ -34,6 +33,9 @@ pub struct SubmissionPlan {
     /// Actions organized into batches. Each batch's actions execute in
     /// parallel, and batches execute sequentially.
     pub actions: Vec<Vec<Action>>,
+
+    /// MRs that already existed on the forge at planning time.
+    pub existing_mrs: HashMap<String, AnyForgeMergeRequest>,
 }
 
 impl std::fmt::Display for SubmissionPlan {
@@ -382,11 +384,6 @@ pub async fn plan(ctx: PlanContext<'_>) -> Result<SubmissionPlan> {
         })
         .take_if(|batch| !batch.is_empty());
 
-    // TODO better dependency handling instead of just sticking it here manually
-    if title_description_batch.is_some() || sync_dependent_merge_requests_batch.is_some() {
-        batches.push(vec![Action::LoadAllMRs(LoadAllMRsAction)]);
-    }
-
     if let Some(description_batch) = title_description_batch {
         batches.push(description_batch);
     }
@@ -395,5 +392,8 @@ pub async fn plan(ctx: PlanContext<'_>) -> Result<SubmissionPlan> {
         batches.push(sync_dependent_merge_requests_batch);
     }
 
-    Ok(SubmissionPlan { actions: batches })
+    Ok(SubmissionPlan {
+        actions: batches,
+        existing_mrs,
+    })
 }

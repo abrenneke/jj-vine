@@ -15,7 +15,6 @@ use crate::{
         ExecuteActionContext,
         MRUpdate,
         MRUpdateType,
-        load_all_mrs::LoadAllMRsAction,
     },
 };
 
@@ -106,12 +105,7 @@ impl ActionInfo for UpdateMRTitleDescriptionAction {
     }
 
     fn dependencies(&self) -> Vec<String> {
-        self.dependencies
-            .clone()
-            .unwrap_or_default()
-            .into_iter()
-            .chain([LoadAllMRsAction.id()])
-            .collect()
+        self.dependencies.clone().unwrap_or_default()
     }
 }
 
@@ -129,7 +123,7 @@ impl ExecuteAction for UpdateMRTitleDescriptionAction {
             return Ok(ActionResultData::DryRun);
         }
 
-        let all_mrs = ctx.all_mrs()?;
+        let all_mrs = ctx.all_mrs();
 
         let Some(current_mr) = all_mrs.get(bookmark.as_str()) else {
             whatever!("No MR found for {}", bookmark.magenta());
@@ -144,7 +138,7 @@ impl ExecuteAction for UpdateMRTitleDescriptionAction {
         let stack_description = generate_stack_description(
             &bookmark,
             stack,
-            all_mrs,
+            &all_mrs,
             &ctx.execute.config.description,
             default_branch,
             ctx.execute.forge,
