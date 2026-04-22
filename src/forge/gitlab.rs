@@ -278,7 +278,6 @@ impl Forge for GitLabForge {
         }: ForgeCreateMergeRequestOptions<Self::UserId>,
     ) -> Result<Self::MergeRequest> {
         #[derive(Serialize)]
-        #[serde(rename_all = "camelCase")]
         struct Body {
             source_branch: String,
             target_branch: String,
@@ -374,7 +373,6 @@ impl Forge for GitLabForge {
         }: ForgeUpdateMergeRequestInfoOptions,
     ) -> Result<Self::MergeRequest> {
         #[derive(Serialize)]
-        #[serde(rename_all = "camelCase")]
         struct Body {
             #[serde(skip_serializing_if = "Option::is_none")]
             title: Option<String>,
