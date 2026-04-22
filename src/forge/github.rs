@@ -6,6 +6,7 @@ use futures::{join, try_join};
 use itertools::Itertools;
 use reqwest::Method;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use tracing::debug;
 
 use crate::{
     description::FormatMergeRequest,
@@ -552,21 +553,45 @@ impl Forge for GitHubForge {
         &self,
         branch: &str,
     ) -> Result<Option<Self::MergeRequest>> {
-        let source_owner = self.source_project_id.split('/').next().unwrap();
+        let (target_owner, target_name) = split_project_id(&self.target_project_id)?;
 
-        let prs: Vec<PullRequest> = self
-            .request(
-                Method::GET,
-                format!(
-                    "/repos/{}/pulls?head={}:{}&state=open",
-                    self.target_project_id,
-                    source_owner,
-                    urlencoding::encode(branch)
-                ),
-                None::<()>,
+        debug!(
+            branch,
+            target_project = %self.target_project_id,
+            source_project = %self.source_project_id,
+            "Looking up PR by source branch via GraphQL"
+        );
+
+        let response: graphql::find_pr_by_head_ref::Response = self
+            .graphql(
+                graphql::find_pr_by_head_ref::query(),
+                serde_json::json!({
+                    "owner": target_owner,
+                    "repositoryName": target_name,
+                    "headRefName": branch,
+                }),
             )
             .await?;
-        Ok(prs.into_iter().next())
+
+        let prs: Vec<_> = response
+            .repository
+            .into_iter()
+            .flat_map(|r| r.pull_requests.nodes)
+            .filter(|pr| {
+                pr.head_repository.as_ref().is_some_and(|r| {
+                    r.name_with_owner
+                        .eq_ignore_ascii_case(&self.source_project_id)
+                })
+            })
+            .collect();
+
+        debug!(
+            count = prs.len(),
+            source_project = %self.source_project_id,
+            "PR lookup result (filtered by head repository)"
+        );
+
+        Ok(prs.into_iter().next().map(|pr| pr.into_pull_request()))
     }
 
     async fn create_merge_request(
@@ -588,29 +613,14 @@ impl Forge for GitHubForge {
             squash: _squash,
         }: ForgeCreateMergeRequestOptions<Self::UserId>,
     ) -> Result<Self::MergeRequest> {
-        // For fork workflows, head needs to be "owner:branch"
-        let (source_owner, source_repository) = self.source_project_id.split_once('/').unwrap();
-
-        let head = if self.source_project_id != self.target_project_id {
-            format!("{}:{}", source_owner, source_branch)
-        } else {
-            source_branch.clone()
-        };
-
-        // Required when source_owner and target_owner are the same, but
-        // source_repository and target_repository are different. No harm in
-        // always sending this.
-        let head_repo = if self.source_project_id != self.target_project_id {
-            source_repository
-        } else {
-            let (_target_owner, target_repository) =
-                self.target_project_id.split_once('/').unwrap();
-            target_repository
-        };
+        // head_repo in "owner/repo" format tells GitHub which repository the
+        // branch lives in, handling same-repo, same-org fork, and cross-org
+        // fork cases uniformly.
+        let head_repo = &self.source_project_id;
 
         let mut payload = serde_json::json!({
             "title": title,
-            "head": head,
+            "head": source_branch,
             "head_repo": head_repo,
             "base": target_branch,
             "draft": open_as_draft,
@@ -932,7 +942,7 @@ impl GitHubForge {
         &self,
         pr_number: u64,
     ) -> Result<Vec<graphql::GetDiscussionsQueryComment>> {
-        let (owner, name) = self.target_project_id.split("/").collect_tuple().unwrap();
+        let (owner, name) = split_project_id(&self.target_project_id)?;
 
         // TODO pagination, real gql client
         let response: graphql::GetDiscussionsQueryResponse = self
@@ -1029,6 +1039,18 @@ query GetDiscussions($owner: String!, $name: String!, $pr_number: Int!) {
             .cloned()
             .collect())
     }
+}
+
+fn split_project_id(project_id: &str) -> Result<(&str, &str)> {
+    project_id.split_once('/').ok_or_else(|| {
+        ConfigSnafu {
+            message: format!(
+                "Invalid project ID '{}': expected 'owner/repo' format",
+                project_id
+            ),
+        }
+        .build()
+    })
 }
 
 #[cfg(test)]
