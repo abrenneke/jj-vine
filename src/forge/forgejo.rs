@@ -576,16 +576,25 @@ impl Forge for ForgejoForge {
             source_branch.clone()
         };
 
-        let mut payload = serde_json::json!({
-            // Not exactly documented, but Forgejo detects this based on a repository-configurable prefix.
-            "title": self.wrap_draft(&title, open_as_draft),
-            "head": head,
-            "base": target_branch,
-        });
+        #[derive(Serialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Body {
+            title: String,
+            head: String,
+            base: String,
 
-        if let Some(desc) = description {
-            payload["body"] = serde_json::json!(desc);
+            #[serde(skip_serializing_if = "Option::is_none")]
+            body: Option<String>,
         }
+
+        let payload = Body {
+            // Not exactly documented, but Forgejo detects this based on a repository-configurable
+            // prefix.
+            title: self.wrap_draft(&title, open_as_draft),
+            head,
+            base: target_branch,
+            body: description,
+        };
 
         let pr: PullRequest = self
             .request(

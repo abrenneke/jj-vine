@@ -619,17 +619,27 @@ impl Forge for GitHubForge {
         // fork cases uniformly.
         let head_repo = &self.source_project_id;
 
-        let mut payload = serde_json::json!({
-            "title": title,
-            "head": source_branch,
-            "head_repo": head_repo,
-            "base": target_branch,
-            "draft": open_as_draft,
-        });
+        #[derive(Serialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Body {
+            title: String,
+            head: String,
+            head_repo: String,
+            base: String,
+            draft: bool,
 
-        if let Some(description) = description {
-            payload["body"] = serde_json::json!(description);
+            #[serde(skip_serializing_if = "Option::is_none")]
+            body: Option<String>,
         }
+
+        let payload = Body {
+            title,
+            head: source_branch,
+            head_repo: head_repo.to_string(),
+            base: target_branch,
+            draft: open_as_draft,
+            body: description,
+        };
 
         let pr: PullRequest = self
             .request(
@@ -687,14 +697,26 @@ impl Forge for GitHubForge {
             current_is_draft: _current_is_draft, // Unneeded for GitHub
         }: ForgeUpdateMergeRequestInfoOptions,
     ) -> Result<Self::MergeRequest> {
+        #[derive(Serialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Body {
+            #[serde(skip_serializing_if = "Option::is_none")]
+            title: Option<String>,
+
+            #[serde(skip_serializing_if = "Option::is_none")]
+            body: Option<String>,
+        }
+
+        let body = Body {
+            title,
+            body: description,
+        };
+
         let mut pr: PullRequest = self
             .request(
                 Method::PATCH,
                 format!("/repos/{}/pulls/{}", self.target_project_id, pr_number),
-                Some(serde_json::json!({
-                    "title": title.map(|title| title.to_string()),
-                    "body": description.map(|description| description.to_string()),
-                })),
+                Some(body),
             )
             .await?;
 

@@ -277,32 +277,52 @@ impl Forge for GitLabForge {
             title,
         }: ForgeCreateMergeRequestOptions<Self::UserId>,
     ) -> Result<Self::MergeRequest> {
-        let mut payload = serde_json::json!({
-            "source_branch": source_branch,
-            "target_branch": target_branch,
+        #[derive(Serialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Body {
+            source_branch: String,
+            target_branch: String,
+            title: String,
+            remove_source_branch: bool,
+            squash: bool,
+
+            #[serde(skip_serializing_if = "Option::is_none")]
+            source_project_id: Option<String>,
+
+            #[serde(skip_serializing_if = "Option::is_none")]
+            description: Option<String>,
+
+            #[serde(skip_serializing_if = "Option::is_none")]
+            assignee_ids: Option<Vec<u64>>,
+
+            #[serde(skip_serializing_if = "Option::is_none")]
+            reviewer_ids: Option<Vec<u64>>,
+        }
+
+        let payload = Body {
+            source_branch,
+            target_branch,
             // I think? Gitlab be weird
-            "title": self.wrap_draft(&title, open_as_draft),
-            "remove_source_branch": remove_source_branch,
-            "squash": squash,
-        });
-
-        if self.source_project_id != self.target_project_id {
-            payload["source_project_id"] = serde_json::json!(self.source_project_id);
-        }
-
-        if let Some(description) = description {
-            payload["description"] = serde_json::json!(description);
-        }
-
-        if !assignees.is_empty() {
-            payload["assignee_ids"] =
-                serde_json::json!(assignees.into_iter().map(|user| user.0).collect::<Vec<_>>());
-        }
-
-        if !reviewers.is_empty() {
-            payload["reviewer_ids"] =
-                serde_json::json!(reviewers.into_iter().map(|user| user.0).collect::<Vec<_>>());
-        }
+            title: self.wrap_draft(&title, open_as_draft),
+            remove_source_branch,
+            squash,
+            source_project_id: if self.source_project_id != self.target_project_id {
+                Some(self.source_project_id.clone())
+            } else {
+                None
+            },
+            description,
+            assignee_ids: if !assignees.is_empty() {
+                Some(assignees.into_iter().map(|user| user.0).collect())
+            } else {
+                None
+            },
+            reviewer_ids: if !reviewers.is_empty() {
+                Some(reviewers.into_iter().map(|user| user.0).collect())
+            } else {
+                None
+            },
+        };
 
         let mr: MergeRequest = self
             .request(
@@ -353,6 +373,25 @@ impl Forge for GitLabForge {
             current_is_draft,
         }: ForgeUpdateMergeRequestInfoOptions,
     ) -> Result<Self::MergeRequest> {
+        #[derive(Serialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Body {
+            #[serde(skip_serializing_if = "Option::is_none")]
+            title: Option<String>,
+
+            #[serde(skip_serializing_if = "Option::is_none")]
+            description: Option<String>,
+        }
+        let body = Body {
+            title: match (draft, title) {
+                (Some(draft), Some(title)) => Some(self.wrap_draft(&title, draft)),
+                (Some(draft), None) => Some(self.wrap_draft(&current_title, draft)),
+                (None, Some(title)) => Some(self.wrap_draft(&title, current_is_draft)),
+                (None, None) => None,
+            },
+            description: description.map(|description| description.to_string()),
+        };
+
         let mr: MergeRequest = self
             .request(
                 Method::PUT,
@@ -361,15 +400,7 @@ impl Forge for GitLabForge {
                     self.encoded_target_project_id(),
                     merge_request_iid,
                 ),
-                Some(serde_json::json!({
-                    "title": match (draft, title) {
-                        (Some(draft), Some(title)) => Some(self.wrap_draft(&title, draft)),
-                        (Some(draft), None) => Some(self.wrap_draft(&current_title, draft)),
-                        (None, Some(title)) => Some(self.wrap_draft(&title, current_is_draft)),
-                        (None, None) => None,
-                    },
-                    "description": description.map(|description| description.to_string()),
-                })),
+                Some(body),
             )
             .await?;
 
