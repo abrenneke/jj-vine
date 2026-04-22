@@ -218,75 +218,37 @@ fn detect_remotes(jj: &Jujutsu) -> Result<Option<Remotes>> {
         })
         .collect::<Result<_>>()?;
 
-    let origin = remotes
-        .get("origin")
-        .and_then(|url| parse_project_from_url(url));
+    let origin = remotes.get("origin");
 
-    if let Some(upstream) = remotes
-        .get("upstream")
-        .and_then(|url| parse_project_from_url(url))
+    if let Some(upstream) = remotes.get("upstream")
         && let Some(origin) = origin
     {
         return Ok(Some(Remotes {
-            origin,
-            target_forge: parse_forge_url(&upstream),
-            upstream: Some(upstream),
+            origin: origin.to_string(),
+            target_forge: parse_forge_url(upstream),
+            upstream: Some(upstream.to_string()),
         }));
     }
 
-    if let Some(fork) = remotes
-        .get("fork")
-        .and_then(|url| parse_project_from_url(url))
+    if let Some(fork) = remotes.get("fork")
         && let Some(origin) = origin
     {
         return Ok(Some(Remotes {
-            origin: fork,
-            target_forge: parse_forge_url(&origin),
-            upstream: Some(origin),
+            origin: fork.to_string(),
+            target_forge: parse_forge_url(origin),
+            upstream: Some(origin.to_string()),
         }));
     }
 
     if let Some(origin) = origin {
         return Ok(Some(Remotes {
-            target_forge: parse_forge_url(&origin),
-            origin,
+            target_forge: parse_forge_url(origin),
+            origin: origin.to_string(),
             upstream: None,
         }));
     }
 
     Ok(None)
-}
-
-/// Extract project path from a git remote URL
-fn parse_project_from_url(url: &str) -> Option<String> {
-    // SSH format: git@host:owner/repo.git or ssh://git@host/owner/repo.git
-    if url.starts_with("git@") || url.starts_with("ssh://git@") {
-        let rest = url.trim_start_matches("ssh://").strip_prefix("git@")?;
-
-        let project = match rest.split_once(':') {
-            Some((_, rest)) => rest,
-            None => {
-                let (_, rest) = rest.split_once('/')?;
-                rest
-            }
-        };
-
-        return Some(project.trim_end_matches(".git").to_string());
-    }
-
-    // HTTPS format: https://host/owner/repo.git
-    if url.starts_with("https://") || url.starts_with("http://") {
-        let without_protocol = url
-            .strip_prefix("https://")
-            .or_else(|| url.strip_prefix("http://"))?;
-
-        let (_, path) = without_protocol.split_once('/')?;
-        let project = path.strip_suffix(".git").unwrap_or(path);
-
-        return Some(project.to_string());
-    }
-
-    None
 }
 
 /// Parse a forge remote URL to detect forge type, host, and project
