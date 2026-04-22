@@ -17,6 +17,7 @@ use crate::{
         ForgeCreateMergeRequestOptions,
         ForgeMergeRequest,
         ForgeMergeRequestState,
+        ForgeUpdateMergeRequestInfoOptions,
         ForgeUser,
         MergeRequestStatus,
         UserId,
@@ -176,6 +177,15 @@ impl GitLabForge {
         })?;
         Ok(data)
     }
+
+    fn wrap_draft(&self, title: &str, draft: bool) -> String {
+        let title = title.trim_start_matches("Draft: ");
+        if draft {
+            format!("Draft: {}", title)
+        } else {
+            title.to_string()
+        }
+    }
 }
 
 struct NoContent;
@@ -271,7 +281,7 @@ impl Forge for GitLabForge {
             "source_branch": source_branch,
             "target_branch": target_branch,
             // I think? Gitlab be weird
-            "title": if open_as_draft { format!("Draft: {}", title) } else { title },
+            "title": self.wrap_draft(&title, open_as_draft),
             "remove_source_branch": remove_source_branch,
             "squash": squash,
         });
@@ -335,8 +345,13 @@ impl Forge for GitLabForge {
     async fn update_merge_request_info(
         &self,
         merge_request_iid: Self::Id,
-        new_description: &str,
-        new_title: &str,
+        ForgeUpdateMergeRequestInfoOptions {
+            title,
+            description,
+            draft,
+            current_title,
+            current_is_draft,
+        }: ForgeUpdateMergeRequestInfoOptions,
     ) -> Result<Self::MergeRequest> {
         let mr: MergeRequest = self
             .request(
@@ -347,8 +362,13 @@ impl Forge for GitLabForge {
                     merge_request_iid,
                 ),
                 Some(serde_json::json!({
-                    "title": new_title,
-                    "description": new_description,
+                    "title": match (draft, title) {
+                        (Some(draft), Some(title)) => Some(self.wrap_draft(&title, draft)),
+                        (Some(draft), None) => Some(self.wrap_draft(&current_title, draft)),
+                        (None, Some(title)) => Some(self.wrap_draft(&title, current_is_draft)),
+                        (None, None) => None,
+                    },
+                    "description": description.map(|description| description.to_string()),
                 })),
             )
             .await?;

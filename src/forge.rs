@@ -425,6 +425,29 @@ impl<T> ForgeCreateMergeRequestOptions<T> {
     }
 }
 
+#[derive(Debug, Builder, Default)]
+pub struct ForgeUpdateMergeRequestInfoOptions {
+    /// The new description of the merge request. If None, the description will
+    /// not be updated.
+    pub description: Option<String>,
+
+    /// The new title of the merge request. If None, the title will not be
+    /// updated.
+    pub title: Option<String>,
+
+    /// Sets the draft status of the merge request. If None, the draft status
+    /// will not be updated.
+    pub draft: Option<bool>,
+
+    /// The current title of the merge request. Needed by some forges to update
+    /// draft status while keeping the title unchanged.
+    pub current_title: String,
+
+    /// The current draft status of the merge request. Needed by some forges to
+    /// update title while keeping the draft status unchanged.
+    pub current_is_draft: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct UserId<T>(pub T);
 
@@ -541,12 +564,11 @@ pub trait Forge: Send + Sync + FormatMergeRequest {
         new_base: &str,
     ) -> Result<Self::MergeRequest>;
 
-    /// Update the description of an existing merge request.
+    /// Update the information of an existing merge request.
     async fn update_merge_request_info<'a>(
         &'a self,
         merge_request_iid: <Self::Id as BorrowId>::Id<'a>,
-        new_description: &str,
-        new_title: &str,
+        options: ForgeUpdateMergeRequestInfoOptions,
     ) -> Result<Self::MergeRequest>;
 
     /// Get a specific merge request by IID.
@@ -835,57 +857,40 @@ impl Forge for ForgeImpl {
         Ok(mr)
     }
 
-    /// Update the description of an existing merge request.
+    /// Update the information of an existing merge request.
     async fn update_merge_request_info(
         &self,
         merge_request_iid: Cow<'_, str>,
-        new_description: &str,
-        new_title: &str,
+        update: ForgeUpdateMergeRequestInfoOptions,
     ) -> Result<Self::MergeRequest> {
         let mr: Self::MergeRequest = match self {
             ForgeImpl::GitLab(forge) => AnyForgeMergeRequest::new(
                 forge
-                    .update_merge_request_info(
-                        merge_request_iid.parse::<u64>()?,
-                        new_description,
-                        new_title,
-                    )
+                    .update_merge_request_info(merge_request_iid.parse::<u64>()?, update)
                     .await?,
             ),
 
             ForgeImpl::GitHub(forge) => AnyForgeMergeRequest::new(
                 forge
-                    .update_merge_request_info(
-                        merge_request_iid.parse::<u64>()?,
-                        new_description,
-                        new_title,
-                    )
+                    .update_merge_request_info(merge_request_iid.parse::<u64>()?, update)
                     .await?,
             ),
 
             ForgeImpl::Forgejo(forge) => AnyForgeMergeRequest::new(
                 forge
-                    .update_merge_request_info(
-                        merge_request_iid.parse::<u64>()?,
-                        new_description,
-                        new_title,
-                    )
+                    .update_merge_request_info(merge_request_iid.parse::<u64>()?, update)
                     .await?,
             ),
 
             ForgeImpl::Test(forge) => AnyForgeMergeRequest::new(
                 forge
-                    .update_merge_request_info(merge_request_iid, new_description, new_title)
+                    .update_merge_request_info(merge_request_iid, update)
                     .await?,
             ),
 
             ForgeImpl::AzureDevOps(forge) => AnyForgeMergeRequest::new(
                 forge
-                    .update_merge_request_info(
-                        merge_request_iid.parse::<i32>()?,
-                        new_description,
-                        new_title,
-                    )
+                    .update_merge_request_info(merge_request_iid.parse::<i32>()?, update)
                     .await?,
             ),
         };

@@ -22,7 +22,7 @@ pub struct Cli {
     /// Enable verbose logging
     #[arg(short = 'v', long, global = true, default_value_t = Cli::default_verbosity())]
     pub verbose: bool,
-    
+
     #[command(subcommand)]
     pub command: Commands,
 }
@@ -96,7 +96,6 @@ impl Cli {
     }
 
     pub async fn run(&self, output: &dyn Output) -> Result<()> {
-
         let repo_path =
             self.repository.as_ref().map(Into::into).unwrap_or_else(|| {
                 std::env::current_dir().expect("Failed to get current directory")

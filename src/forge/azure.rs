@@ -18,6 +18,7 @@ use crate::{
         ForgeCreateMergeRequestOptions,
         ForgeMergeRequest,
         ForgeMergeRequestState,
+        ForgeUpdateMergeRequestInfoOptions,
         ForgeUser,
         MergeRequestStatus,
         UserName,
@@ -475,6 +476,7 @@ impl Forge for AzureDevOpsForge {
             description: None,
             title: None,
             target_ref_name: Some(format!("refs/heads/{}", new_base)),
+            is_draft: None,
         };
 
         let pr: GitPullRequest = self
@@ -496,13 +498,19 @@ impl Forge for AzureDevOpsForge {
     async fn update_merge_request_info(
         &self,
         merge_request_iid: i32,
-        new_description: &str,
-        new_title: &str,
+        ForgeUpdateMergeRequestInfoOptions {
+            title,
+            description,
+            draft,
+            current_title: _current_title,       // Unneeded for azure
+            current_is_draft: _current_is_draft, // Unneeded for azure
+        }: ForgeUpdateMergeRequestInfoOptions,
     ) -> Result<Self::MergeRequest> {
         let body = UpdatePullRequestBody {
-            title: Some(new_title.to_string()),
-            description: Some(new_description.to_string()),
+            title: title.map(|title| title.to_string()),
+            description: description.map(|description| description.to_string()),
             target_ref_name: None,
+            is_draft: draft,
         };
 
         let pr: GitPullRequest = self
@@ -1131,6 +1139,7 @@ pub struct UpdatePullRequestBody {
 
     pub title: Option<String>,
     pub description: Option<String>,
+    pub is_draft: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

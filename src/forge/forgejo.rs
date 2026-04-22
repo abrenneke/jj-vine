@@ -16,6 +16,7 @@ use crate::{
         ForgeCreateMergeRequestOptions,
         ForgeMergeRequest,
         ForgeMergeRequestState,
+        ForgeUpdateMergeRequestInfoOptions,
         ForgeUser,
         MergeRequestStatus,
         UserId,
@@ -394,6 +395,15 @@ impl ForgejoForge {
         })?;
         Ok(data)
     }
+
+    fn wrap_draft(&self, title: &str, draft: bool) -> String {
+        let title = title.trim_start_matches(&self.wip_prefix);
+        if draft {
+            format!("{}{}", self.wip_prefix, title)
+        } else {
+            title.to_string()
+        }
+    }
 }
 
 impl Forge for ForgejoForge {
@@ -551,7 +561,7 @@ impl Forge for ForgejoForge {
 
         let mut payload = serde_json::json!({
             // Not exactly documented, but Forgejo detects this based on a repository-configurable prefix.
-            "title": if open_as_draft { format!("{}{}", self.wip_prefix, title) } else { title },
+            "title": self.wrap_draft(&title, open_as_draft),
             "head": head,
             "base": target_branch,
         });
@@ -617,8 +627,13 @@ impl Forge for ForgejoForge {
     async fn update_merge_request_info(
         &self,
         pr_number: u64,
-        new_description: &str,
-        new_title: &str,
+        ForgeUpdateMergeRequestInfoOptions {
+            title,
+            description,
+            draft,
+            current_title,
+            current_is_draft,
+        }: ForgeUpdateMergeRequestInfoOptions,
     ) -> Result<Self::MergeRequest> {
         let pr: PullRequest = self
             .request(
@@ -628,8 +643,13 @@ impl Forge for ForgejoForge {
                     self.target_owner, self.target_repo, pr_number
                 ),
                 Some(serde_json::json!({
-                    "title": new_title,
-                    "body": new_description,
+                    "title": match (draft, title) {
+                        (Some(draft), Some(title)) => Some(self.wrap_draft(&title, draft)),
+                        (Some(draft), None) => Some(self.wrap_draft(&current_title, draft)),
+                        (None, Some(title)) => Some(self.wrap_draft(&title, current_is_draft)),
+                        (None, None) => None,
+                    },
+                    "body": description.map(|description| description.to_string()),
                 })),
             )
             .await?;

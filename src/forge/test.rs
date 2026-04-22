@@ -14,6 +14,7 @@ use crate::{
         ForgeCreateMergeRequestOptions,
         ForgeMergeRequest,
         ForgeMergeRequestState,
+        ForgeUpdateMergeRequestInfoOptions,
         ForgeUser,
         MergeRequestStatus,
         UserId,
@@ -206,16 +207,29 @@ impl Forge for TestForge {
     async fn update_merge_request_info(
         &self,
         merge_request_iid: Cow<'_, str>,
-        new_description: &str,
-        new_title: &str,
+        ForgeUpdateMergeRequestInfoOptions {
+            title,
+            description,
+            draft,
+            current_title: _current_title, // Unneeded for TestForge
+            current_is_draft: _current_is_draft, // Unneeded for TestForge
+        }: ForgeUpdateMergeRequestInfoOptions,
     ) -> Result<Self::MergeRequest> {
         let mut state = self.state.write().unwrap();
         let mr = state
             .merge_requests
             .get_mut(merge_request_iid.as_ref())
             .ok_or(Error::new("Merge request not found"))?;
-        mr.description = Some(new_description.to_string());
-        mr.title = new_title.to_string();
+
+        if let Some(description) = description {
+            mr.description = Some(description.to_string());
+        }
+        if let Some(title) = title {
+            mr.title = title.to_string();
+        }
+        if let Some(draft) = draft {
+            mr.draft = draft;
+        }
         Ok(mr.clone())
     }
 

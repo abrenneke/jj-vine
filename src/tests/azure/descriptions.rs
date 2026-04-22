@@ -3,7 +3,7 @@ use assertables::assert_contains;
 use crate::{
     description::{END_MARKER, START_MARKER},
     error::Result,
-    forge::Forge,
+    forge::{Forge, ForgeUpdateMergeRequestInfoOptions},
     tests::TestRepo,
 };
 
@@ -95,7 +95,14 @@ async fn test_user_content_preserved_on_resubmit() -> Result<()> {
     let user_content = "My important notes about this PR";
     let new_desc = format!("{}\n\n{}", pr_a.description, user_content);
     repo.forge()
-        .update_merge_request_info(pr_a.pull_request_id, &new_desc, &pr_a.title)
+        .update_merge_request_info(
+            pr_a.pull_request_id,
+            ForgeUpdateMergeRequestInfoOptions::builder()
+                .description(new_desc)
+                .current_is_draft(pr_a.is_draft)
+                .current_title(pr_a.title.clone())
+                .build(),
+        )
         .await?;
 
     repo.jj.exec(["new"])?;
@@ -138,7 +145,14 @@ async fn test_add_markers_to_description_without_markers() -> Result<()> {
 
     let user_description = "Custom description without markers";
     repo.forge()
-        .update_merge_request_info(pr.pull_request_id, user_description, &pr.title)
+        .update_merge_request_info(
+            pr.pull_request_id,
+            ForgeUpdateMergeRequestInfoOptions::builder()
+                .description(user_description.to_string())
+                .current_is_draft(pr.is_draft)
+                .current_title(pr.title.to_string())
+                .build(),
+        )
         .await?;
 
     repo.jj.exec(["new"])?;

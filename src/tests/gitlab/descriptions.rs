@@ -3,7 +3,7 @@ use assertables::assert_contains;
 use crate::{
     description::{END_MARKER, START_MARKER},
     error::Result,
-    forge::Forge,
+    forge::{Forge, ForgeMergeRequest, ForgeUpdateMergeRequestInfoOptions},
     tests::TestRepo,
 };
 
@@ -103,7 +103,14 @@ async fn test_user_content_preserved_on_resubmit() -> Result<()> {
 
     let user_content = "My important notes about this MR";
     repo.forge()
-        .update_merge_request_info(mr.iid, user_content, &mr.title)
+        .update_merge_request_info(
+            mr.iid,
+            ForgeUpdateMergeRequestInfoOptions::builder()
+                .description(user_content.to_string())
+                .current_is_draft(mr.is_draft())
+                .current_title(mr.title.clone())
+                .build(),
+        )
         .await?;
 
     repo.jj.exec(["new"])?;
@@ -147,7 +154,14 @@ async fn test_add_markers_to_description_without_markers() -> Result<()> {
 
     let user_description = "Custom description without markers";
     repo.forge()
-        .update_merge_request_info(mr.iid, user_description, &mr.title)
+        .update_merge_request_info(
+            mr.iid,
+            ForgeUpdateMergeRequestInfoOptions::builder()
+                .description(user_description.to_string())
+                .current_is_draft(mr.is_draft())
+                .current_title(mr.title.clone())
+                .build(),
+        )
         .await?;
 
     repo.jj.exec(["new"])?;

@@ -6,7 +6,7 @@ use tracing::error;
 use crate::{
     description::{FormatMergeRequest, generate_stack_description, insert_stack_into_description},
     error::{Error, Result},
-    forge::Forge,
+    forge::{Forge, ForgeUpdateMergeRequestInfoOptions},
     submit::execute::{
         ActionInfo,
         ActionResultData,
@@ -174,10 +174,12 @@ impl ExecuteAction for UpdateMRTitleDescriptionAction {
             .forge
             .update_merge_request_info(
                 current_mr.iid(),
-                &new_description,
-                self.title
-                    .as_ref()
-                    .map_or(current_mr.title(), |title| title),
+                ForgeUpdateMergeRequestInfoOptions::builder()
+                    .description(new_description.to_string())
+                    .maybe_title(self.title.clone())
+                    .current_is_draft(current_mr.is_draft())
+                    .current_title(current_mr.title().to_string())
+                    .build(),
             )
             .await
         {

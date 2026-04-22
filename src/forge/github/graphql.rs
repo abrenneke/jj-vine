@@ -261,3 +261,87 @@ query FindPRByHeadRef($owner: String!, $repositoryName: String!, $headRefName: S
         }
     }
 }
+
+pub mod set_pr_is_draft {
+    use serde::{Deserialize, Serialize};
+
+    pub fn query() -> &'static str {
+        r#"
+mutation SetPRIsDraft($id: ID!) {
+  convertPullRequestToDraft(input: { pullRequestId: $id }) {
+    pullRequest {
+      id
+      isDraft
+    }
+  }
+}
+"#
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct Variables {
+        pub id: String,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct Response {
+        pub convert_pull_request_to_draft: ConvertPullRequestToDraft,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct ConvertPullRequestToDraft {
+        pub pull_request: PullRequest,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct PullRequest {
+        pub id: String,
+        pub is_draft: bool,
+    }
+}
+
+pub mod set_pr_not_draft {
+    use serde::{Deserialize, Serialize};
+
+    pub fn query() -> &'static str {
+        r#"
+mutation SetPRNotDraft($id: ID!) {
+  markPullRequestReadyForReview(input: { pullRequestId: $id }) {
+    pullRequest {
+      id
+      isDraft
+    }
+  }
+}
+"#
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct Variables {
+        pub id: String,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct Response {
+        pub convert_pull_request_to_draft: ConvertPullRequestToDraft,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct ConvertPullRequestToDraft {
+        pub pull_request: PullRequest,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct PullRequest {
+        pub id: String,
+        pub is_draft: bool,
+    }
+}

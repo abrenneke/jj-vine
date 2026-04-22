@@ -20,6 +20,7 @@ use crate::{
         ForgeCreateMergeRequestOptions,
         ForgeMergeRequest,
         ForgeMergeRequestState,
+        ForgeUpdateMergeRequestInfoOptions,
         ForgeUser,
         MergeRequestStatus,
         UserId,
@@ -435,7 +436,7 @@ impl GitHubForge {
     async fn graphql<T: DeserializeOwned>(
         &self,
         query: &str,
-        variables: serde_json::Value,
+        variables: impl Serialize,
     ) -> Result<T> {
         // TODO use a real graphql client
         let graphql_url = if self.base_url.starts_with("https://api.github.com") {
@@ -678,19 +679,50 @@ impl Forge for GitHubForge {
     async fn update_merge_request_info(
         &self,
         pr_number: Self::Id,
-        new_description: &str,
-        new_title: &str,
+        ForgeUpdateMergeRequestInfoOptions {
+            title,
+            description,
+            draft,
+            current_title: _current_title,       // Unneeded for GitHub
+            current_is_draft: _current_is_draft, // Unneeded for GitHub
+        }: ForgeUpdateMergeRequestInfoOptions,
     ) -> Result<Self::MergeRequest> {
-        let pr: PullRequest = self
+        let mut pr: PullRequest = self
             .request(
                 Method::PATCH,
                 format!("/repos/{}/pulls/{}", self.target_project_id, pr_number),
                 Some(serde_json::json!({
-                    "title": new_title,
-                    "body": new_description,
+                    "title": title.map(|title| title.to_string()),
+                    "body": description.map(|description| description.to_string()),
                 })),
             )
             .await?;
+
+        match draft {
+            Some(true) => {
+                let response: graphql::set_pr_is_draft::Response = self
+                    .graphql(
+                        graphql::set_pr_is_draft::query(),
+                        graphql::set_pr_is_draft::Variables {
+                            id: pr.id.to_string(),
+                        },
+                    )
+                    .await?;
+                pr.draft = response.convert_pull_request_to_draft.pull_request.is_draft;
+            }
+            Some(false) => {
+                let response: graphql::set_pr_not_draft::Response = self
+                    .graphql(
+                        graphql::set_pr_not_draft::query(),
+                        graphql::set_pr_not_draft::Variables {
+                            id: pr.id.to_string(),
+                        },
+                    )
+                    .await?;
+                pr.draft = response.convert_pull_request_to_draft.pull_request.is_draft;
+            }
+            None => {}
+        }
 
         Ok(pr)
     }
