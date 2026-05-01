@@ -286,7 +286,7 @@ Required when `jj-vine.forge` is set to `github`.
 |---------|-------------|------|----------|---------|
 | `github.host` | GitHub API URL (defaults to `https://api.github.com` for GitHub.com, or `https://github.example.com/api/v3` for Enterprise) | String | Yes | - |
 | `github.project` | Repository where branches are pushed in `owner/repo` format | String | Yes | - |
-| `github.token` | Personal Access Token with `repo` scope | String | Yes | - |
+| `github.token` | Personal access token. Classic PATs need the `repo` scope. Fine-grained PATs need **Contents: Read and Write** and **Pull requests: Read and Write**. Repos in an organization also need **Members: Read**. | String | Yes | - |
 | `github.targetProject` | Target repository for pull requests (e.g., `upstream-owner/repo`). Use if you are using a fork. | String | No | (same as `github.project`) |
 
 #### Forgejo/Codeberg/Gitea{#forgejo-codeberg-gitea}
