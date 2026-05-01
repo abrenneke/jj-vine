@@ -190,15 +190,8 @@ query FindPRByHeadRef($owner: String!, $repositoryName: String!, $headRefName: S
     #[serde(tag = "__typename")]
     pub enum RequestedReviewer {
         User(PRUser),
-        Team(PRTeam),
         #[serde(other)]
         Other,
-    }
-
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    pub struct PRTeam {
-        pub name: String,
     }
 
     impl PRNode {
