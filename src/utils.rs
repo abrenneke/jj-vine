@@ -178,6 +178,12 @@ impl<T, E, W, F: From<E>> std::ops::FromResidual<std::result::Result<std::conver
     }
 }
 
+impl<T, E, W> std::ops::Residual<(T, Option<W>)>
+    for ResultWithWarnings<std::convert::Infallible, E, W>
+{
+    type TryType = ResultWithWarnings<T, E, W>;
+}
+
 impl<T, E, W> std::ops::Try for ResultWithWarnings<T, E, W> {
     type Output = (T, Option<W>);
 
