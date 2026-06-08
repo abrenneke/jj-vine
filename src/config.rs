@@ -182,14 +182,17 @@ pub struct Config {
     #[builder(default)]
     pub open_as_draft: bool,
 
-    /// Whether to fetch the remote before planning a submission. Defaults to
-    /// true.
+    /// Whether to fetch the remote before planning a submission, or the jj
+    /// command to run prior to planning. Defaults to true, which is
+    /// equivalent to `jj git fetch --tracked`. This may also be set to an
+    /// array, for example `["git", "fetch"]` will run `jj git fetch`. Set
+    /// to false to disable fetching completely.
     ///
     /// If disabled, jj-vine may recreate deleted bookmarks, so be careful when
     /// disabling this.
-    #[serde(default = "default_true")]
+    #[serde(default)]
     #[builder(default)]
-    pub fetch: bool,
+    pub fetch: RepoFetchConfig,
 
     /// Configuration for MR title generation.
     #[serde(default)]
@@ -215,6 +218,33 @@ pub struct Config {
     #[serde(default)]
     #[builder(default)]
     pub azure: AzureDevOpsConfig,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(untagged)]
+pub enum RepoFetchConfig {
+    /// If true, is equivalent to ["git", "fetch", "--tracked"]. If false,
+    /// fetching before planning is disabled.
+    Enabled(bool),
+
+    /// Runs `jj` with these arguments before planning a submission.
+    Command(Vec<String>),
+}
+
+impl RepoFetchConfig {
+    pub fn to_args(&self) -> Option<Vec<&str>> {
+        match self {
+            RepoFetchConfig::Enabled(true) => Some(vec!["git", "fetch", "--tracked"]),
+            RepoFetchConfig::Command(command) => Some(command.iter().map(|s| s.as_str()).collect()),
+            RepoFetchConfig::Enabled(false) => None,
+        }
+    }
+}
+
+impl Default for RepoFetchConfig {
+    fn default() -> Self {
+        Self::Enabled(true)
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Builder)]

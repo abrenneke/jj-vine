@@ -332,7 +332,7 @@ These settings apply to all forges:
 | `tlsAcceptNonCompliantCerts` | Accept non-compliant TLS certificates (for certificates that don't meet strict X.509 standards). This is almost always unnecessary unless you have a unique situation. | Boolean | No | false |
 | `defaultBaseBranch` | Default target branch for pull/merge requests into `trunk()` | String | No | (detected automatically using the `trunk()` revset) |
 | `openAsDraft` | Open newly created pull/merge requests as drafts | Boolean | No | false |
-| `fetch` | Whether to fetch the remote before planning a submission. Defaults to true. If disabled, jj-vine may recreate deleted bookmarks, so be careful when disabling this. | Boolean | No | true |
+| `fetch` | Whether to fetch the remote before planning a submission, or the `jj` command to run prior to planning. Defaults to true, which is equivalent to `jj git fetch --tracked`. This may also be set to an array, for example `["git", "fetch"]` will run `jj git fetch`. Set to false to disable fetching completely. If disabled, jj-vine may recreate deleted bookmarks, so be careful when disabling this. | Boolean \| String[] | No | true |
 | `description` | Configuration for pull/merge request description generation | Object (see below) | No | (see below) |
 
 ## Description Generation / Stack Visualization{#description-generation-stack-visualization}

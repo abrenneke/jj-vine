@@ -158,18 +158,17 @@ pub async fn submit(config: &SubmitCommandConfig, cli_config: &CliConfig<'_>) ->
 
     let repo_config = Config::load(&cli_config.repository)?;
 
-    if repo_config.fetch {
+    if let Some(mut fetch_args) = repo_config.fetch.to_args() {
+        if let Some(remote) = config.remote.as_deref() {
+            fetch_args.extend_from_slice(&["--remote", remote]);
+        }
+
         if config.dry_run {
             output.log_message(&format!(
-                "Would fetch remote{} before planning (note that the plan may change based on newly fetched data!)",
-                config.remote.as_deref().map(|r| format!(" {r}")).unwrap_or_default())
-            );
+                "Would run `jj {}` before planning (note that the plan may change based on newly fetched data!)",
+                fetch_args.join(" "),
+            ));
         } else {
-            let mut fetch_args = vec!["git", "fetch"];
-            if let Some(remote) = config.remote.as_deref() {
-                fetch_args.extend_from_slice(&["--remote", remote]);
-            }
-
             jj.exec(fetch_args)?;
         }
     }
