@@ -166,7 +166,7 @@ impl GitLabForge {
         let mut req = self
             .client
             .request(method.clone(), &url)
-            .header("Authorization", format!("Bearer {}", &self.token));
+            .header("Authorization", format!("Bearer {}", self.token));
 
         if let Some(payload) = payload.as_ref() {
             req = req.json(payload);
@@ -505,7 +505,7 @@ impl Forge for GitLabForge {
         let response = self
             .client
             .request(Method::GET, &url)
-            .header("Authorization", format!("Bearer {}", &self.token))
+            .header("Authorization", format!("Bearer {}", self.token))
             .send()
             .await?;
 

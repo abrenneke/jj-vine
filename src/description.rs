@@ -729,14 +729,14 @@ mod tests {
 
     #[test]
     fn test_parse_empty_description() {
-        assert_str_eq!(insert_stack_into_description("", ""), format!(""));
+        assert_str_eq!(insert_stack_into_description("", ""), "");
     }
 
     #[test]
     fn test_parse_user_content_only() {
         assert_str_eq!(
             insert_stack_into_description("", "User's description here"),
-            format!("User's description here")
+            "User's description here"
         );
     }
 

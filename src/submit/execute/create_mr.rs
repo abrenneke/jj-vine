@@ -168,7 +168,7 @@ impl ExecuteAction for CreateMRAction {
                 ctx.execute.output.log_completed(&format!(
                     "Created MR {}: {}",
                     format!("!{}", mr.iid()).cyan(),
-                    &mr.url().dimmed()
+                    mr.url().dimmed()
                 ));
                 Ok(ActionResultData::MRCreated(MRUpdate {
                     mr,

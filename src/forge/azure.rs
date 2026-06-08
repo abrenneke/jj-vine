@@ -195,7 +195,7 @@ impl AzureDevOpsForge {
         let mut req = self
             .client
             .request(method, url)
-            .header("Authorization", format!("Bearer {}", &self.token))
+            .header("Authorization", format!("Bearer {}", self.token))
             .header("Accept", "application/json")
             .header("User-Agent", "jj-vine");
 

@@ -257,7 +257,7 @@ impl ChangeMap {
     pub fn create_adjacency_list(&self) -> BTreeMap<String, BTreeSet<String>> {
         let mut adjacency_list = BTreeMap::new();
 
-        for (_, change) in self.iter() {
+        for change in self.values() {
             let mut to_process: Vec<_> = change
                 .parent_commit_ids
                 .iter()

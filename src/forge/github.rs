@@ -399,7 +399,7 @@ impl GitHubForge {
         let mut req = self
             .client
             .request(method, format!("{}{}", self.base_url, path.as_ref()))
-            .header("Authorization", format!("token {}", &self.token))
+            .header("Authorization", format!("token {}", self.token))
             .header("Accept", "application/vnd.github+json")
             .header("X-GitHub-Api-Version", "2022-11-28")
             .header("User-Agent", "jj-vine");
@@ -456,7 +456,7 @@ impl GitHubForge {
         let response = self
             .client
             .post(&graphql_url)
-            .header("Authorization", format!("Bearer {}", &self.token))
+            .header("Authorization", format!("Bearer {}", self.token))
             .header("Accept", "application/vnd.github+json")
             .header("User-Agent", "jj-vine")
             .json(&payload)

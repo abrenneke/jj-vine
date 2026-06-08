@@ -360,7 +360,7 @@ impl ForgejoForge {
         let mut req = self
             .client
             .request(method, url)
-            .header("Authorization", format!("Bearer {}", &self.token))
+            .header("Authorization", format!("Bearer {}", self.token))
             .header("Accept", "application/json")
             .header("User-Agent", "jj-vine");
 
@@ -773,7 +773,7 @@ impl Forge for ForgejoForge {
                     urlencoding::encode(&head_branch)
                 ),
             )
-            .header("Authorization", format!("Bearer {}", &self.token))
+            .header("Authorization", format!("Bearer {}", self.token))
             .header("Accept", "application/json")
             .header("User-Agent", "jj-vine")
             .send()
