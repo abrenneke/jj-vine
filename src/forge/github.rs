@@ -296,7 +296,7 @@ enum CheckRunConclusion {
     Success,
     Failure,
     Neutral,
-    Canceled,
+    Cancelled,
     Skipped,
     TimedOut,
     ActionRequired,
@@ -845,7 +845,7 @@ impl Forge for GitHubForge {
                     CheckRunStatus::Completed,
                     Some(
                         CheckRunConclusion::Failure
-                        | CheckRunConclusion::Canceled
+                        | CheckRunConclusion::Cancelled
                         | CheckRunConclusion::TimedOut
                         | CheckRunConclusion::ActionRequired,
                     ),
