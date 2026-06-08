@@ -76,6 +76,7 @@ release VERSION:
     jj bookmark set main -r @-
     jj tag set v{{ VERSION }} -r @-
     jj git push
+    jj git push --remote github # Not sure why codeberg isn't syncing at the moment...
 
     cargo publish
 
