@@ -4,7 +4,7 @@ use dialoguer::{Input, Password};
 use owo_colors::OwoColorize;
 
 use crate::{
-    commands::init::{Remotes, get_config, set_config},
+    commands::init::{Remotes, get_config, parse_forge_url, set_config},
     error::Result,
 };
 
@@ -17,16 +17,19 @@ pub async fn init(repo_path: impl Into<PathBuf>, remotes: Option<Remotes>) -> Re
     let existing_token = get_config(&repo_path, "jj-vine.gitlab.token");
 
     let remotes = remotes.as_ref();
-    let forge = match remotes {
-        Some(Remotes {
-            target_forge: Some(forge),
-            ..
-        }) => Some(forge),
-        _ => None,
-    };
+    let source_forge = remotes.and_then(|r| parse_forge_url(&r.origin));
+    let target_forge = remotes.and_then(|r| {
+        r.upstream
+            .as_deref()
+            .and_then(parse_forge_url)
+            .or_else(|| parse_forge_url(&r.origin))
+    });
 
-    let default_host = existing_host.or(forge.map(|f| f.host.clone()));
-    let default_project = existing_project.or(forge.map(|f| f.project.clone()));
+    let default_host = existing_host.or(target_forge.as_ref().map(|f| f.host.clone()));
+    let default_project = existing_project.or(source_forge
+        .as_ref()
+        .or(target_forge.as_ref())
+        .map(|f| f.project.clone()));
 
     let gitlab_host = if let Some(host) = default_host {
         Input::<String>::new()
@@ -74,8 +77,7 @@ pub async fn init(repo_path: impl Into<PathBuf>, remotes: Option<Remotes>) -> Re
         ))
         .default(
             existing_target_project
-                .or(remotes.and_then(|f| f.upstream.clone()))
-                .or(remotes.map(|r| r.origin.clone()))
+                .or(target_forge.as_ref().map(|f| f.project.clone()))
                 .unwrap_or(gitlab_project.clone()),
         )
         .interact_text()?;

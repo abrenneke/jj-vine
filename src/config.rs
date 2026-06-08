@@ -361,6 +361,19 @@ impl GitLabConfig {
     }
 }
 
+fn validate_gitlab_project_id(key: &str, value: &str) -> Result<()> {
+    if value.contains("://") || value.starts_with("git@") {
+        return ConfigSnafu {
+            message: format!(
+                "{key} must be a GitLab project path or numeric ID, not a clone URL. Use a value like `group/project` or `12345`."
+            ),
+        }
+        .fail();
+    }
+
+    Ok(())
+}
+
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct GitHubConfig {
@@ -704,6 +717,13 @@ impl Config {
                         message: "gitlab.project is required when forge is gitlab".to_string(),
                     }
                     .build());
+                }
+                validate_gitlab_project_id("gitlab.project", &self.gitlab.project)?;
+                if !self.gitlab.target_project.is_empty() {
+                    validate_gitlab_project_id(
+                        "gitlab.targetProject",
+                        &self.gitlab.target_project,
+                    )?;
                 }
                 if self.gitlab.token.is_empty() {
                     return Err(ConfigSnafu {
@@ -1357,6 +1377,42 @@ mod tests {
         assert_eq!(config.target_project(), "myuser/repo");
         assert_eq!(config.source_project(), "myuser/repo");
         assert!(!config.is_fork_workflow());
+    }
+
+    #[test]
+    fn test_gitlab_project_rejects_clone_url() {
+        let config = Config::builder()
+            .forge(ForgeType::GitLab)
+            .gitlab(GitLabConfig {
+                host: "https://gitlab.com".to_string(),
+                project: "git@gitlab.com:myuser/repo.git".to_string(),
+                target_project: "".to_string(),
+                token: "token".to_string(),
+                create_merge_request_dependencies: true,
+            })
+            .build();
+
+        let err = config.validate().unwrap_err().to_string();
+
+        assert!(err.contains("gitlab.project must be a GitLab project path or numeric ID"));
+    }
+
+    #[test]
+    fn test_gitlab_target_project_rejects_clone_url() {
+        let config = Config::builder()
+            .forge(ForgeType::GitLab)
+            .gitlab(GitLabConfig {
+                host: "https://gitlab.com".to_string(),
+                project: "myuser/fork".to_string(),
+                target_project: "https://gitlab.com/upstream/repo.git".to_string(),
+                token: "token".to_string(),
+                create_merge_request_dependencies: true,
+            })
+            .build();
+
+        let err = config.validate().unwrap_err().to_string();
+
+        assert!(err.contains("gitlab.targetProject must be a GitLab project path or numeric ID"));
     }
 
     #[test]

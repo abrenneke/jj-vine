@@ -120,7 +120,7 @@ impl GitLabForge {
         })?;
 
         Ok(Self {
-            base_url: base_url.into(),
+            base_url: base_url.into().trim_end_matches('/').to_string(),
             source_project_id: source_project_id.into(),
             target_project_id: target_project_id.into(),
             token: token.into(),
@@ -133,18 +133,38 @@ impl GitLabForge {
         urlencoding::encode(&self.target_project_id).to_string()
     }
 
+    fn api_error_message(
+        &self,
+        method: &Method,
+        url: &str,
+        status: StatusCode,
+        response_body: &str,
+    ) -> String {
+        let mut message = format!(
+            "Failed to {method} {url}: {status} - {response_body}\nGitLab project config: source project `{}`, target project `{}`",
+            self.source_project_id, self.target_project_id
+        );
+
+        if status == StatusCode::NOT_FOUND && response_body.contains("Project Not Found") {
+            message.push_str(
+                "\nHint: GitLab returns 404 for projects that do not exist and projects the token cannot access. Check `jj-vine.gitlab.project`, `jj-vine.gitlab.targetProject`, and the token permissions.",
+            );
+        }
+
+        message
+    }
+
     async fn request<T: DeserializeOwned>(
         &self,
         method: Method,
         path: impl AsRef<str>,
         payload: Option<impl Serialize>,
     ) -> Result<T> {
+        let path = path.as_ref();
+        let url = format!("{}{}", self.base_url, path);
         let mut req = self
             .client
-            .request(
-                method.clone(),
-                format!("{}{}", self.base_url, path.as_ref()),
-            )
+            .request(method.clone(), &url)
             .header("Authorization", format!("Bearer {}", &self.token));
 
         if let Some(payload) = payload.as_ref() {
@@ -157,7 +177,7 @@ impl GitLabForge {
             let status = response.status();
             let text = response.text().await?;
             return GitLabApiSnafu {
-                message: format!("Failed to {}: {} - {}", method, status, text),
+                message: self.api_error_message(&method, &url, status, &text),
             }
             .fail();
         }
@@ -167,10 +187,7 @@ impl GitLabForge {
             GitLabApiSnafu {
                 message: format!(
                     "Failed to parse {} response to {}: {}, response: {}",
-                    method,
-                    path.as_ref(),
-                    e,
-                    body
+                    method, path, e, body
                 ),
             }
             .build()
@@ -1030,6 +1047,32 @@ mod tests {
 
         let encoded = client.encoded_target_project_id();
         assert_eq!(encoded, "group%2Fproject");
+    }
+
+    #[test]
+    fn test_gitlab_api_error_includes_request_context() {
+        let client = GitLabForge::new(
+            "https://gitlab.example.com/".to_string(),
+            "user/fork".to_string(),
+            "group/project".to_string(),
+            "token123".to_string(),
+            None::<&str>,
+            false,
+            true,
+        )
+        .expect("Failed to create client");
+
+        let message = client.api_error_message(
+            &Method::GET,
+            "https://gitlab.example.com/api/v4/projects/group%2Fproject/merge_requests",
+            StatusCode::NOT_FOUND,
+            r#"{"message":"404 Project Not Found"}"#,
+        );
+
+        assert!(message.contains("https://gitlab.example.com/api/v4/projects/group%2Fproject"));
+        assert!(message.contains("source project `user/fork`"));
+        assert!(message.contains("target project `group/project`"));
+        assert!(message.contains("token cannot access"));
     }
 
     #[test]
