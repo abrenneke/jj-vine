@@ -160,6 +160,7 @@ impl ExecuteAction for UpdateMRTitleDescriptionAction {
                 mr: current_mr.clone(),
                 bookmark: bookmark.clone(),
                 update_type: MRUpdateType::Unchanged,
+                warnings: None,
             }));
         }
 
@@ -194,6 +195,7 @@ impl ExecuteAction for UpdateMRTitleDescriptionAction {
                         .old_title(current_mr.title().to_string())
                         .maybe_new_title(self.title.as_ref().cloned())
                         .call(),
+                    warnings: None,
                 }))
             }
             Err(e) => {

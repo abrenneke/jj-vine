@@ -1,4 +1,5 @@
 #![allow(async_fn_in_trait)]
+#![feature(try_trait_v2)]
 
 pub mod bookmark;
 pub mod cli;

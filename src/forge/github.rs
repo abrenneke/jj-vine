@@ -25,6 +25,7 @@ use crate::{
         MergeRequestStatus,
         UserId,
     },
+    utils::ResultWithWarnings,
 };
 
 /// GitHub REST API client
@@ -913,9 +914,9 @@ impl Forge for GitHubForge {
         &self,
         _merge_request_iid: Self::Id,
         _dependent_merge_request_iids: &[Self::Id],
-    ) -> Result<bool> {
+    ) -> ResultWithWarnings<bool> {
         // Only supported for GitLab
-        Ok(false)
+        Ok(false).into()
     }
 }
 

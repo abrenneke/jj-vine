@@ -119,6 +119,7 @@ impl ExecuteAction for UpdateMRBaseAction {
                         .old_target(old_target)
                         .new_target(self.new_target_branch.clone())
                         .call(),
+                    warnings: None,
                 }))
             }
             Err(e) => {

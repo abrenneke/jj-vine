@@ -121,6 +121,89 @@ where
         .collect()
 }
 
+pub enum ResultWithWarnings<T, E = crate::error::Error, W = Vec<String>> {
+    Ok(T),
+    OkWarnings(T, W),
+    Err(E),
+    ErrWarnings(E, W),
+}
+
+impl<T, E, W> ResultWithWarnings<T, E, W> {
+    pub fn warnings(&self) -> Option<&W> {
+        match self {
+            ResultWithWarnings::OkWarnings(_, warnings) => Some(warnings),
+            ResultWithWarnings::ErrWarnings(_, warnings) => Some(warnings),
+            _ => None,
+        }
+    }
+
+    pub fn into_result(self) -> Result<(T, Option<W>), E> {
+        match self {
+            Self::Ok(value) => Ok((value, None)),
+            Self::OkWarnings(value, warnings) => Ok((value, Some(warnings))),
+            Self::Err(error) | Self::ErrWarnings(error, _) => Err(error),
+        }
+    }
+}
+
+impl<T, E, W> From<Result<T, E>> for ResultWithWarnings<T, E, W> {
+    fn from(value: Result<T, E>) -> Self {
+        match value {
+            Ok(value) => Self::Ok(value),
+            Err(error) => Self::Err(error),
+        }
+    }
+}
+
+impl<T, E, W, F: From<E>> std::ops::FromResidual<ResultWithWarnings<std::convert::Infallible, E, W>>
+    for ResultWithWarnings<T, F, W>
+{
+    fn from_residual(residual: ResultWithWarnings<std::convert::Infallible, E, W>) -> Self {
+        match residual {
+            ResultWithWarnings::Err(error) => Self::Err(error.into()),
+            ResultWithWarnings::ErrWarnings(error, warnings) => {
+                Self::ErrWarnings(error.into(), warnings)
+            }
+        }
+    }
+}
+
+impl<T, E, W, F: From<E>> std::ops::FromResidual<std::result::Result<std::convert::Infallible, E>>
+    for ResultWithWarnings<T, F, W>
+{
+    fn from_residual(residual: std::result::Result<std::convert::Infallible, E>) -> Self {
+        match residual {
+            Err(error) => Self::Err(error.into()),
+        }
+    }
+}
+
+impl<T, E, W> std::ops::Try for ResultWithWarnings<T, E, W> {
+    type Output = (T, Option<W>);
+
+    type Residual = ResultWithWarnings<std::convert::Infallible, E, W>;
+
+    fn from_output(output: Self::Output) -> Self {
+        match output {
+            (value, Some(warnings)) => Self::OkWarnings(value, warnings),
+            (value, None) => Self::Ok(value),
+        }
+    }
+
+    fn branch(self) -> std::ops::ControlFlow<Self::Residual, Self::Output> {
+        match self {
+            Self::Ok(value) => std::ops::ControlFlow::Continue((value, None)),
+            Self::OkWarnings(value, warnings) => {
+                std::ops::ControlFlow::Continue((value, Some(warnings)))
+            }
+            Self::Err(error) => std::ops::ControlFlow::Break(ResultWithWarnings::Err(error)),
+            Self::ErrWarnings(error, warnings) => {
+                std::ops::ControlFlow::Break(ResultWithWarnings::ErrWarnings(error, warnings))
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -22,6 +22,7 @@ use crate::{
         MergeRequestStatus,
         UserId,
     },
+    utils::ResultWithWarnings,
 };
 
 /// GitLab REST API client
@@ -173,22 +174,30 @@ impl GitLabForge {
 
         let response = req.send().await?;
 
-        if !response.status().is_success() {
-            let status = response.status();
-            let text = response.text().await?;
+        let status = response.status();
+        let body = response.text().await?;
+
+        if !status.is_success() {
             return GitLabApiSnafu {
-                message: self.api_error_message(&method, &url, status, &text),
+                message: self.api_error_message(&method, &url, status, &body),
+                method,
+                url,
+                status,
+                response_body: body,
             }
             .fail();
         }
 
-        let body = response.text().await?;
         let data: T = serde_json::from_str(&body).map_err(|e| {
             GitLabApiSnafu {
                 message: format!(
                     "Failed to parse {} response to {}: {}, response: {}",
                     method, path, e, body
                 ),
+                method,
+                url,
+                status,
+                response_body: body,
             }
             .build()
         })?;
@@ -486,22 +495,23 @@ impl Forge for GitLabForge {
 
         // So for whatever reason for us, `/pipelines/latest` just... doesn't work?
         // `/pipelines` will return something in the array, but not `/latest` (403) 🤷
+        let url = format!(
+            "{}/api/v4/projects/{}/pipelines?ref={}",
+            self.base_url,
+            self.encoded_target_project_id(),
+            urlencoding::encode(&source_branch)
+        );
+
         let response = self
             .client
-            .request(
-                Method::GET,
-                format!(
-                    "{}/api/v4/projects/{}/pipelines?ref={}",
-                    self.base_url,
-                    self.encoded_target_project_id(),
-                    urlencoding::encode(&source_branch)
-                ),
-            )
+            .request(Method::GET, &url)
             .header("Authorization", format!("Bearer {}", &self.token))
             .send()
             .await?;
 
-        match response.status() {
+        let status = response.status();
+
+        match status {
             StatusCode::OK => {
                 let pipelines: Vec<Pipeline> = response.json().await?;
                 match pipelines.first() {
@@ -522,6 +532,10 @@ impl Forge for GitLabForge {
             StatusCode::FORBIDDEN => Ok(CheckStatus::None),
             _ => Err(GitLabApiSnafu {
                 message: format!("Failed to get pipeline status: {}", response.status()),
+                method: Method::GET,
+                status,
+                url,
+                response_body: response.text().await?,
             }
             .build()),
         }
@@ -579,53 +593,76 @@ impl Forge for GitLabForge {
         &self,
         merge_request_iid: Self::Id,
         dependent_merge_request_iids: &[Self::Id],
-    ) -> Result<bool> {
+    ) -> ResultWithWarnings<bool> {
         if !self.create_merge_request_dependencies {
-            return Ok(false);
+            return ResultWithWarnings::Ok(false);
         }
 
         let needed_deps: HashSet<u64> = dependent_merge_request_iids.iter().copied().collect();
 
-        // Now we need to get the ID for all needed deps... not the IID :/
-        let needed_deps: HashSet<u64> = needed_deps
-            .into_iter()
-            .map(|dep| async move { Ok(self.get_merge_request(dep).await?.id) })
-            .collect::<FuturesUnordered<_>>()
-            .collect::<Vec<Result<_>>>()
-            .await
-            .into_iter()
-            .collect::<Result<_>>()?;
+        let api_result = async {
+            // Now we need to get the ID for all needed deps... not the IID :/
+            let needed_deps: HashSet<u64> = needed_deps
+                .into_iter()
+                .map(|dep| async move { Ok(self.get_merge_request(dep).await?.id) })
+                .collect::<FuturesUnordered<_>>()
+                .collect::<Vec<Result<_>>>()
+                .await
+                .into_iter()
+                .collect::<Result<_>>()?;
 
-        let current_deps = self
-            .get_merge_request_dependencies(merge_request_iid)
-            .await?;
-        let current_deps_set: HashSet<_> = current_deps
-            .iter()
-            .map(|dep| dep.blocking_merge_request.id)
-            .collect();
+            let current_deps = self
+                .get_merge_request_dependencies(merge_request_iid)
+                .await?;
+            let current_deps_set: HashSet<u64> = current_deps
+                .iter()
+                .map(|dep| dep.blocking_merge_request.id)
+                .collect();
 
-        let unneeded_deps: HashSet<_> = current_deps_set.difference(&needed_deps).collect();
-        current_deps
-            .iter()
-            .filter(|dep| unneeded_deps.contains(&dep.blocking_merge_request.id))
-            .map(|dep| self.delete_merge_request_dependency(merge_request_iid, dep.id))
-            .collect::<FuturesUnordered<_>>()
-            .collect::<Vec<Result<_>>>()
-            .await
-            .into_iter()
-            .collect::<Result<Vec<_>>>()?;
+            let unneeded_deps: HashSet<u64> =
+                current_deps_set.difference(&needed_deps).copied().collect();
+            current_deps
+                .iter()
+                .filter(|dep| unneeded_deps.contains(&dep.blocking_merge_request.id))
+                .map(|dep| self.delete_merge_request_dependency(merge_request_iid, dep.id))
+                .collect::<FuturesUnordered<_>>()
+                .collect::<Vec<Result<_>>>()
+                .await
+                .into_iter()
+                .collect::<Result<Vec<_>>>()?;
 
-        let new_deps: HashSet<_> = needed_deps.difference(&current_deps_set).collect();
-        new_deps
-            .iter()
-            .map(|id| self.create_merge_request_dependency(merge_request_iid, **id))
-            .collect::<FuturesUnordered<_>>()
-            .collect::<Vec<Result<_>>>()
-            .await
-            .into_iter()
-            .collect::<Result<Vec<_>>>()?;
+            let new_deps: HashSet<u64> =
+                needed_deps.difference(&current_deps_set).copied().collect();
+            new_deps
+                .iter()
+                .map(|id| self.create_merge_request_dependency(merge_request_iid, *id))
+                .collect::<FuturesUnordered<_>>()
+                .collect::<Vec<Result<_>>>()
+                .await
+                .into_iter()
+                .collect::<Result<Vec<_>>>()?;
 
-        Ok(!(unneeded_deps.is_empty() && new_deps.is_empty()))
+            let made_changes = !(unneeded_deps.is_empty() && new_deps.is_empty());
+            Ok(made_changes)
+        }
+        .await;
+
+        let (made_changes, _) = match api_result {
+            Ok(value) => ResultWithWarnings::Ok(value),
+            Err(error) => match error {
+                Error::GitLabApi { status, .. } if status == StatusCode::NOT_FOUND => {
+                    ResultWithWarnings::ErrWarnings(
+                        error,
+                        vec![
+                            "Updating merge request dependencies failed with a 404. Note that merge request dependencies are only available in GitLab Premium >=17.5. You may want to disable `jj-vine.gitlab.createMergeRequestDependencies` if you do not have this feature.".to_string(),
+                        ],
+                    )
+                }
+                _ => ResultWithWarnings::Err(error),
+            },
+        }?;
+
+        ResultWithWarnings::Ok(made_changes)
     }
 }
 

@@ -109,7 +109,7 @@ impl ExecuteAction for SyncDependentMergeRequestsAction {
             .into_iter()
             .collect::<Result<Vec<_>>>()?;
 
-        let changed = ctx
+        let (changed, warnings) = ctx
             .execute
             .forge
             .sync_dependent_merge_requests(
@@ -120,7 +120,8 @@ impl ExecuteAction for SyncDependentMergeRequestsAction {
                     .collect::<Vec<_>>()
                     .as_slice(),
             )
-            .await?;
+            .await
+            .into_result()?;
 
         Ok(ActionResultData::MRUpdated(MRUpdate {
             mr,
@@ -132,6 +133,7 @@ impl ExecuteAction for SyncDependentMergeRequestsAction {
             } else {
                 MRUpdateType::Unchanged
             },
+            warnings,
         }))
     }
 }

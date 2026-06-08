@@ -19,6 +19,7 @@ use crate::{
         MergeRequestStatus,
         UserId,
     },
+    utils::ResultWithWarnings,
 };
 
 #[derive(Debug)]
@@ -295,9 +296,9 @@ impl Forge for TestForge {
         &self,
         _merge_request_iid: Cow<'_, str>,
         _dependent_merge_request_iids: &[Cow<'_, str>],
-    ) -> Result<bool> {
+    ) -> ResultWithWarnings<bool> {
         // Only supported for GitLab
-        Ok(false)
+        Ok(false).into()
     }
 }
 

@@ -1,3 +1,4 @@
+use reqwest::{Method, StatusCode};
 use snafu::{Backtrace, ChainCompat, Location, Snafu};
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -58,6 +59,11 @@ pub enum Error {
     GitLabApi {
         message: String,
         backtrace: Box<Backtrace>,
+
+        method: Method,
+        url: String,
+        status: StatusCode,
+        response_body: String,
 
         #[snafu(implicit)]
         location: Box<Location>,
@@ -413,6 +419,10 @@ mod tests {
     fn test_gitlab_api_error() {
         let err = GitLabApiSnafu {
             message: "API returned 404".to_string(),
+            method: Method::POST,
+            url: "https://example.com/api/foo",
+            status: StatusCode::NOT_FOUND,
+            response_body: "404 Not Found",
         }
         .build();
         assert_eq!(err.to_string(), "GitLab API error: API returned 404");

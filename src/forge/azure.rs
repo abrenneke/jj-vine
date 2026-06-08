@@ -23,6 +23,7 @@ use crate::{
         MergeRequestStatus,
         UserName,
     },
+    utils::ResultWithWarnings,
 };
 
 #[allow(dead_code)]
@@ -667,9 +668,9 @@ impl Forge for AzureDevOpsForge {
         &self,
         _merge_request_iid: i32,
         _dependent_merge_request_iids: &[Self::Id],
-    ) -> Result<bool> {
+    ) -> ResultWithWarnings<bool> {
         // Only supported for GitLab
-        Ok(false)
+        Ok(false).into()
     }
 }
 

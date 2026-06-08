@@ -21,6 +21,7 @@ use crate::{
         MergeRequestStatus,
         UserId,
     },
+    utils::ResultWithWarnings,
 };
 
 /// Forgejo/Gitea REST API client
@@ -854,9 +855,9 @@ impl Forge for ForgejoForge {
         &self,
         _merge_request_iid: u64,
         _dependent_merge_request_iids: &[u64],
-    ) -> Result<bool> {
+    ) -> ResultWithWarnings<bool> {
         // Only supported for GitLab
-        Ok(false)
+        Ok(false).into()
     }
 }
 

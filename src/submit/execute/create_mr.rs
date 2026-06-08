@@ -174,6 +174,7 @@ impl ExecuteAction for CreateMRAction {
                     mr,
                     bookmark,
                     update_type: MRUpdateType::Created,
+                    warnings: None,
                 }))
             }
             Err(e) => {

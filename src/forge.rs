@@ -14,6 +14,7 @@ use crate::{
     config::{Config, ForgeType},
     description::FormatMergeRequest,
     error::{Error, Result},
+    utils::ResultWithWarnings,
 };
 
 pub trait ForgeUser: std::fmt::Debug {
@@ -614,7 +615,7 @@ pub trait Forge: Send + Sync + FormatMergeRequest {
         &'a self,
         merge_request_iid: <Self::Id as BorrowId>::Id<'a>,
         dependent_merge_request_iids: &[<Self::Id as BorrowId>::Id<'a>],
-    ) -> Result<bool>;
+    ) -> ResultWithWarnings<bool>;
 }
 
 pub enum ForgeImpl {
@@ -1062,7 +1063,7 @@ impl Forge for ForgeImpl {
         &self,
         merge_request_iid: Cow<'_, str>,
         dependent_merge_request_iids: &[Cow<'_, str>],
-    ) -> Result<bool> {
+    ) -> ResultWithWarnings<bool> {
         match self {
             ForgeImpl::GitLab(forge) => {
                 forge

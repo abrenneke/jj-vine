@@ -99,6 +99,7 @@ pub struct MRUpdate {
     pub mr: AnyForgeMergeRequest,
     pub bookmark: String,
     pub update_type: MRUpdateType,
+    pub warnings: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone)]

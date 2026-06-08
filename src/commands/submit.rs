@@ -9,7 +9,7 @@ use cli_table::{
 use itertools::Itertools;
 use owo_colors::OwoColorize;
 use snafu::{ensure_whatever, whatever};
-use tracing::info;
+use tracing::{info, warn};
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{
@@ -304,8 +304,15 @@ pub async fn submit(config: &SubmitCommandConfig, cli_config: &CliConfig<'_>) ->
             mr,
             bookmark,
             update_type,
+            warnings,
         } in updates
         {
+            if let Some(warnings) = warnings {
+                for warning in warnings {
+                    warn!("{}", format!("\nWarning: {}", warning).yellow());
+                }
+            }
+
             match update_type {
                 MRUpdateType::Created => {
                     table.push(vec![
