@@ -65,7 +65,7 @@ pub struct SubmitCommandConfig {
     /// `jj-vine submit 'trunk()..' -c` -> creates bookmarks for A, B, and
     /// C
     ///
-    /// `jj-vine submit 'trunk()..' -c C -> only creates a bookmark for C, so
+    /// `jj-vine submit 'trunk()..' -c C` -> only creates a bookmark for C, so
     /// the pull/merge request for C contains both A and C. A is not pushed
     /// nor a pull or merge request created.
     ///
@@ -78,9 +78,10 @@ pub struct SubmitCommandConfig {
 }
 
 impl SubmitCommandConfig {
+    #[must_use]
     pub fn help_long() -> String {
         format!(
-            r#"
+            "
 Submit one or more bookmarks to the code forge.
 This command will create merge requests that don't exist, update
 existing merge requests to the correct target branch, and sync all
@@ -96,7 +97,7 @@ Submit all tracked bookmarks:
 
 Preview submitting a revset without making changes:
 {}
-"#,
+",
             "Examples:".yellow().bold(),
             "jj vine submit <bookmark>".green().bold(),
             "jj vine submit --tracked".green().bold(),
@@ -137,8 +138,9 @@ impl SubmitCommandConfig {
             self.revset_options.tracked,
             self.create.as_deref(),
         ) {
-            (Some(revset), None, false, _) => Ok(GetBookmarksOptions::Revset(revset.to_string())),
-            (None, Some(revset), false, _) => Ok(GetBookmarksOptions::Revset(revset.to_string())),
+            (Some(revset), None, false, _) | (None, Some(revset), false, _) => {
+                Ok(GetBookmarksOptions::Revset(revset.to_string()))
+            }
             (None, None, true, _) => Ok(GetBookmarksOptions::Tracked),
 
             // Fall back to the same as -c if none of the other options are set
@@ -152,6 +154,10 @@ impl SubmitCommandConfig {
     }
 }
 
+/// # Panics
+///
+/// Can panic for many reasons
+#[allow(clippy::too_many_lines, reason = "important")]
 pub async fn submit(config: &SubmitCommandConfig, cli_config: &CliConfig<'_>) -> Result<()> {
     let jj = Jujutsu::new(&cli_config.repository)?;
     let output = cli_config.output;
@@ -221,7 +227,7 @@ pub async fn submit(config: &SubmitCommandConfig, cli_config: &CliConfig<'_>) ->
 
     let changes = find_changes_to_submit(
         &jj,
-        bookmarks.iter().map(|b| b.change_id()),
+        bookmarks.iter().map(BookmarkOrPending::change_id),
         &pending_bookmarks,
     )?;
 
@@ -261,15 +267,15 @@ pub async fn submit(config: &SubmitCommandConfig, cli_config: &CliConfig<'_>) ->
     info!("{}", "Summary".bold());
     info!("═══════════════════════════════════════");
 
-    if !result.bookmarks_pushed.is_empty() {
+    if result.bookmarks_pushed.is_empty() {
+        info!("No bookmarks pushed");
+    } else {
         let formatted_bookmarks: Vec<String> = result
             .bookmarks_pushed
             .iter()
             .map(|b| b.magenta().to_string())
             .collect();
         info!("Pushed: {}", formatted_bookmarks.join(", "));
-    } else {
-        info!("No bookmarks pushed");
     }
 
     if !result.merge_requests.is_empty() {
@@ -309,7 +315,7 @@ pub async fn submit(config: &SubmitCommandConfig, cli_config: &CliConfig<'_>) ->
         {
             if let Some(warnings) = warnings {
                 for warning in warnings {
-                    warn!("{}", format!("\nWarning: {}", warning).yellow());
+                    warn!("{}", format!("\nWarning: {warning}").yellow());
                 }
             }
 

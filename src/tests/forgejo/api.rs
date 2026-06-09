@@ -55,7 +55,7 @@ async fn test_submit_creates_stacked_prs() -> Result<()> {
         repo.forge()
             .find_merge_request_by_source_branch(&branch_a)
             .await?
-            .map(|pr| pr.pull_request.base.ref_name.to_string()),
+            .map(|pr| pr.pull_request.base.ref_name.clone()),
         Some("main".to_string())
     );
 
@@ -63,16 +63,16 @@ async fn test_submit_creates_stacked_prs() -> Result<()> {
         repo.forge()
             .find_merge_request_by_source_branch(&branch_b)
             .await?
-            .map(|pr| pr.pull_request.base.ref_name.to_string()),
-        Some(branch_a.to_string())
+            .map(|pr| pr.pull_request.base.ref_name.clone()),
+        Some(branch_a.clone())
     );
 
     assert_eq!(
         repo.forge()
             .find_merge_request_by_source_branch(&branch_c)
             .await?
-            .map(|pr| pr.pull_request.base.ref_name.to_string()),
-        Some(branch_b.to_string())
+            .map(|pr| pr.pull_request.base.ref_name.clone()),
+        Some(branch_b.clone())
     );
 
     Ok(())
@@ -135,8 +135,8 @@ async fn test_submit_retargets_after_middle_bookmark_deleted() -> Result<()> {
         repo.forge()
             .find_merge_request_by_source_branch(&branch_c)
             .await?
-            .map(|pr| pr.pull_request.base.ref_name.to_string()),
-        Some(branch_b.to_string())
+            .map(|pr| pr.pull_request.base.ref_name.clone()),
+        Some(branch_b.clone())
     );
 
     repo.jj.exec(["bookmark", "delete", &branch_b])?;
@@ -147,8 +147,8 @@ async fn test_submit_retargets_after_middle_bookmark_deleted() -> Result<()> {
         repo.forge()
             .find_merge_request_by_source_branch(&branch_c)
             .await?
-            .map(|pr| pr.pull_request.base.ref_name.to_string()),
-        Some(branch_a.to_string())
+            .map(|pr| pr.pull_request.base.ref_name.clone()),
+        Some(branch_a.clone())
     );
 
     Ok(())

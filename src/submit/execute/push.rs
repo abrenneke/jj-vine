@@ -48,9 +48,12 @@ impl ActionInfo for PushAction {
 }
 
 impl ExecuteAction for PushAction {
-    async fn execute(&self, ctx: ExecuteActionContext<'_>) -> Result<ActionResultData> {
+    fn execute(
+        &self,
+        ctx: ExecuteActionContext<'_>,
+    ) -> impl Future<Output = Result<ActionResultData>> {
         let bookmarks_string = self.bookmarks.iter().map(|b| b.magenta()).join(", ");
-        if ctx.execute.dry_run {
+        std::future::ready(if ctx.execute.dry_run {
             ctx.execute.output.log_message(&format!(
                 "Would push bookmarks to remote {}: {bookmarks_string}",
                 self.remote.cyan()
@@ -89,6 +92,6 @@ impl ExecuteAction for PushAction {
                     Err(Error::new(error_msg))
                 }
             }
-        }
+        })
     }
 }

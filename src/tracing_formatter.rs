@@ -18,6 +18,7 @@ pub struct PlainFormatter {
 }
 
 impl PlainFormatter {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             display_level: false,
@@ -25,11 +26,13 @@ impl PlainFormatter {
         }
     }
 
+    #[must_use]
     pub fn with_level(mut self, display: bool) -> Self {
         self.display_level = display;
         self
     }
 
+    #[must_use]
     pub fn with_timestamp(mut self, display: bool) -> Self {
         self.display_timestamp = display;
         self
@@ -54,7 +57,7 @@ where
         // Optionally write timestamp
         if self.display_timestamp {
             let now = jiff::Timestamp::now();
-            write!(writer, "{} ", now)?;
+            write!(writer, "{now} ")?;
         }
 
         // Optionally write level

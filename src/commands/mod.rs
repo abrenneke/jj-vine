@@ -16,6 +16,7 @@ pub enum GetBookmarksOptions {
 }
 
 impl GetBookmarksOptions {
+    #[must_use]
     pub fn to_revset(&self) -> String {
         match self {
             GetBookmarksOptions::Revset(revset) => revset.clone(),

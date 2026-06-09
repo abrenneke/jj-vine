@@ -11,9 +11,9 @@ use crate::{
 pub fn get_mr_title(
     jj: &Jujutsu,
     config: &TitleConfig,
-    bookmark: BookmarkWithPointers<'_>,
+    bookmark: &BookmarkWithPointers<'_>,
     component: &ChangeComponent<'_>,
-    revisions: Vec<Change>,
+    revisions: impl AsRef<[Change]>,
 ) -> Result<String> {
     let default_branch = jj.default_branch()?;
 
@@ -28,23 +28,25 @@ pub fn get_mr_title(
 
 fn get_mr_title_from_revisions(
     config: &TitleConfig,
-    bookmark: BookmarkWithPointers<'_>,
+    bookmark: &BookmarkWithPointers<'_>,
     component: &ChangeComponent<'_>,
     default_branch: &str,
-    revisions: Vec<Change>,
+    revisions: impl AsRef<[Change]>,
 ) -> String {
-    match &revisions[..] {
+    match &revisions.as_ref() {
         [] => bookmark.name().to_string(),
         [revision] => match &config.single_revision {
-            TitleFormat::FirstRevisionFirstLine => revision.description_first_line().to_string(),
-            TitleFormat::FirstRevisionFullMessage => revision.description.to_string(),
-            TitleFormat::HeadRevisionFirstLine => revision.description_first_line().to_string(),
-            TitleFormat::HeadRevisionFullMessage => revision.description.to_string(),
+            TitleFormat::FirstRevisionFirstLine | TitleFormat::HeadRevisionFirstLine => {
+                revision.description_first_line().to_string()
+            }
+            TitleFormat::FirstRevisionFullMessage | TitleFormat::HeadRevisionFullMessage => {
+                revision.description.clone()
+            }
             TitleFormat::BookmarkName => bookmark.name().to_string(),
             TitleFormat::Other(template) => format_title_with_template(
                 revision,
                 revision,
-                &bookmark,
+                bookmark,
                 component,
                 default_branch,
                 template,
@@ -52,14 +54,14 @@ fn get_mr_title_from_revisions(
         },
         [head, .., root] => match &config.multiple_revisions {
             TitleFormat::FirstRevisionFirstLine => root.description_first_line().to_string(),
-            TitleFormat::FirstRevisionFullMessage => root.description.to_string(),
+            TitleFormat::FirstRevisionFullMessage => root.description.clone(),
             TitleFormat::HeadRevisionFirstLine => head.description_first_line().to_string(),
-            TitleFormat::HeadRevisionFullMessage => head.description.to_string(),
+            TitleFormat::HeadRevisionFullMessage => head.description.clone(),
             TitleFormat::BookmarkName => bookmark.name().to_string(),
             TitleFormat::Other(template) => format_title_with_template(
                 root,
                 head,
-                &bookmark,
+                bookmark,
                 component,
                 default_branch,
                 template,
@@ -239,30 +241,30 @@ mod tests {
     use super::*;
     use crate::{bookmark::BookmarkGraph, utils::toposort};
 
-    fn get_mock_title(config: TitleConfig, changes: impl IntoIterator<Item = Change>) -> String {
+    fn get_mock_title(config: &TitleConfig, changes: impl IntoIterator<Item = Change>) -> String {
         let changes = Change::mock_stack_map(changes);
         let graph = BookmarkGraph::from_lookups(
             changes.create_bookmark_map(),
-            changes.create_adjacency_list(),
+            &changes.create_adjacency_list(),
         );
         let component = graph.components().first().unwrap();
         let bookmark = component.leaves.first().unwrap().clone();
         let revisions: Vec<_> = toposort(
             changes.values().cloned(),
-            |c| c.commit_id.to_string(),
+            |c| c.commit_id.clone(),
             |c| c.parent_commit_ids.clone(),
         )
         .into_iter()
         .rev() // head first like jj outputs
         .collect();
 
-        get_mr_title_from_revisions(&config, bookmark, component, "main", revisions)
+        get_mr_title_from_revisions(config, &bookmark, component, "main", revisions)
     }
 
     #[test]
     fn test_single_revision_first_revision_first_line() {
         let title = get_mock_title(
-            TitleConfig {
+            &TitleConfig {
                 single_revision: TitleFormat::FirstRevisionFirstLine,
                 ..Default::default()
             },
@@ -278,7 +280,7 @@ mod tests {
     #[test]
     fn test_single_revision_first_revision_full_message() {
         let title = get_mock_title(
-            TitleConfig {
+            &TitleConfig {
                 single_revision: TitleFormat::FirstRevisionFullMessage,
                 ..Default::default()
             },
@@ -294,7 +296,7 @@ mod tests {
     #[test]
     fn test_single_revision_head_revision_first_line() {
         let title = get_mock_title(
-            TitleConfig {
+            &TitleConfig {
                 single_revision: TitleFormat::HeadRevisionFirstLine,
                 ..Default::default()
             },
@@ -310,7 +312,7 @@ mod tests {
     #[test]
     fn test_single_revision_head_revision_full_message() {
         let title = get_mock_title(
-            TitleConfig {
+            &TitleConfig {
                 single_revision: TitleFormat::HeadRevisionFullMessage,
                 ..Default::default()
             },
@@ -326,7 +328,7 @@ mod tests {
     #[test]
     fn test_single_revision_bookmark_name() {
         let title = get_mock_title(
-            TitleConfig {
+            &TitleConfig {
                 single_revision: TitleFormat::BookmarkName,
                 ..Default::default()
             },
@@ -339,7 +341,7 @@ mod tests {
     #[test]
     fn test_single_revision_custom_template_first_description_first_line() {
         let title = get_mock_title(
-            TitleConfig {
+            &TitleConfig {
                 single_revision: TitleFormat::Other("{first.description_first_line}".to_string()),
                 ..Default::default()
             },
@@ -355,7 +357,7 @@ mod tests {
     #[test]
     fn test_single_revision_custom_template_first_description() {
         let title = get_mock_title(
-            TitleConfig {
+            &TitleConfig {
                 single_revision: TitleFormat::Other("{first.description}".to_string()),
                 ..Default::default()
             },
@@ -371,7 +373,7 @@ mod tests {
     #[test]
     fn test_single_revision_custom_template_first_description_not_first_line() {
         let title = get_mock_title(
-            TitleConfig {
+            &TitleConfig {
                 single_revision: TitleFormat::Other(
                     "{first.description_not_first_line}".to_string(),
                 ),
@@ -389,7 +391,7 @@ mod tests {
     #[test]
     fn test_single_revision_custom_template_ids() {
         let title = get_mock_title(
-            TitleConfig {
+            &TitleConfig {
                 single_revision: TitleFormat::Other(
                     "{first.id} {first.change_id} {head.id} {head.change_id}".to_string(),
                 ),
@@ -407,7 +409,7 @@ mod tests {
     #[test]
     fn test_single_revision_custom_template_with_literal_text() {
         let title = get_mock_title(
-            TitleConfig {
+            &TitleConfig {
                 single_revision: TitleFormat::Other(
                     "MR: {first.description_first_line} (rev {first.id})".to_string(),
                 ),
@@ -431,7 +433,7 @@ mod tests {
 
         let bookmark_map = changes.create_bookmark_map();
         let graph =
-            BookmarkGraph::from_lookups(bookmark_map.clone(), changes.create_adjacency_list());
+            BookmarkGraph::from_lookups(bookmark_map.clone(), &changes.create_adjacency_list());
         let component = &graph.components()[0];
         let bookmark_a = component.find("commit-a").unwrap();
         let bookmark_b = component.find("commit-b").unwrap();
@@ -439,34 +441,22 @@ mod tests {
         let revisions_a = vec![changes.get("commit_commit-a").unwrap().clone()];
         let revisions_b = vec![changes.get("commit_commit-b").unwrap().clone()];
 
-        let config = TitleConfig {
+        let config = &TitleConfig {
             single_revision: TitleFormat::Other("{stack_index}/{stack_count}".to_string()),
             ..Default::default()
         };
 
-        let title = get_mr_title_from_revisions(
-            &config,
-            bookmark_a.clone(),
-            component,
-            "main",
-            revisions_a,
-        );
+        let title = get_mr_title_from_revisions(config, bookmark_a, component, "main", revisions_a);
         assert_eq!(title, "1/2");
 
-        let title = get_mr_title_from_revisions(
-            &config,
-            bookmark_b.clone(),
-            component,
-            "main",
-            revisions_b,
-        );
+        let title = get_mr_title_from_revisions(config, bookmark_b, component, "main", revisions_b);
         assert_eq!(title, "2/2");
     }
 
     #[test]
     fn test_multiple_revisions_first_revision_first_line() {
         let title = get_mock_title(
-            TitleConfig {
+            &TitleConfig {
                 multiple_revisions: TitleFormat::FirstRevisionFirstLine,
                 ..Default::default()
             },
@@ -489,7 +479,7 @@ mod tests {
     #[test]
     fn test_multiple_revisions_first_revision_full_message() {
         let title = get_mock_title(
-            TitleConfig {
+            &TitleConfig {
                 multiple_revisions: TitleFormat::FirstRevisionFullMessage,
                 ..Default::default()
             },
@@ -511,7 +501,7 @@ mod tests {
     #[test]
     fn test_multiple_revisions_head_revision_first_line() {
         let title = get_mock_title(
-            TitleConfig {
+            &TitleConfig {
                 multiple_revisions: TitleFormat::HeadRevisionFirstLine,
                 ..Default::default()
             },
@@ -533,7 +523,7 @@ mod tests {
     #[test]
     fn test_multiple_revisions_head_revision_full_message() {
         let title = get_mock_title(
-            TitleConfig {
+            &TitleConfig {
                 multiple_revisions: TitleFormat::HeadRevisionFullMessage,
                 ..Default::default()
             },
@@ -555,7 +545,7 @@ mod tests {
     #[test]
     fn test_multiple_revisions_bookmark_name() {
         let title = get_mock_title(
-            TitleConfig {
+            &TitleConfig {
                 multiple_revisions: TitleFormat::BookmarkName,
                 ..Default::default()
             },
@@ -577,7 +567,7 @@ mod tests {
     #[test]
     fn test_multiple_revisions_custom_template_first_and_head() {
         let title = get_mock_title(
-            TitleConfig {
+            &TitleConfig {
                 multiple_revisions: TitleFormat::Other(
                     "{first.description_first_line} -> {head.description_first_line}".to_string(),
                 ),
@@ -601,7 +591,7 @@ mod tests {
     #[test]
     fn test_multiple_revisions_custom_template_ids() {
         let title = get_mock_title(
-            TitleConfig {
+            &TitleConfig {
                 multiple_revisions: TitleFormat::Other(
                     "{first.id} {first.change_id} | {head.id} {head.change_id}".to_string(),
                 ),
@@ -622,7 +612,7 @@ mod tests {
     #[test]
     fn test_multiple_revisions_custom_template_description_not_first_line() {
         let title = get_mock_title(
-            TitleConfig {
+            &TitleConfig {
                 multiple_revisions: TitleFormat::Other(
                     "{first.description_not_first_line} | {head.description_not_first_line}"
                         .to_string(),
@@ -655,7 +645,7 @@ mod tests {
 
         let bookmark_map = changes.create_bookmark_map();
         let graph =
-            BookmarkGraph::from_lookups(bookmark_map.clone(), changes.create_adjacency_list());
+            BookmarkGraph::from_lookups(bookmark_map.clone(), &changes.create_adjacency_list());
         let component = &graph.components()[0];
         let bookmark_b = component.find("commit-b").unwrap();
         let bookmark_d = component.find("commit-d").unwrap();
@@ -673,22 +663,12 @@ mod tests {
             ..Default::default()
         };
 
-        let title = get_mr_title_from_revisions(
-            &config,
-            bookmark_b.clone(),
-            component,
-            "main",
-            revisions_b,
-        );
+        let title =
+            get_mr_title_from_revisions(&config, bookmark_b, component, "main", revisions_b);
         assert_eq!(title, "1/2");
 
-        let title = get_mr_title_from_revisions(
-            &config,
-            bookmark_d.clone(),
-            component,
-            "main",
-            revisions_d,
-        );
+        let title =
+            get_mr_title_from_revisions(&config, bookmark_d, component, "main", revisions_d);
         assert_eq!(title, "2/2");
     }
 
@@ -697,9 +677,9 @@ mod tests {
         let changes = Change::mock_stack_map([Change::mock_from_bookmark("commit-a")]);
         let bookmark_map = changes.create_bookmark_map();
         let graph =
-            BookmarkGraph::from_lookups(bookmark_map.clone(), changes.create_adjacency_list());
+            BookmarkGraph::from_lookups(bookmark_map.clone(), &changes.create_adjacency_list());
         let component = &graph.components()[0];
-        let bookmark = component.leaves[0].clone();
+        let bookmark = component.leaves.first().unwrap();
 
         let title = get_mr_title_from_revisions(
             &TitleConfig::default(),
@@ -715,7 +695,7 @@ mod tests {
     #[test]
     fn test_template_unknown_replacement_left_as_is() {
         let title = get_mock_title(
-            TitleConfig {
+            &TitleConfig {
                 single_revision: TitleFormat::Other(
                     "{first.description_first_line} {unknown_token}".to_string(),
                 ),
@@ -730,7 +710,7 @@ mod tests {
     #[test]
     fn test_template_no_replacements() {
         let title = get_mock_title(
-            TitleConfig {
+            &TitleConfig {
                 single_revision: TitleFormat::Other("Static title".to_string()),
                 ..Default::default()
             },
@@ -743,7 +723,7 @@ mod tests {
     #[test]
     fn test_template_multiple_same_replacement() {
         let title = get_mock_title(
-            TitleConfig {
+            &TitleConfig {
                 single_revision: TitleFormat::Other(
                     "{first.description_first_line} - {first.description_first_line}".to_string(),
                 ),
@@ -761,7 +741,7 @@ mod tests {
     #[test]
     fn test_single_revision_description_only_one_line() {
         let title = get_mock_title(
-            TitleConfig {
+            &TitleConfig {
                 single_revision: TitleFormat::FirstRevisionFirstLine,
                 ..Default::default()
             },
@@ -777,7 +757,7 @@ mod tests {
     #[test]
     fn test_single_revision_empty_description() {
         let title = get_mock_title(
-            TitleConfig {
+            &TitleConfig {
                 single_revision: TitleFormat::FirstRevisionFirstLine,
                 ..Default::default()
             },

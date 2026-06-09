@@ -110,7 +110,7 @@ impl AzureDevOpsForge {
 
             let certs = reqwest::Certificate::from_pem_bundle(&ca_cert).map_err(|e| {
                 ConfigSnafu {
-                    message: format!("Failed to parse CA bundle: {}", e),
+                    message: format!("Failed to parse CA bundle: {e}"),
                 }
                 .build()
             })?;
@@ -122,7 +122,7 @@ impl AzureDevOpsForge {
 
         let client = client_builder.build().map_err(|e| {
             ConfigSnafu {
-                message: format!("Failed to build HTTP client: {:?}", e),
+                message: format!("Failed to build HTTP client: {e:?}"),
             }
             .build()
         })?;
@@ -136,7 +136,7 @@ impl AzureDevOpsForge {
         let source_project_id_clone = source_project_id.clone();
         let (source_org, source_repo) = source_project_id_clone.split_once('/').ok_or(
             ConfigSnafu {
-                message: format!("Invalid source project ID: {}", source_project_id),
+                message: format!("Invalid source project ID: {source_project_id}"),
             }
             .build(),
         )?;
@@ -144,7 +144,7 @@ impl AzureDevOpsForge {
         let target_project_id_clone = target_project_id.clone();
         let (target_org, target_repo) = target_project_id_clone.split_once('/').ok_or(
             ConfigSnafu {
-                message: format!("Invalid target project ID: {}", target_project_id),
+                message: format!("Invalid target project ID: {target_project_id}"),
             }
             .build(),
         )?;
@@ -209,7 +209,7 @@ impl AzureDevOpsForge {
             let status = response.status();
             let text = response.text().await?;
             return Err(AzureDevOpsApiSnafu {
-                message: format!("Failed request: {} - {}", status, text),
+                message: format!("Failed request: {status} - {text}"),
             }
             .build());
         }
@@ -218,10 +218,8 @@ impl AzureDevOpsForge {
         let data: T = serde_json::from_str(&body).map_err(|e| {
             AzureDevOpsApiSnafu {
                 message: format!(
-                    "Failed to parse response to {}: {}, response: {}",
+                    "Failed to parse response to {}: {e}, response: {body}",
                     path.as_ref(),
-                    e,
-                    body
                 ),
             }
             .build()
@@ -242,7 +240,7 @@ impl AzureDevOpsForge {
                     .fail();
                 }
             }
-        };
+        }
 
         self.source_repository_id
             .get_or_try_init(async || {
@@ -288,7 +286,7 @@ impl AzureDevOpsForge {
                     .fail();
                 }
             }
-        };
+        }
 
         self.target_repository_id
             .get_or_try_init(async || {
@@ -324,7 +322,7 @@ impl AzureDevOpsForge {
     fn to_merge_request(&self, pull_request: GitPullRequest) -> AzureDevOpsMergeRequest {
         AzureDevOpsMergeRequest {
             target_project_id: self.target_project_id().to_string(),
-            base_url: self.base_url.to_string(),
+            base_url: self.base_url.clone(),
             pull_request,
         }
     }
@@ -433,14 +431,14 @@ impl Forge for AzureDevOpsForge {
                 },
             },
             description: description.unwrap_or_default(),
-            fork_source: if self.source_project_id != self.target_project_id {
+            fork_source: if self.source_project_id == self.target_project_id {
+                None
+            } else {
                 Some(RequestGitForkRef {
                     repository: RequestGitRepository {
                         id: self.source_repository_id().await?.clone(),
                     },
                 })
-            } else {
-                None
             },
             is_draft: open_as_draft,
             labels: Vec::new(),
@@ -448,8 +446,8 @@ impl Forge for AzureDevOpsForge {
                 .into_iter()
                 .map(|user| RequestIdentityRefWithVote::Descriptor { descriptor: user.0 })
                 .collect(),
-            source_ref_name: format!("refs/heads/{}", source_branch),
-            target_ref_name: format!("refs/heads/{}", target_branch),
+            source_ref_name: format!("refs/heads/{source_branch}"),
+            target_ref_name: format!("refs/heads/{target_branch}"),
             title,
         };
 
@@ -476,7 +474,7 @@ impl Forge for AzureDevOpsForge {
         let body = UpdatePullRequestBody {
             description: None,
             title: None,
-            target_ref_name: Some(format!("refs/heads/{}", new_base)),
+            target_ref_name: Some(format!("refs/heads/{new_base}")),
             is_draft: None,
         };
 
@@ -508,8 +506,8 @@ impl Forge for AzureDevOpsForge {
         }: ForgeUpdateMergeRequestInfoOptions,
     ) -> Result<Self::MergeRequest> {
         let body = UpdatePullRequestBody {
-            title: title.map(|title| title.to_string()),
-            description: description.map(|description| description.to_string()),
+            title,
+            description,
             target_ref_name: None,
             is_draft: draft,
         };
@@ -561,6 +559,7 @@ impl Forge for AzureDevOpsForge {
             )
             .await?;
 
+        #[allow(clippy::cast_possible_truncation, reason = "will never get that high")]
         Ok(ApprovalStatus {
             approved_count: pr
                 .reviewers
@@ -604,10 +603,10 @@ impl Forge for AzureDevOpsForge {
         match pr.merge_status {
             PullRequestAsyncStatus::Succeeded => Ok(CheckStatus::Success),
             PullRequestAsyncStatus::Queued => Ok(CheckStatus::Pending),
-            PullRequestAsyncStatus::Conflicts => Ok(CheckStatus::None),
-            PullRequestAsyncStatus::RejectedByPolicy => Ok(CheckStatus::None),
+            PullRequestAsyncStatus::Conflicts
+            | PullRequestAsyncStatus::RejectedByPolicy
+            | PullRequestAsyncStatus::NotSet => Ok(CheckStatus::None),
             PullRequestAsyncStatus::Failure => Ok(CheckStatus::Failed),
-            PullRequestAsyncStatus::NotSet => Ok(CheckStatus::None),
         }
     }
 
@@ -642,14 +641,14 @@ impl Forge for AzureDevOpsForge {
         let mut resolved = 0;
         for thread in threads.value {
             match thread.status {
-                CommentThreadStatus::Active => unresolved += 1,
-                CommentThreadStatus::Pending => unresolved += 1,
-                CommentThreadStatus::Unknown => unresolved += 1,
+                CommentThreadStatus::Active
+                | CommentThreadStatus::Pending
+                | CommentThreadStatus::Unknown => unresolved += 1,
 
-                CommentThreadStatus::Fixed => resolved += 1,
-                CommentThreadStatus::Closed => resolved += 1,
-                CommentThreadStatus::ByDesign => resolved += 1,
-                CommentThreadStatus::WontFix => resolved += 1,
+                CommentThreadStatus::Fixed
+                | CommentThreadStatus::Closed
+                | CommentThreadStatus::ByDesign
+                | CommentThreadStatus::WontFix => resolved += 1,
             }
         }
 
@@ -678,7 +677,7 @@ impl FormatMergeRequest for AzureDevOpsForge {
     type Id = i32;
 
     fn format_merge_request_id(&self, mr_iid: Self::Id) -> String {
-        format!("!{}", mr_iid)
+        format!("!{mr_iid}")
     }
 
     fn mr_name(&self) -> &'static str {
@@ -817,9 +816,9 @@ impl ForgeMergeRequest for AzureDevOpsMergeRequest {
         match self.pull_request.status {
             PullRequestStatus::Abandoned => ForgeMergeRequestState::Closed,
             PullRequestStatus::Completed => ForgeMergeRequestState::Merged,
-            PullRequestStatus::Active => ForgeMergeRequestState::Open,
-            PullRequestStatus::All => ForgeMergeRequestState::Open,
-            PullRequestStatus::NotSet => ForgeMergeRequestState::Open,
+            PullRequestStatus::Active | PullRequestStatus::All | PullRequestStatus::NotSet => {
+                ForgeMergeRequestState::Open
+            }
         }
     }
 
@@ -1017,6 +1016,7 @@ pub struct GitUserDate {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(clippy::struct_excessive_bools, reason = "deserialized")]
 pub struct IdentityRefWithVote {
     pub descriptor: String,
 

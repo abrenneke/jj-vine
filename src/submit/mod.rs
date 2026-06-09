@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, hash::BuildHasher};
 
 use itertools::Itertools;
 
@@ -18,10 +18,10 @@ pub mod plan;
 /// Find the changes that matter for a submission starting from `targets`:
 /// bookmarked changes authored by the current user that are reachable from
 /// the targets and are not already in the trunk ancestry.
-pub fn find_changes_to_submit(
+pub fn find_changes_to_submit<S: BuildHasher>(
     jj: &Jujutsu,
     targets: impl IntoIterator<Item = impl JJName>,
-    change_ids_pending_bookmarks: &HashSet<String>,
+    change_ids_pending_bookmarks: &HashSet<String, S>,
 ) -> Result<Vec<Change>> {
     jj.log_with_pending_bookmarks(
         format!(
@@ -63,6 +63,7 @@ pub struct ExecuteContext<'a> {
 }
 
 impl<'a> ExecuteContext<'a> {
+    #[must_use]
     pub fn new(ctx: &'a RootExecuteContext<'a>, bookmark_graph: &'a BookmarkGraph<'a>) -> Self {
         Self {
             jj: ctx.jj,

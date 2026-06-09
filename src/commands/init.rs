@@ -36,7 +36,8 @@ struct Remotes {
 }
 
 /// Initialize jj-vine configuration for this repository
-pub async fn init(cli_config: &CliConfig<'_>) -> Result<()> {
+#[allow(clippy::too_many_lines, reason = "important")]
+pub fn init(cli_config: &CliConfig<'_>) -> Result<()> {
     println!("This will configure jj-vine for your repository.");
     println!(
         "{}",
@@ -66,7 +67,7 @@ pub async fn init(cli_config: &CliConfig<'_>) -> Result<()> {
                 "Which code forge are you using?".bold(),
                 "jj-vine.forge".dimmed()
             ))
-            .items(ForgeType::VARIANTS.iter().map(|v| v.display_name()))
+            .items(ForgeType::VARIANTS.iter().map(ForgeType::display_name))
             .default(0)
             .interact()?;
 
@@ -108,31 +109,28 @@ pub async fn init(cli_config: &CliConfig<'_>) -> Result<()> {
 
     match forge_type {
         ForgeType::GitLab => {
-            gitlab::init(&cli_config.repository, remotes).await?;
+            gitlab::init(&cli_config.repository, remotes.as_ref())?;
         }
         ForgeType::GitHub => {
-            github::init(&cli_config.repository, remotes).await?;
+            github::init(&cli_config.repository, remotes.as_ref())?;
         }
         ForgeType::Forgejo => {
-            forgejo::init(&cli_config.repository, remotes).await?;
+            forgejo::init(&cli_config.repository, remotes.as_ref())?;
         }
         ForgeType::AzureDevOps => {
-            azure::init(&cli_config.repository, remotes).await?;
+            azure::init(&cli_config.repository, remotes.as_ref())?;
         }
     }
 
     let recommended_alias = match forge_type {
-        ForgeType::GitLab => "pr",
+        ForgeType::GitLab | ForgeType::Forgejo | ForgeType::AzureDevOps => "pr",
         ForgeType::GitHub => "mr",
-        ForgeType::Forgejo => "pr",
-        ForgeType::AzureDevOps => "pr",
     };
     let recommendation = format!(
         "\nIt is useful to set up an alias for this command, such as {}! Run {} to set it up.",
-        format!("jj {}", recommended_alias).bold().magenta(),
+        format!("jj {recommended_alias}").bold().magenta(),
         format!(
-            r#"jj config set --user aliases.{} '["util", "exec", "--", "jj-vine"]'"#,
-            recommended_alias
+            r#"jj config set --user aliases.{recommended_alias} '["util", "exec", "--", "jj-vine"]'"#
         )
         .cyan()
     );
@@ -149,7 +147,7 @@ pub async fn init(cli_config: &CliConfig<'_>) -> Result<()> {
             match alias {
                 Some((alias, _)) => format!(
                     "Configuration complete! You can now use: {}.",
-                    format!("jj {}", alias).bold()
+                    format!("jj {alias}").bold()
                 )
                 .green()
                 .to_string(),
@@ -258,12 +256,11 @@ fn parse_forge_url(url: &str) -> Option<DetectedForge> {
     if url.starts_with("git@") || url.starts_with("ssh://git@") {
         let rest = url.trim_start_matches("ssh://").strip_prefix("git@")?;
 
-        let (host, rest) = match rest.split_once(':') {
-            Some((host, rest)) => (host, rest),
-            None => {
-                let (host, rest) = rest.split_once('/')?;
-                (host, rest)
-            }
+        let (host, rest) = if let Some((host, rest)) = rest.split_once(':') {
+            (host, rest)
+        } else {
+            let (host, rest) = rest.split_once('/')?;
+            (host, rest)
         };
 
         let forge_type = ForgeType::detect_from_host(host)?;
@@ -273,7 +270,7 @@ fn parse_forge_url(url: &str) -> Option<DetectedForge> {
                 if let Some((_, org, project, repo)) =
                     rest.trim_end_matches(".git").split('/').collect_tuple()
                 {
-                    (format!("{}/{}", org, project), Some(repo.to_string()))
+                    (format!("{org}/{project}"), Some(repo.to_string()))
                 } else {
                     (rest.trim_end_matches(".git").to_string(), None)
                 }
@@ -283,16 +280,16 @@ fn parse_forge_url(url: &str) -> Option<DetectedForge> {
 
         let api_host = match forge_type {
             ForgeType::GitHub if host == "github.com" => "https://api.github.com".to_string(),
-            ForgeType::GitHub => format!("https://{}/api/v3", host),
-            ForgeType::GitLab => format!("https://{}", host),
-            ForgeType::Forgejo => format!("https://{}", host),
-            ForgeType::AzureDevOps => format!("https://{}", host),
+            ForgeType::GitHub => format!("https://{host}/api/v3"),
+            ForgeType::GitLab | ForgeType::Forgejo | ForgeType::AzureDevOps => {
+                format!("https://{host}")
+            }
         };
 
         return Some(DetectedForge {
             forge_type,
             host: api_host,
-            project: project.to_string(),
+            project: project.clone(),
             repository_name,
         });
     }
@@ -318,7 +315,7 @@ fn parse_forge_url(url: &str) -> Option<DetectedForge> {
                 if let Some((_, org, project, repo)) =
                     path.trim_end_matches(".git").split('/').collect_tuple()
                 {
-                    (format!("{}/{}", org, project), Some(repo.to_string()))
+                    (format!("{org}/{project}"), Some(repo.to_string()))
                 } else {
                     (path.trim_end_matches(".git").to_string(), None)
                 }
@@ -328,16 +325,16 @@ fn parse_forge_url(url: &str) -> Option<DetectedForge> {
 
         let api_host = match forge_type {
             ForgeType::GitHub if host == "github.com" => "https://api.github.com".to_string(),
-            ForgeType::GitHub => format!("{}://{}/api/v3", protocol, host),
-            ForgeType::GitLab => format!("{}://{}", protocol, host),
-            ForgeType::Forgejo => format!("{}://{}", protocol, host),
-            ForgeType::AzureDevOps => format!("{}://{}", protocol, host),
+            ForgeType::GitHub => format!("{protocol}://{host}/api/v3"),
+            ForgeType::GitLab | ForgeType::Forgejo | ForgeType::AzureDevOps => {
+                format!("{protocol}://{host}")
+            }
         };
 
         return Some(DetectedForge {
             forge_type,
             host: api_host,
-            project: project.to_string(),
+            project: project.clone(),
             repository_name,
         });
     }

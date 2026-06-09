@@ -56,6 +56,7 @@ pub enum BookmarkNameOrPendingChangeId {
 }
 
 impl BookmarkNameOrPendingChangeId {
+    #[must_use]
     pub fn new_from_bookmark(bookmark: &BookmarkOrPending<'_>) -> Self {
         match bookmark {
             BookmarkOrPending::Bookmark(b) => Self::Bookmark(b.name().to_string()),
@@ -65,6 +66,7 @@ impl BookmarkNameOrPendingChangeId {
         }
     }
 
+    #[must_use]
     pub fn new_from_pointer(pointer: &BookmarkWithPointers<'_>) -> Self {
         Self::new_from_bookmark(&pointer.bookmark)
     }
@@ -73,7 +75,7 @@ impl BookmarkNameOrPendingChangeId {
 impl std::fmt::Display for BookmarkNameOrPendingChangeId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Bookmark(name) => write!(f, "{}", name),
+            Self::Bookmark(name) => write!(f, "{name}"),
             Self::PendingChangeId(change_id) => {
                 write!(f, "{}", change_id_to_temp_bookmark_name(change_id))
             }
@@ -125,24 +127,24 @@ pub struct ExecuteActionContext<'a> {
     pub current_results: Vec<ActionResult>,
 }
 
-impl<'a> ExecuteActionContext<'a> {
+impl ExecuteActionContext<'_> {
     /// Gets all MRs at the current state of execution by overlaying creations
     /// and updates on top of MRs that existed at planning time.
+    #[must_use]
     pub fn all_mrs(&self) -> HashMap<String, AnyForgeMergeRequest> {
         let mut all_mrs = self.execute.plan.existing_mrs.clone();
 
         for result in &self.current_results {
-            match &result.data {
-                Ok(ActionResultData::MRCreated(update))
-                | Ok(ActionResultData::MRUpdated(update)) => {
-                    all_mrs.insert(update.bookmark.clone(), update.mr.clone());
-                }
-                _ => {}
+            if let Ok(ActionResultData::MRCreated(update) | ActionResultData::MRUpdated(update)) =
+                &result.data
+            {
+                all_mrs.insert(update.bookmark.clone(), update.mr.clone());
             }
         }
 
         all_mrs
     }
+    #[must_use]
     pub fn find_bookmark_name(&self, bookmark: &BookmarkNameOrPendingChangeId) -> Option<String> {
         match bookmark {
             BookmarkNameOrPendingChangeId::Bookmark(name) => Some(name.clone()),
@@ -250,6 +252,11 @@ impl MRUpdateType {
 }
 
 /// Execute a submission plan
+///
+/// # Panics
+///
+/// Panics if many reasons
+#[allow(clippy::too_many_lines, reason = "important")]
 pub async fn execute(mut ctx: RootExecuteContext<'_>) -> Result<SubmissionResult> {
     let mut merge_requests = Vec::new();
     let mut errors = Vec::new();
@@ -274,7 +281,7 @@ pub async fn execute(mut ctx: RootExecuteContext<'_>) -> Result<SubmissionResult
                     current_results
                         .iter()
                         .find(|result| result.id == *id)
-                        .unwrap_or_else(|| panic!("Dependency {} not found", id))
+                        .unwrap_or_else(|| panic!("Dependency {id} not found"))
                 })
                 .partition_map(|dep| match &dep.data {
                     Ok(data) => Either::Left((&dep.id, data)),
@@ -320,7 +327,7 @@ pub async fn execute(mut ctx: RootExecuteContext<'_>) -> Result<SubmissionResult
         for (action_id, result) in results {
             current_results.push(ActionResult {
                 id: action_id,
-                data: result.as_ref().map_err(|e| e.to_clonable_error()).cloned(),
+                data: result.as_ref().map_err(Error::to_clonable_error).cloned(),
             });
 
             if let Ok(ActionResultData::Pushed {
@@ -332,9 +339,7 @@ pub async fn execute(mut ctx: RootExecuteContext<'_>) -> Result<SubmissionResult
                         .changes
                         .iter_mut()
                         .find(|c| c.change_id == *change_id)
-                        .unwrap_or_else(|| {
-                            panic!("Could not find change {} in changes", change_id)
-                        });
+                        .unwrap_or_else(|| panic!("Could not find change {change_id} in changes"));
 
                     change.solidify_bookmark(name);
                 }
@@ -358,8 +363,7 @@ pub async fn execute(mut ctx: RootExecuteContext<'_>) -> Result<SubmissionResult
                     bookmarks_pushed.extend(bookmarks);
                 }
             }
-            Ok(ActionResultData::MRCreated(mr_update))
-            | Ok(ActionResultData::MRUpdated(mr_update)) => {
+            Ok(ActionResultData::MRCreated(mr_update) | ActionResultData::MRUpdated(mr_update)) => {
                 merge_requests.push(mr_update);
             }
             Ok(ActionResultData::DryRun) => {}

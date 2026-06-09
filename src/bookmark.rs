@@ -15,11 +15,12 @@ pub struct Bookmark<'a> {
     pub info: &'a BookmarkInfo,
 
     /// The change that the bookmark is associated with. This change contains
-    /// the actual BookmarkInfo.
+    /// the actual `BookmarkInfo`.
     pub change: &'a Change,
 }
 
 impl<'a> Bookmark<'a> {
+    #[must_use]
     pub fn from_change(change: &'a Change) -> impl IntoIterator<Item = Self> {
         change
             .bookmarks
@@ -27,6 +28,7 @@ impl<'a> Bookmark<'a> {
             .map(move |info| Self { info, change })
     }
 
+    #[must_use]
     pub fn from_changes(
         changes: impl IntoIterator<Item = &'a Change>,
     ) -> impl IntoIterator<Item = Self> {
@@ -34,22 +36,26 @@ impl<'a> Bookmark<'a> {
     }
 
     /// Check if the bookmark is a local bookmark.
+    #[must_use]
     pub fn is_local(&self) -> bool {
         self.info.is_local()
     }
 
     /// Check if the bookmark is a remote bookmark.
+    #[must_use]
     pub fn is_remote(&self) -> bool {
         self.info.is_remote()
     }
 
     /// Get the name of the bookmark.
+    #[must_use]
     pub fn name(&self) -> &str {
         self.info.name()
     }
 
     /// Get the full name of the bookmark, including the @<remote> suffix if it
     /// is a remote bookmark.
+    #[must_use]
     pub fn full_name(&self) -> String {
         self.info.full_name()
     }
@@ -67,6 +73,7 @@ impl PartialEq<String> for &Bookmark<'_> {
     }
 }
 
+#[must_use]
 pub fn change_id_to_temp_bookmark_name(change_id: &str) -> String {
     format!("(new bookmark for {})", &change_id[..8])
 }
@@ -81,6 +88,7 @@ pub enum BookmarkOrPending<'a> {
 }
 
 impl<'a> BookmarkOrPending<'a> {
+    #[must_use]
     pub fn new_pending(change: &'a Change) -> Self {
         Self::Pending {
             temp_bookmark_display_name: change_id_to_temp_bookmark_name(&change.change_id),
@@ -88,6 +96,7 @@ impl<'a> BookmarkOrPending<'a> {
         }
     }
 
+    #[must_use]
     pub fn from_change(change: &'a Change) -> impl IntoIterator<Item = Self> {
         let mut real_bookmarks: Vec<_> = Bookmark::from_change(change)
             .into_iter()
@@ -101,20 +110,24 @@ impl<'a> BookmarkOrPending<'a> {
         real_bookmarks
     }
 
+    #[must_use]
     pub fn from_changes(
         changes: impl IntoIterator<Item = &'a Change>,
     ) -> impl IntoIterator<Item = Self> {
         changes.into_iter().flat_map(Self::from_change)
     }
 
+    #[must_use]
     pub fn is_pending(&self) -> bool {
         matches!(self, Self::Pending { .. })
     }
 
+    #[must_use]
     pub fn is_bookmark(&self) -> bool {
         matches!(self, Self::Bookmark(_))
     }
 
+    #[must_use]
     pub fn as_pending(&self) -> Option<&Change> {
         match self {
             Self::Pending { change, .. } => Some(change),
@@ -122,6 +135,7 @@ impl<'a> BookmarkOrPending<'a> {
         }
     }
 
+    #[must_use]
     pub fn change_id(&self) -> &str {
         match self {
             Self::Bookmark(bookmark) => bookmark.change.change_id.as_str(),
@@ -129,6 +143,7 @@ impl<'a> BookmarkOrPending<'a> {
         }
     }
 
+    #[must_use]
     pub fn is_local(&self) -> bool {
         match self {
             Self::Bookmark(bookmark) => bookmark.info.is_local(),
@@ -136,6 +151,7 @@ impl<'a> BookmarkOrPending<'a> {
         }
     }
 
+    #[must_use]
     pub fn is_tracked(&self) -> bool {
         match self {
             Self::Bookmark(bookmark) => bookmark.info.is_tracked(),
@@ -144,6 +160,7 @@ impl<'a> BookmarkOrPending<'a> {
         }
     }
 
+    #[must_use]
     pub fn name(&self) -> &str {
         match self {
             Self::Bookmark(bookmark) => bookmark.name(),
@@ -154,6 +171,7 @@ impl<'a> BookmarkOrPending<'a> {
         }
     }
 
+    #[must_use]
     pub fn change(&self) -> &Change {
         match self {
             Self::Bookmark(bookmark) => bookmark.change,
@@ -170,7 +188,7 @@ impl std::fmt::Display for BookmarkOrPending<'_> {
                 temp_bookmark_display_name,
                 ..
             } => {
-                write!(f, "{}", temp_bookmark_display_name,)
+                write!(f, "{temp_bookmark_display_name}")
             }
         }
     }
@@ -180,14 +198,14 @@ impl JJName for BookmarkOrPending<'_> {
     fn raw_name(&self) -> String {
         match self {
             Self::Bookmark(bookmark) => bookmark.raw_name(),
-            Self::Pending { change, .. } => change.change_id.to_string(),
+            Self::Pending { change, .. } => change.change_id.clone(),
         }
     }
 
     fn name_for_jj(&self) -> String {
         match self {
             Self::Bookmark(bookmark) => bookmark.name_for_jj(),
-            Self::Pending { change, .. } => change.change_id.to_string(),
+            Self::Pending { change, .. } => change.change_id.clone(),
         }
     }
 }
@@ -201,7 +219,7 @@ pub trait JJName {
     fn name_for_jj(&self) -> String;
 }
 
-impl<'a> JJName for Bookmark<'a> {
+impl JJName for Bookmark<'_> {
     fn raw_name(&self) -> String {
         self.name().to_string()
     }
@@ -218,21 +236,21 @@ impl JJName for &str {
 
     fn name_for_jj(&self) -> String {
         // Assume a raw string is a bookmark, not something like `trunk()`.
-        format!("\"{}\"", self)
+        format!("\"{self}\"")
     }
 }
 
 impl JJName for &String {
     fn raw_name(&self) -> String {
-        self.to_string()
+        (*self).clone()
     }
 
     fn name_for_jj(&self) -> String {
-        format!("\"{}\"", self)
+        format!("\"{self}\"")
     }
 }
 
-/// A graph of jj changes that is independent of any other ChangeComponent.
+/// A graph of jj changes that is independent of any other `ChangeComponent`.
 /// The component is only connected to the trunk. Can be thought of as a "stack"
 /// of changes.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -244,6 +262,7 @@ pub struct ChangeComponent<'a> {
 
 impl ChangeComponent<'_> {
     /// Finds a bookmark in the component by name.
+    #[must_use]
     pub fn find(&self, name: &str) -> Option<&BookmarkWithPointers<'_>> {
         let mut to_process: Vec<_> = self.leaves.iter().collect();
         while let Some(bookmark) = to_process.pop() {
@@ -254,12 +273,13 @@ impl ChangeComponent<'_> {
             to_process.extend(bookmark.parents.iter().filter_map(|parent| match parent {
                 BookmarkRef::Bookmark(b) => Some(b),
                 BookmarkRef::Trunk => None,
-            }))
+            }));
         }
         None
     }
 
     /// Check if the component contains a bookmark by name.
+    #[must_use]
     pub fn contains(&self, name: &str) -> bool {
         self.find(name).is_some()
     }
@@ -277,6 +297,7 @@ impl ChangeComponent<'_> {
     }
 
     /// Get all bookmarks in the component.
+    #[must_use]
     pub fn all_bookmarks(&self) -> Vec<&BookmarkWithPointers<'_>> {
         let mut all: Vec<&BookmarkWithPointers<'_>> = Vec::new();
 
@@ -290,29 +311,33 @@ impl ChangeComponent<'_> {
             to_process.extend(bookmark.parents.iter().filter_map(|parent| match parent {
                 BookmarkRef::Bookmark(b) => Some(b),
                 BookmarkRef::Trunk => None,
-            }))
+            }));
         }
 
         all
     }
 
     /// Get the total number of bookmarks in the component.
+    #[must_use]
     pub fn len(&self) -> usize {
         self.all_bookmarks().len()
     }
 
     /// Check if the component is empty.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.all_bookmarks().is_empty()
     }
 
     /// A tree component is a component where no change has multiple parents.
+    #[must_use]
     pub fn is_tree(&self) -> bool {
-        self.leaves.iter().all(|b| b.is_linear())
+        self.leaves.iter().all(BookmarkWithPointers::is_linear)
     }
 
     /// A linear component is a component where no change has multiple children
     /// nor parents.
+    #[must_use]
     pub fn is_linear(&self) -> bool {
         match &self.leaves[..] {
             [] => true,
@@ -408,12 +433,13 @@ pub enum BookmarkRef<'a> {
     /// A regular bookmark.
     Bookmark(BookmarkWithPointers<'a>),
 
-    /// Any change that is part of trunk().
+    /// Any change that is part of `trunk()`.
     Trunk,
 }
 
 impl BookmarkRef<'_> {
     /// Finds a bookmark in the reference by name.
+    #[must_use]
     pub fn find(&self, name: &str) -> Option<&BookmarkWithPointers<'_>> {
         match self {
             BookmarkRef::Bookmark(b) => b.find(name),
@@ -422,6 +448,7 @@ impl BookmarkRef<'_> {
     }
 
     /// Get the downstack of the bookmark.
+    #[must_use]
     pub fn downstack(&self) -> Vec<BookmarkOrPending<'_>> {
         match self {
             BookmarkRef::Bookmark(b) => b.downstack(),
@@ -429,6 +456,7 @@ impl BookmarkRef<'_> {
         }
     }
 
+    #[must_use]
     pub fn name(&self) -> Option<&str> {
         match self {
             BookmarkRef::Bookmark(b) => Some(b.name()),
@@ -436,6 +464,7 @@ impl BookmarkRef<'_> {
         }
     }
 
+    #[must_use]
     pub fn has_parent(&self, name: &str) -> bool {
         match self {
             BookmarkRef::Bookmark(b) => b.has_parent_bookmark(name),
@@ -444,7 +473,7 @@ impl BookmarkRef<'_> {
     }
 }
 
-impl<'a> JJName for BookmarkRef<'a> {
+impl JJName for BookmarkRef<'_> {
     fn raw_name(&self) -> String {
         match self {
             BookmarkRef::Bookmark(b) => b.raw_name(),
@@ -476,6 +505,7 @@ pub struct BookmarkWithPointers<'a> {
 }
 
 impl BookmarkWithPointers<'_> {
+    #[must_use]
     /// Get the name of the bookmark.
     pub fn name(&self) -> &str {
         self.bookmark.name()
@@ -483,6 +513,7 @@ impl BookmarkWithPointers<'_> {
 
     /// Gets the name of the parent bookmark, or the default branch if there is
     /// no parent or the parent is the trunk.
+    #[must_use]
     pub fn parent_name(&self, default_branch: &str) -> String {
         // TODO let user pick target branch
         match self.parents.first() {
@@ -492,6 +523,7 @@ impl BookmarkWithPointers<'_> {
     }
 
     /// Finds a bookmark in the bookmark or its parents by name.
+    #[must_use]
     pub fn find(&self, name: &str) -> Option<&BookmarkWithPointers<'_>> {
         if self.name() == name {
             Some(self)
@@ -501,6 +533,7 @@ impl BookmarkWithPointers<'_> {
     }
 
     /// Get the downstack of the bookmark.
+    #[must_use]
     pub fn downstack(&self) -> Vec<BookmarkOrPending<'_>> {
         let mut downstack = vec![self.bookmark.clone()];
         for parent in &self.parents {
@@ -518,11 +551,12 @@ impl BookmarkWithPointers<'_> {
     /// A bookmark is linear if no ancestor has multiple parents.
     /// An ancestor is allowed to have multiple children (only linear from the
     /// perspective of this bookmark).
+    #[must_use]
     pub fn is_linear(&self) -> bool {
         let mut current = self;
         loop {
             match &current.parents[..] {
-                [] => {
+                [] | [BookmarkRef::Trunk] => {
                     return true;
                 }
                 [BookmarkRef::Bookmark(b)] => {
@@ -531,9 +565,6 @@ impl BookmarkWithPointers<'_> {
                     }
                     current = b;
                 }
-                [BookmarkRef::Trunk] => {
-                    return true;
-                }
                 _ => {
                     return false;
                 }
@@ -541,6 +572,7 @@ impl BookmarkWithPointers<'_> {
         }
     }
 
+    #[must_use]
     pub fn has_parent_bookmark(&self, name: &str) -> bool {
         self.parents.iter().any(|p| match p {
             BookmarkRef::Bookmark(b) => b.name() == name,
@@ -548,6 +580,7 @@ impl BookmarkWithPointers<'_> {
         })
     }
 
+    #[must_use]
     pub fn has_parent_ref(&self, parent: &BookmarkRef<'_>) -> bool {
         self.parents.iter().any(|p| p == parent)
     }
@@ -569,12 +602,13 @@ impl BookmarkWithPointers<'_> {
         jj.log(revset)
     }
 
+    #[must_use]
     pub fn is_pending(&self) -> bool {
         matches!(self.bookmark, BookmarkOrPending::Pending { .. })
     }
 }
 
-impl<'a> JJName for BookmarkWithPointers<'a> {
+impl JJName for BookmarkWithPointers<'_> {
     fn raw_name(&self) -> String {
         self.bookmark.raw_name()
     }
@@ -649,24 +683,19 @@ impl<'a> BookmarkGraph<'a> {
                 .extend(
                     parent_bookmarks
                         .iter()
-                        .flat_map(|b| b.bookmarks.iter().map(|b| b.full_name().to_string())),
+                        .flat_map(|b| b.bookmarks.iter().map(|b| b.full_name().clone())),
                 );
         }
 
-        Ok(Self::from_lookups(bookmark_lookup, adjacency_list))
+        Ok(Self::from_lookups(bookmark_lookup, &adjacency_list))
     }
 
     /// Build independent components from the bookmark graph
+    #[must_use]
     pub fn from_lookups(
         bookmark_lookup: BTreeMap<String, BookmarkOrPending<'a>>,
-        adjacency_list: BTreeMap<String, BTreeSet<String>>,
+        adjacency_list: &BTreeMap<String, BTreeSet<String>>,
     ) -> Self {
-        let parents: BTreeSet<_> = adjacency_list.values().flatten().cloned().collect();
-        let leaves: BTreeSet<_> = bookmark_lookup
-            .keys()
-            .filter(|k| !parents.contains(*k))
-            .collect();
-
         fn get_roots(
             name: &str,
             adjacency_list: &BTreeMap<String, BTreeSet<String>>,
@@ -688,11 +717,40 @@ impl<'a> BookmarkGraph<'a> {
             roots
         }
 
+        fn get_pointer<'b>(
+            bookmark_lookup: &BTreeMap<String, BookmarkOrPending<'b>>,
+            adjacency_list: &BTreeMap<String, BTreeSet<String>>,
+            name: &str,
+        ) -> BookmarkWithPointers<'b> {
+            BookmarkWithPointers {
+                bookmark: bookmark_lookup
+                    .get(name)
+                    .unwrap_or_else(|| panic!("Bookmark {name} not found in bookmark_lookup"))
+                    .clone(),
+                parents: adjacency_list
+                    .get(name)
+                    .map(|parents| {
+                        parents
+                            .iter()
+                            .map(|parent| get_pointer(bookmark_lookup, adjacency_list, parent))
+                            .map(BookmarkRef::Bookmark)
+                            .collect()
+                    })
+                    .unwrap_or(vec![BookmarkRef::Trunk]),
+            }
+        }
+
+        let parents: BTreeSet<_> = adjacency_list.values().flatten().cloned().collect();
+        let leaves: BTreeSet<_> = bookmark_lookup
+            .keys()
+            .filter(|k| !parents.contains(*k))
+            .collect();
+
         // Get a mapping from every root to the leaves that are on it - there may be
         // overlaps, where a leaf is on multiple roots.
         let mut components_overlapping = BTreeMap::new();
         for leaf in leaves {
-            for root in get_roots(leaf, &adjacency_list) {
+            for root in get_roots(leaf, adjacency_list) {
                 components_overlapping
                     .entry(root)
                     .or_insert(BTreeSet::new())
@@ -719,35 +777,12 @@ impl<'a> BookmarkGraph<'a> {
             }
         }
 
-        fn get_pointer<'b>(
-            bookmark_lookup: &BTreeMap<String, BookmarkOrPending<'b>>,
-            adjacency_list: &BTreeMap<String, BTreeSet<String>>,
-            name: &str,
-        ) -> BookmarkWithPointers<'b> {
-            BookmarkWithPointers {
-                bookmark: bookmark_lookup
-                    .get(name)
-                    .unwrap_or_else(|| panic!("Bookmark {} not found in bookmark_lookup", name))
-                    .clone(),
-                parents: adjacency_list
-                    .get(name)
-                    .map(|parents| {
-                        parents
-                            .iter()
-                            .map(|parent| get_pointer(bookmark_lookup, adjacency_list, parent))
-                            .map(BookmarkRef::Bookmark)
-                            .collect()
-                    })
-                    .unwrap_or(vec![BookmarkRef::Trunk]),
-            }
-        }
-
         let components = components
             .into_iter()
             .map(|(_roots, leaves)| ChangeComponent {
                 leaves: leaves
                     .iter()
-                    .map(|leaf| get_pointer(&bookmark_lookup, &adjacency_list, leaf))
+                    .map(|leaf| get_pointer(&bookmark_lookup, adjacency_list, leaf))
                     .collect(),
             })
             .collect();
@@ -770,17 +805,20 @@ impl<'a> BookmarkGraph<'a> {
     }
 
     /// Get all components in the graph.
+    #[must_use]
     pub fn components(&self) -> &[ChangeComponent<'_>] {
         &self.components
     }
 
     /// Gets a bookmark by name. Note that this is not the same as finding a
     /// bookmark in a component - this does not contain any parent information.
+    #[must_use]
     pub fn bookmark(&self, name: &str) -> Option<BookmarkOrPending<'_>> {
         self.bookmarks.get(name).cloned()
     }
 
     /// Find a bookmark in one of the components, by name.
+    #[must_use]
     pub fn find_bookmark_in_components(
         &self,
         bookmark_name: &str,
@@ -790,6 +828,7 @@ impl<'a> BookmarkGraph<'a> {
     }
 
     /// Find the component containing a specific bookmark
+    #[must_use]
     pub fn component_containing(&self, bookmark_name: &str) -> Option<&ChangeComponent<'_>> {
         self.components
             .iter()
@@ -863,7 +902,7 @@ mod tests {
 
         let graph = BookmarkGraph::from_lookups(
             changes.create_bookmark_map(),
-            changes.create_adjacency_list(),
+            &changes.create_adjacency_list(),
         );
 
         assert_eq!(graph.components.len(), 1);
@@ -889,7 +928,7 @@ mod tests {
 
         let graph = BookmarkGraph::from_lookups(
             changes.create_bookmark_map(),
-            changes.create_adjacency_list(),
+            &changes.create_adjacency_list(),
         );
 
         assert_eq!(graph.components.len(), 2);
@@ -909,7 +948,7 @@ mod tests {
 
         let graph = BookmarkGraph::from_lookups(
             changes.create_bookmark_map(),
-            changes.create_adjacency_list(),
+            &changes.create_adjacency_list(),
         );
 
         assert!(graph.find_bookmark_in_components("feature-a").is_some());
@@ -928,7 +967,7 @@ mod tests {
 
         let graph = BookmarkGraph::from_lookups(
             changes.create_bookmark_map(),
-            changes.create_adjacency_list(),
+            &changes.create_adjacency_list(),
         );
 
         let downstack = graph.downstack_of("feature-b").unwrap();
@@ -961,7 +1000,7 @@ mod tests {
 
         let graph = BookmarkGraph::from_lookups(
             changes.create_bookmark_map(),
-            changes.create_adjacency_list(),
+            &changes.create_adjacency_list(),
         );
 
         assert_eq!(
@@ -1018,7 +1057,7 @@ mod tests {
 
         let graph = BookmarkGraph::from_lookups(
             changes.create_bookmark_map(),
-            changes.create_adjacency_list(),
+            &changes.create_adjacency_list(),
         );
 
         assert_eq!(graph.components.len(), 1);
@@ -1037,7 +1076,7 @@ mod tests {
 
         let graph = BookmarkGraph::from_lookups(
             changes.create_bookmark_map(),
-            changes.create_adjacency_list(),
+            &changes.create_adjacency_list(),
         );
 
         assert!(graph.components[0].is_tree());
@@ -1056,7 +1095,7 @@ mod tests {
 
         let graph = BookmarkGraph::from_lookups(
             changes.create_bookmark_map(),
-            changes.create_adjacency_list(),
+            &changes.create_adjacency_list(),
         );
 
         assert!(graph.components[0].is_tree());
@@ -1079,7 +1118,7 @@ mod tests {
 
         let graph = BookmarkGraph::from_lookups(
             changes.create_bookmark_map(),
-            changes.create_adjacency_list(),
+            &changes.create_adjacency_list(),
         );
 
         assert!(graph.components[0].is_tree());
@@ -1096,7 +1135,7 @@ mod tests {
 
         let graph = BookmarkGraph::from_lookups(
             changes.create_bookmark_map(),
-            changes.create_adjacency_list(),
+            &changes.create_adjacency_list(),
         );
 
         assert!(!graph.components[0].is_tree());
@@ -1115,7 +1154,7 @@ mod tests {
 
         let graph = BookmarkGraph::from_lookups(
             changes.create_bookmark_map(),
-            changes.create_adjacency_list(),
+            &changes.create_adjacency_list(),
         );
 
         assert!(!graph.components[0].is_tree());
@@ -1141,7 +1180,7 @@ mod tests {
 
         let graph = BookmarkGraph::from_lookups(
             changes.create_bookmark_map(),
-            changes.create_adjacency_list(),
+            &changes.create_adjacency_list(),
         );
 
         assert!(!graph.components[0].is_tree());
@@ -1157,7 +1196,7 @@ mod tests {
 
         let graph = BookmarkGraph::from_lookups(
             changes.create_bookmark_map(),
-            changes.create_adjacency_list(),
+            &changes.create_adjacency_list(),
         );
 
         assert!(graph.components[0].is_linear());
@@ -1176,7 +1215,7 @@ mod tests {
 
         let graph = BookmarkGraph::from_lookups(
             changes.create_bookmark_map(),
-            changes.create_adjacency_list(),
+            &changes.create_adjacency_list(),
         );
 
         assert!(graph.components[0].is_linear());
@@ -1198,7 +1237,7 @@ mod tests {
 
         let graph = BookmarkGraph::from_lookups(
             changes.create_bookmark_map(),
-            changes.create_adjacency_list(),
+            &changes.create_adjacency_list(),
         );
 
         assert!(!graph.components[0].is_linear());
@@ -1221,7 +1260,7 @@ mod tests {
 
         let graph = BookmarkGraph::from_lookups(
             changes.create_bookmark_map(),
-            changes.create_adjacency_list(),
+            &changes.create_adjacency_list(),
         );
 
         assert!(!graph.components[0].is_linear());
@@ -1247,7 +1286,7 @@ mod tests {
 
         let graph = BookmarkGraph::from_lookups(
             changes.create_bookmark_map(),
-            changes.create_adjacency_list(),
+            &changes.create_adjacency_list(),
         );
 
         assert!(graph.components[0].is_linear_from("feature-d").unwrap());
@@ -1263,7 +1302,7 @@ mod tests {
 
         let graph = BookmarkGraph::from_lookups(
             changes.create_bookmark_map(),
-            changes.create_adjacency_list(),
+            &changes.create_adjacency_list(),
         );
 
         assert!(graph.components[0].is_linear_from("feature-a").unwrap());

@@ -20,11 +20,11 @@ async fn test_pr_title_generates() -> Result<()> {
 
     assert_eq!(
         pr_a.pull_request.title,
-        format!("[1/2] Commit for {} bookmark", a)
+        format!("[1/2] Commit for {a} bookmark")
     );
     assert_eq!(
         pr_b.pull_request.title,
-        format!("[2/2] Commit for {} bookmark", b)
+        format!("[2/2] Commit for {b} bookmark")
     );
 
     Ok(())
@@ -60,15 +60,15 @@ async fn test_pr_title_syncs_on_submit() -> Result<()> {
 
     assert_eq!(
         pr_a.pull_request.title,
-        format!("[1/3] Commit for {} bookmark", a)
+        format!("[1/3] Commit for {a} bookmark")
     );
     assert_eq!(
         pr_b.pull_request.title,
-        format!("[2/3] Commit for {} bookmark", b)
+        format!("[2/3] Commit for {b} bookmark")
     );
     assert_eq!(
         pr_c.pull_request.title,
-        format!("[3/3] Commit for {} bookmark", c)
+        format!("[3/3] Commit for {c} bookmark")
     );
 
     Ok(())
@@ -104,15 +104,15 @@ async fn test_pr_title_does_not_sync_on_submit() -> Result<()> {
 
     assert_eq!(
         pr_a.pull_request.title,
-        format!("[1/2] Commit for {} bookmark", a)
+        format!("[1/2] Commit for {a} bookmark")
     );
     assert_eq!(
         pr_b.pull_request.title,
-        format!("[2/2] Commit for {} bookmark", b)
+        format!("[2/2] Commit for {b} bookmark")
     );
     assert_eq!(
         pr_c.pull_request.title,
-        format!("[3/3] Commit for {} bookmark", c)
+        format!("[3/3] Commit for {c} bookmark")
     );
 
     Ok(())

@@ -21,7 +21,7 @@ async fn test_submit_creates_pr() -> Result<()> {
         .await?
         .expect("PR should exist");
 
-    assert_eq!(pr.source_ref_name, format!("refs/heads/{}", branch));
+    assert_eq!(pr.source_ref_name, format!("refs/heads/{branch}"));
     assert_eq!(pr.target_ref_name, "refs/heads/main");
     assert_eq!(pr.status, PullRequestStatus::Active);
 
@@ -55,7 +55,7 @@ async fn test_submit_creates_stacked_prs() -> Result<()> {
         repo.forge()
             .find_merge_request_by_source_branch(&branch_a)
             .await?
-            .map(|pr| pr.target_ref_name.to_string()),
+            .map(|pr| pr.target_ref_name.clone()),
         Some("refs/heads/main".to_string())
     );
 
@@ -63,16 +63,16 @@ async fn test_submit_creates_stacked_prs() -> Result<()> {
         repo.forge()
             .find_merge_request_by_source_branch(&branch_b)
             .await?
-            .map(|pr| pr.target_ref_name.to_string()),
-        Some(format!("refs/heads/{}", branch_a))
+            .map(|pr| pr.target_ref_name.clone()),
+        Some(format!("refs/heads/{branch_a}"))
     );
 
     assert_eq!(
         repo.forge()
             .find_merge_request_by_source_branch(&branch_c)
             .await?
-            .map(|pr| pr.target_ref_name.to_string()),
-        Some(format!("refs/heads/{}", branch_b))
+            .map(|pr| pr.target_ref_name.clone()),
+        Some(format!("refs/heads/{branch_b}"))
     );
 
     Ok(())
@@ -135,8 +135,8 @@ async fn test_submit_retargets_after_middle_bookmark_deleted() -> Result<()> {
         repo.forge()
             .find_merge_request_by_source_branch(&branch_c)
             .await?
-            .map(|pr| pr.target_ref_name.to_string()),
-        Some(format!("refs/heads/{}", branch_b))
+            .map(|pr| pr.target_ref_name.clone()),
+        Some(format!("refs/heads/{branch_b}"))
     );
 
     repo.jj.exec(["bookmark", "delete", &branch_b])?;
@@ -147,8 +147,8 @@ async fn test_submit_retargets_after_middle_bookmark_deleted() -> Result<()> {
         repo.forge()
             .find_merge_request_by_source_branch(&branch_c)
             .await?
-            .map(|pr| pr.target_ref_name.to_string()),
-        Some(format!("refs/heads/{}", branch_a))
+            .map(|pr| pr.target_ref_name.clone()),
+        Some(format!("refs/heads/{branch_a}"))
     );
 
     Ok(())

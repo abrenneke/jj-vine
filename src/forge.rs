@@ -44,7 +44,7 @@ pub trait ForgeMergeRequest: std::fmt::Debug {
 
     type Id: BorrowId;
 
-    fn iid<'a>(&'a self) -> <Self::Id as BorrowId>::Id<'a>;
+    fn iid(&self) -> <Self::Id as BorrowId>::Id<'_>;
 
     fn title(&self) -> &str;
 
@@ -134,7 +134,7 @@ where
     type Id = String;
     type User = AnyForgeUser;
 
-    fn iid<'a>(&'a self) -> <Self::Id as BorrowId>::Id<'a> {
+    fn iid(&self) -> <Self::Id as BorrowId>::Id<'_> {
         Cow::Owned(self.inner.iid().to_string())
     }
 
@@ -208,7 +208,7 @@ impl ForgeMergeRequest for AnyForgeMergeRequest {
 
     type Id = String;
 
-    fn iid<'a>(&'a self) -> <Self::Id as BorrowId>::Id<'a> {
+    fn iid(&self) -> <Self::Id as BorrowId>::Id<'_> {
         (**self).iid()
     }
 
@@ -350,6 +350,7 @@ pub struct MergeRequestStatus {
 }
 
 impl MergeRequestStatus {
+    #[must_use]
     pub fn ready_to_merge(&self) -> bool {
         self.approval_status.satisfaction == ApprovalSatisfaction::Satisfied
             && (self.check_status == CheckStatus::Success || self.check_status == CheckStatus::None)
@@ -622,6 +623,7 @@ pub enum ForgeImpl {
     GitLab(gitlab::GitLabForge),
     GitHub(github::GitHubForge),
     Forgejo(forgejo::ForgejoForge),
+    #[cfg(test)]
     Test(test::TestForge),
     AzureDevOps(azure::AzureDevOpsForge),
 }
@@ -653,6 +655,7 @@ impl Forge for ForgeImpl {
             ForgeImpl::GitLab(forge) => forge.project_id(),
             ForgeImpl::GitHub(forge) => forge.project_id(),
             ForgeImpl::Forgejo(forge) => forge.project_id(),
+            #[cfg(test)]
             ForgeImpl::Test(forge) => forge.project_id(),
             ForgeImpl::AzureDevOps(forge) => forge.project_id(),
         }
@@ -664,6 +667,7 @@ impl Forge for ForgeImpl {
             ForgeImpl::GitLab(forge) => forge.source_project_id(),
             ForgeImpl::GitHub(forge) => forge.source_project_id(),
             ForgeImpl::Forgejo(forge) => forge.source_project_id(),
+            #[cfg(test)]
             ForgeImpl::Test(forge) => forge.source_project_id(),
             ForgeImpl::AzureDevOps(forge) => forge.source_project_id(),
         }
@@ -675,6 +679,7 @@ impl Forge for ForgeImpl {
             ForgeImpl::GitLab(forge) => forge.target_project_id(),
             ForgeImpl::GitHub(forge) => forge.target_project_id(),
             ForgeImpl::Forgejo(forge) => forge.target_project_id(),
+            #[cfg(test)]
             ForgeImpl::Test(forge) => forge.target_project_id(),
             ForgeImpl::AzureDevOps(forge) => forge.target_project_id(),
         }
@@ -686,6 +691,7 @@ impl Forge for ForgeImpl {
             ForgeImpl::GitLab(forge) => forge.base_url(),
             ForgeImpl::GitHub(forge) => forge.base_url(),
             ForgeImpl::Forgejo(forge) => forge.base_url(),
+            #[cfg(test)]
             ForgeImpl::Test(forge) => forge.base_url(),
             ForgeImpl::AzureDevOps(forge) => forge.base_url(),
         }
@@ -702,6 +708,7 @@ impl Forge for ForgeImpl {
             ForgeImpl::GitLab(forge) => Box::new(forge.current_user().await?),
             ForgeImpl::GitHub(forge) => Box::new(forge.current_user().await?),
             ForgeImpl::Forgejo(forge) => Box::new(forge.current_user().await?),
+            #[cfg(test)]
             ForgeImpl::Test(forge) => Box::new(forge.current_user().await?),
             ForgeImpl::AzureDevOps(forge) => Box::new(forge.current_user().await?),
         };
@@ -723,6 +730,7 @@ impl Forge for ForgeImpl {
                 Some(user) => Some(Box::new(user)),
                 None => None,
             },
+            #[cfg(test)]
             ForgeImpl::Test(forge) => match forge.user_by_username(username).await? {
                 Some(user) => Some(Box::new(user)),
                 None => None,
@@ -754,6 +762,7 @@ impl Forge for ForgeImpl {
                 .find_merge_request_by_source_branch(branch)
                 .await?
                 .map(AnyForgeMergeRequest::new),
+            #[cfg(test)]
             ForgeImpl::Test(forge) => forge
                 .find_merge_request_by_source_branch(branch)
                 .await?
@@ -783,6 +792,7 @@ impl Forge for ForgeImpl {
                 .find_merge_request_by_source_branch_base_branch(source_branch, base_branch)
                 .await?
                 .map(AnyForgeMergeRequest::new),
+            #[cfg(test)]
             ForgeImpl::Test(forge) => forge
                 .find_merge_request_by_source_branch_base_branch(source_branch, base_branch)
                 .await?
@@ -809,6 +819,7 @@ impl Forge for ForgeImpl {
             ForgeImpl::Forgejo(forge) => {
                 AnyForgeMergeRequest::new(forge.create_merge_request(options.into_other()?).await?)
             }
+            #[cfg(test)]
             ForgeImpl::Test(forge) => {
                 AnyForgeMergeRequest::new(forge.create_merge_request(options.into_other()?).await?)
             }
@@ -844,6 +855,7 @@ impl Forge for ForgeImpl {
                     .await?,
             ),
 
+            #[cfg(test)]
             ForgeImpl::Test(forge) => AnyForgeMergeRequest::new(
                 forge
                     .update_merge_request_base(merge_request_iid, new_base)
@@ -884,6 +896,7 @@ impl Forge for ForgeImpl {
                     .await?,
             ),
 
+            #[cfg(test)]
             ForgeImpl::Test(forge) => AnyForgeMergeRequest::new(
                 forge
                     .update_merge_request_info(merge_request_iid, update)
@@ -920,6 +933,7 @@ impl Forge for ForgeImpl {
                     .get_merge_request(merge_request_iid.parse::<u64>()?)
                     .await?,
             ),
+            #[cfg(test)]
             ForgeImpl::Test(forge) => {
                 AnyForgeMergeRequest::new(forge.get_merge_request(merge_request_iid).await?)
             }
@@ -950,6 +964,7 @@ impl Forge for ForgeImpl {
                     .get_approval_status(merge_request_iid.parse::<u64>()?)
                     .await
             }
+            #[cfg(test)]
             ForgeImpl::Test(forge) => forge.get_approval_status(merge_request_iid).await,
             ForgeImpl::AzureDevOps(forge) => {
                 forge
@@ -977,6 +992,7 @@ impl Forge for ForgeImpl {
                     .get_check_status(merge_request_iid.parse::<u64>()?)
                     .await
             }
+            #[cfg(test)]
             ForgeImpl::Test(forge) => forge.get_check_status(merge_request_iid).await,
             ForgeImpl::AzureDevOps(forge) => {
                 forge
@@ -1007,6 +1023,7 @@ impl Forge for ForgeImpl {
                     .get_merge_request_status(merge_request_iid.parse::<u64>()?)
                     .await
             }
+            #[cfg(test)]
             ForgeImpl::Test(forge) => forge.get_merge_request_status(merge_request_iid).await,
             ForgeImpl::AzureDevOps(forge) => {
                 forge
@@ -1037,6 +1054,7 @@ impl Forge for ForgeImpl {
                     .num_open_discussions(merge_request_iid.parse::<u64>()?)
                     .await
             }
+            #[cfg(test)]
             ForgeImpl::Test(forge) => forge.num_open_discussions(merge_request_iid).await,
             ForgeImpl::AzureDevOps(forge) => {
                 forge
@@ -1051,6 +1069,7 @@ impl Forge for ForgeImpl {
             ForgeImpl::GitLab(forge) => forge.supports_dependent_merge_requests(),
             ForgeImpl::GitHub(forge) => forge.supports_dependent_merge_requests(),
             ForgeImpl::Forgejo(forge) => forge.supports_dependent_merge_requests(),
+            #[cfg(test)]
             ForgeImpl::Test(forge) => forge.supports_dependent_merge_requests(),
             ForgeImpl::AzureDevOps(forge) => forge.supports_dependent_merge_requests(),
         }
@@ -1101,6 +1120,7 @@ impl Forge for ForgeImpl {
                     )
                     .await
             }
+            #[cfg(test)]
             ForgeImpl::Test(forge) => {
                 forge
                     .sync_dependent_merge_requests(merge_request_iid, dependent_merge_request_iids)
@@ -1133,6 +1153,7 @@ impl FormatMergeRequest for ForgeImpl {
                 .format_merge_request_id(mr_iid.parse::<u64>().expect("Invalid pull request ID")),
             ForgeImpl::Forgejo(forge) => forge
                 .format_merge_request_id(mr_iid.parse::<u64>().expect("Invalid pull request ID")),
+            #[cfg(test)]
             ForgeImpl::Test(forge) => forge.format_merge_request_id(mr_iid),
             ForgeImpl::AzureDevOps(forge) => forge
                 .format_merge_request_id(mr_iid.parse::<i32>().expect("Invalid pull request ID")),
@@ -1144,6 +1165,7 @@ impl FormatMergeRequest for ForgeImpl {
             ForgeImpl::GitLab(forge) => forge.mr_name(),
             ForgeImpl::GitHub(forge) => forge.mr_name(),
             ForgeImpl::Forgejo(forge) => forge.mr_name(),
+            #[cfg(test)]
             ForgeImpl::Test(forge) => forge.mr_name(),
             ForgeImpl::AzureDevOps(forge) => forge.mr_name(),
         }
@@ -1154,6 +1176,7 @@ impl FormatMergeRequest for ForgeImpl {
             ForgeImpl::GitLab(forge) => forge.id_expands_title(),
             ForgeImpl::GitHub(forge) => forge.id_expands_title(),
             ForgeImpl::Forgejo(forge) => forge.id_expands_title(),
+            #[cfg(test)]
             ForgeImpl::Test(forge) => forge.id_expands_title(),
             ForgeImpl::AzureDevOps(forge) => forge.id_expands_title(),
         }

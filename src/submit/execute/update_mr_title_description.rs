@@ -193,13 +193,13 @@ impl ExecuteAction for UpdateMRTitleDescriptionAction {
                             description_unchanged.then(|| new_description.to_string()),
                         )
                         .old_title(current_mr.title().to_string())
-                        .maybe_new_title(self.title.as_ref().cloned())
+                        .maybe_new_title(self.title.clone())
                         .call(),
                     warnings: None,
                 }))
             }
             Err(e) => {
-                let error_msg = format!("Failed to update MR description for {}: {}", bookmark, e);
+                let error_msg = format!("Failed to update MR description for {bookmark}: {e}");
                 ctx.execute.output.log_message(&error_msg);
                 error!("{}", error_msg);
                 Err(Error::new(error_msg))

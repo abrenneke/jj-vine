@@ -216,67 +216,70 @@ impl std::fmt::Display for ClonableError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.message)?;
         if let Some(backtrace) = &self.backtrace {
-            writeln!(f, "\nBacktrace:\n{}", backtrace)?;
+            writeln!(f, "\nBacktrace:\n{backtrace}")?;
         }
         if let Some(location) = &self.location {
-            writeln!(f, "\nLocation:\n{}", location)?;
+            writeln!(f, "\nLocation:\n{location}")?;
         }
         Ok(())
     }
 }
 
 impl Error {
+    #[must_use]
     pub fn backtrace(&self) -> Option<&Backtrace> {
         match self {
-            Error::JjCommand { backtrace, .. } => Some(backtrace),
-            Error::GitCommand { backtrace, .. } => Some(backtrace),
-            Error::GitLabApi { backtrace, .. } => Some(backtrace),
-            Error::GitHubApi { backtrace, .. } => Some(backtrace),
-            Error::ForgejoApi { backtrace, .. } => Some(backtrace),
-            Error::Clap { backtrace, .. } => Some(backtrace),
-            Error::Config { backtrace, .. } => Some(backtrace),
-            Error::BookmarkNotFound { backtrace, .. } => Some(backtrace),
-            Error::InvalidGraph { backtrace, .. } => Some(backtrace),
-            Error::Io { backtrace, .. } => Some(backtrace),
-            Error::Http { backtrace, .. } => Some(backtrace),
-            Error::Json { backtrace, .. } => Some(backtrace),
-            Error::Utf8 { backtrace, .. } => Some(backtrace),
-            Error::Parse { backtrace, .. } => Some(backtrace),
-            Error::Other { backtrace, .. } => Some(backtrace),
-            Error::InvalidComponent { backtrace, .. } => Some(backtrace),
-            Error::Aggregate { backtrace, .. } => Some(backtrace),
-            Error::AzureDevOpsApi { backtrace, .. } => Some(backtrace),
+            Error::JjCommand { backtrace, .. }
+            | Error::GitCommand { backtrace, .. }
+            | Error::GitLabApi { backtrace, .. }
+            | Error::GitHubApi { backtrace, .. }
+            | Error::ForgejoApi { backtrace, .. }
+            | Error::Clap { backtrace, .. }
+            | Error::Config { backtrace, .. }
+            | Error::BookmarkNotFound { backtrace, .. }
+            | Error::InvalidGraph { backtrace, .. }
+            | Error::Io { backtrace, .. }
+            | Error::Http { backtrace, .. }
+            | Error::Json { backtrace, .. }
+            | Error::Utf8 { backtrace, .. }
+            | Error::Parse { backtrace, .. }
+            | Error::Other { backtrace, .. }
+            | Error::InvalidComponent { backtrace, .. }
+            | Error::Aggregate { backtrace, .. }
+            | Error::AzureDevOpsApi { backtrace, .. } => Some(backtrace),
         }
     }
 
+    #[must_use]
     pub fn location(&self) -> Option<&Location> {
         match self {
-            Error::JjCommand { location, .. } => Some(location),
-            Error::GitCommand { location, .. } => Some(location),
-            Error::GitLabApi { location, .. } => Some(location),
-            Error::GitHubApi { location, .. } => Some(location),
-            Error::ForgejoApi { location, .. } => Some(location),
-            Error::Clap { location, .. } => Some(location),
-            Error::Config { location, .. } => Some(location),
-            Error::BookmarkNotFound { location, .. } => Some(location),
-            Error::InvalidGraph { location, .. } => Some(location),
-            Error::Io { location, .. } => Some(location),
-            Error::Http { location, .. } => Some(location),
-            Error::Json { location, .. } => Some(location),
-            Error::Utf8 { location, .. } => Some(location),
-            Error::Parse { location, .. } => Some(location),
-            Error::Other { location, .. } => Some(location),
-            Error::InvalidComponent { location, .. } => Some(location),
-            Error::Aggregate { location, .. } => Some(location),
-            Error::AzureDevOpsApi { location, .. } => Some(location),
+            Error::JjCommand { location, .. }
+            | Error::GitCommand { location, .. }
+            | Error::GitLabApi { location, .. }
+            | Error::GitHubApi { location, .. }
+            | Error::ForgejoApi { location, .. }
+            | Error::Clap { location, .. }
+            | Error::Config { location, .. }
+            | Error::BookmarkNotFound { location, .. }
+            | Error::InvalidGraph { location, .. }
+            | Error::Io { location, .. }
+            | Error::Http { location, .. }
+            | Error::Json { location, .. }
+            | Error::Utf8 { location, .. }
+            | Error::Parse { location, .. }
+            | Error::Other { location, .. }
+            | Error::InvalidComponent { location, .. }
+            | Error::Aggregate { location, .. }
+            | Error::AzureDevOpsApi { location, .. } => Some(location),
         }
     }
 
+    #[must_use]
     pub fn to_clonable_error(&self) -> ClonableError {
         ClonableError {
             message: self.to_string(),
-            backtrace: self.backtrace().map(|b| b.to_string()),
-            location: self.location().cloned(),
+            backtrace: self.backtrace().map(ToString::to_string),
+            location: self.location().copied(),
         }
     }
 }
@@ -286,11 +289,11 @@ impl std::fmt::Debug for Error {
         error_trace(self, f)?;
 
         if let Some(backtrace) = self.backtrace() {
-            writeln!(f, "\nBacktrace:\n{}", backtrace)?;
+            writeln!(f, "\nBacktrace:\n{backtrace}")?;
         }
 
         if let Some(location) = self.location() {
-            writeln!(f, "\nLocation:\n{}", location)?;
+            writeln!(f, "\nLocation:\n{location}")?;
         }
 
         Ok(())
@@ -298,7 +301,7 @@ impl std::fmt::Debug for Error {
 }
 
 fn error_trace(error: &Error, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
-    writeln!(f, "{}", error)?;
+    writeln!(f, "{error}")?;
 
     let sources = ChainCompat::new(error).skip(1);
     let plurality = sources.clone().take(2).count();
@@ -312,7 +315,7 @@ fn error_trace(error: &Error, f: &mut std::fmt::Formatter) -> Result<(), std::fm
     for (i, source) in sources.enumerate() {
         // Let's use 1-based indexing for presentation
         let i = i + 1;
-        writeln!(f, "{:3}: {}", i, source)?;
+        writeln!(f, "{i:3}: {source}")?;
     }
 
     Ok(())

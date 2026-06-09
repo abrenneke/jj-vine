@@ -215,7 +215,7 @@ async fn test_skip_update_when_description_unchanged() -> Result<()> {
         .body
         .as_ref()
         .unwrap()
-        .to_string();
+        .clone();
 
     repo.run(["submit", &branch_b]).await;
 
@@ -254,9 +254,9 @@ async fn test_sync_description() -> Result<()> {
             .as_ref()
             .unwrap()
             .starts_with(&format!(
-                r#"Description for {branch_a} bookmark
+                "Description for {branch_a} bookmark
 
-<!-- start jj-vine stack -->"#
+<!-- start jj-vine stack -->"
             ))
     );
 
@@ -266,9 +266,9 @@ async fn test_sync_description() -> Result<()> {
             .as_ref()
             .unwrap()
             .starts_with(&format!(
-                r#"Description for {branch_b} bookmark
+                "Description for {branch_b} bookmark
 
-<!-- start jj-vine stack -->"#
+<!-- start jj-vine stack -->"
             ))
     );
 
@@ -293,15 +293,15 @@ async fn test_sync_description() -> Result<()> {
     let pr_b = repo.get_mr_with_base(&branch_b, &branch_a).await;
 
     assert!(pr_a.pull_request.body.as_ref().unwrap().starts_with(
-        r#"This is the new branch A body
+        "This is the new branch A body
 
-<!-- start jj-vine stack -->"#
+<!-- start jj-vine stack -->"
     ));
 
     assert!(pr_b.pull_request.body.as_ref().unwrap().starts_with(
-        r#"This is the new branch B body
+        "This is the new branch B body
 
-<!-- start jj-vine stack -->"#
+<!-- start jj-vine stack -->"
     ));
 
     Ok(())
@@ -328,9 +328,9 @@ async fn test_sync_description_disabled() -> Result<()> {
             .as_ref()
             .unwrap()
             .starts_with(&format!(
-                r#"Description for {branch_a} bookmark
+                "Description for {branch_a} bookmark
 
-<!-- start jj-vine stack -->"#
+<!-- start jj-vine stack -->"
             ))
     );
 
@@ -340,9 +340,9 @@ async fn test_sync_description_disabled() -> Result<()> {
             .as_ref()
             .unwrap()
             .starts_with(&format!(
-                r#"Description for {branch_b} bookmark
+                "Description for {branch_b} bookmark
 
-<!-- start jj-vine stack -->"#
+<!-- start jj-vine stack -->"
             ))
     );
 
@@ -372,9 +372,9 @@ async fn test_sync_description_disabled() -> Result<()> {
             .as_ref()
             .unwrap()
             .starts_with(&format!(
-                r#"Description for {branch_a} bookmark
+                "Description for {branch_a} bookmark
 
-<!-- start jj-vine stack -->"#
+<!-- start jj-vine stack -->"
             ))
     );
 
@@ -384,9 +384,9 @@ async fn test_sync_description_disabled() -> Result<()> {
             .as_ref()
             .unwrap()
             .starts_with(&format!(
-                r#"Description for {branch_b} bookmark
+                "Description for {branch_b} bookmark
 
-<!-- start jj-vine stack -->"#
+<!-- start jj-vine stack -->"
             ))
     );
 

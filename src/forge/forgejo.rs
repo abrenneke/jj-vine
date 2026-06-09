@@ -212,7 +212,6 @@ impl ForgeMergeRequest for ForgejoMergeRequest {
     }
 }
 
-/// Review state type (APPROVED, REQUEST_CHANGES, COMMENT, etc.)
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 enum ReviewStateType {
@@ -296,7 +295,7 @@ impl ForgejoForge {
 
             let certs = reqwest::Certificate::from_pem_bundle(&ca_cert).map_err(|e| {
                 ConfigSnafu {
-                    message: format!("Failed to parse CA bundle: {}", e),
+                    message: format!("Failed to parse CA bundle: {e}"),
                 }
                 .build()
             })?;
@@ -308,7 +307,7 @@ impl ForgejoForge {
 
         let client = client_builder.build().map_err(|e| {
             ConfigSnafu {
-                message: format!("Failed to build HTTP client: {:?}", e),
+                message: format!("Failed to build HTTP client: {e:?}"),
             }
             .build()
         })?;
@@ -323,7 +322,7 @@ impl ForgejoForge {
         let source_project_id_clone = source_project_id.clone();
         let (source_owner, source_repo) = source_project_id_clone.split_once('/').ok_or(
             ConfigSnafu {
-                message: format!("Invalid source project ID: {}", source_project_id),
+                message: format!("Invalid source project ID: {source_project_id}"),
             }
             .build(),
         )?;
@@ -331,7 +330,7 @@ impl ForgejoForge {
         let target_project_id_clone = target_project_id.clone();
         let (target_owner, target_repo) = target_project_id_clone.split_once('/').ok_or(
             ConfigSnafu {
-                message: format!("Invalid target project ID: {}", target_project_id),
+                message: format!("Invalid target project ID: {target_project_id}"),
             }
             .build(),
         )?;
@@ -374,7 +373,7 @@ impl ForgejoForge {
             let status = response.status();
             let text = response.text().await?;
             return Err(ForgejoApiSnafu {
-                message: format!("Failed request: {} - {}", status, text),
+                message: format!("Failed request: {status} - {text}"),
                 status,
             }
             .build());
@@ -520,10 +519,10 @@ impl Forge for ForgejoForge {
         // are known, avoiding the paginated listing needed by the branch-only
         // method. For cross-repo (fork) PRs the head parameter must use the
         // "owner:branch" format so Forgejo resolves the correct repository.
-        let head = if self.source_project_id != self.target_project_id {
-            format!("{}:{}", self.source_owner, source_branch)
-        } else {
+        let head = if self.source_project_id == self.target_project_id {
             source_branch.to_string()
+        } else {
+            format!("{}:{source_branch}", self.source_owner)
         };
 
         let pr: Result<PullRequest> = self
@@ -571,12 +570,6 @@ impl Forge for ForgejoForge {
             squash: _squash,
         }: ForgeCreateMergeRequestOptions<Self::UserId>,
     ) -> Result<Self::MergeRequest> {
-        let head = if self.source_project_id != self.target_project_id {
-            format!("{}:{}", self.source_owner, source_branch)
-        } else {
-            source_branch.clone()
-        };
-
         #[derive(Serialize)]
         #[serde(rename_all = "camelCase")]
         struct Body {
@@ -585,8 +578,15 @@ impl Forge for ForgejoForge {
             base: String,
 
             #[serde(skip_serializing_if = "Option::is_none")]
+            #[allow(clippy::struct_field_names, reason = "serialized")]
             body: Option<String>,
         }
+
+        let head = if self.source_project_id == self.target_project_id {
+            source_branch.clone()
+        } else {
+            format!("{}:{}", self.source_owner, source_branch)
+        };
 
         let payload = Body {
             // Not exactly documented, but Forgejo detects this based on a repository-configurable
@@ -676,7 +676,7 @@ impl Forge for ForgejoForge {
                         (None, Some(title)) => Some(self.wrap_draft(&title, current_is_draft)),
                         (None, None) => None,
                     },
-                    "body": description.map(|description| description.to_string()),
+                    "body": description,
                 })),
             )
             .await?;
@@ -708,12 +708,9 @@ impl Forge for ForgejoForge {
     async fn get_approval_status(&self, pr_number: u64) -> Result<ApprovalStatus> {
         let reviews = self.pull_request_reviews(pr_number).await;
 
-        let reviews = match reviews {
-            Ok(reviews) => reviews,
-            Err(_) => {
-                // Can't access reviews, fall back to unknown
-                return Ok(Default::default());
-            }
+        let Ok(reviews) = reviews else {
+            // Can't access reviews, fall back to unknown
+            return Ok(ApprovalStatus::default());
         };
 
         // Group reviews by user, keeping only the most recent review from each user
@@ -737,11 +734,13 @@ impl Forge for ForgejoForge {
             }
         }
 
+        #[allow(clippy::cast_possible_truncation, reason = "will never get that high")]
         let approved_count = user_reviews
             .values()
             .filter(|review| review.state == ReviewStateType::Approved)
             .count() as u32;
 
+        #[allow(clippy::cast_possible_truncation, reason = "will never get that high")]
         let blocking_count = user_reviews
             .values()
             .filter(|review| review.state == ReviewStateType::RequestChanges)
@@ -799,7 +798,7 @@ impl Forge for ForgejoForge {
             }
             reqwest::StatusCode::NOT_FOUND => Ok(CheckStatus::None),
             status => Err(ForgejoApiSnafu {
-                message: format!("Failed to get commit status: {}", status),
+                message: format!("Failed to get commit status: {status}"),
                 status,
             }
             .build()),
@@ -829,6 +828,7 @@ impl Forge for ForgejoForge {
             comments.push((review, review_comments));
         }
 
+        #[allow(clippy::cast_possible_truncation, reason = "will never get that high")]
         Ok(comments.iter().fold(
             DiscussionCount {
                 all: 0,
@@ -957,7 +957,7 @@ impl FormatMergeRequest for ForgejoForge {
     type Id = u64;
 
     fn format_merge_request_id(&self, mr_iid: Self::Id) -> String {
-        format!("#{}", mr_iid)
+        format!("#{mr_iid}")
     }
 
     fn mr_name(&self) -> &'static str {

@@ -150,7 +150,7 @@ async fn test_add_markers_to_description_without_markers() -> Result<()> {
             ForgeUpdateMergeRequestInfoOptions::builder()
                 .description(user_description.to_string())
                 .current_is_draft(pr.is_draft)
-                .current_title(pr.title.to_string())
+                .current_title(pr.title.clone())
                 .build(),
         )
         .await?;
@@ -198,7 +198,7 @@ async fn test_skip_update_when_description_unchanged() -> Result<()> {
         .await?
         .expect("PR A should exist")
         .description
-        .to_string();
+        .clone();
 
     repo.run(["submit", &branch_b]).await;
 

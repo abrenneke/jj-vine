@@ -1,4 +1,4 @@
-use std::sync::RwLock;
+use std::{fmt::Write, sync::RwLock};
 
 use indicatif::{ProgressBar, ProgressStyle};
 use owo_colors::OwoColorize;
@@ -58,13 +58,15 @@ pub struct InteractiveOutput {
 }
 
 impl InteractiveOutput {
+    #[must_use]
     pub fn new() -> Self {
         let pb = ProgressBar::new_spinner();
+        #[expect(clippy::missing_panics_doc, reason = "infallible")]
         pb.set_style(
             ProgressStyle::default_spinner()
                 .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
                 .template("{spinner:.green} {msg}")
-                .expect("Failed to create spinner template"),
+                .unwrap(),
         );
         pb.enable_steady_tick(std::time::Duration::from_millis(80));
         Self {
@@ -87,6 +89,7 @@ pub struct Substep<'a> {
 }
 
 impl<'a> Substep<'a> {
+    #[must_use]
     pub fn new(finish: Box<dyn Fn() + 'a>) -> Self {
         Self {
             finished: false,
@@ -104,7 +107,7 @@ impl<'a> Substep<'a> {
     }
 }
 
-impl<'a> Drop for Substep<'a> {
+impl Drop for Substep<'_> {
     fn drop(&mut self) {
         self.done();
     }
@@ -114,7 +117,7 @@ impl Output for InteractiveOutput {
     fn log_current(&self, message: &str) {
         let mut current_text = self.current_text.write().unwrap();
         *current_text = message.to_string();
-        self.spinner.set_message(format!("{}...", current_text));
+        self.spinner.set_message(format!("{current_text}..."));
     }
 
     fn set_substep(&self, message: &str) {
@@ -125,7 +128,7 @@ impl Output for InteractiveOutput {
             self.spinner.set_message(format!(
                 "{} {}...",
                 self.current_text.read().unwrap(),
-                format!("({})", message).dimmed()
+                format!("({message})").dimmed()
             ));
         }
     }
@@ -171,6 +174,7 @@ pub struct FlatOutput {
 }
 
 impl FlatOutput {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             current_text: RwLock::new(String::new()),
@@ -196,7 +200,7 @@ impl Output for FlatOutput {
         info!(
             "{} {}",
             self.current_text.read().unwrap(),
-            format!("({})", message).dimmed()
+            format!("({message})").dimmed()
         );
     }
 
@@ -215,11 +219,11 @@ impl Output for FlatOutput {
     }
 
     fn log_message(&self, message: &str) {
-        info!("{}", message);
+        info!("{message}");
     }
 
     fn log_completed(&self, message: &str) {
-        info!("{}", message);
+        info!("{message}");
     }
 }
 
@@ -231,6 +235,7 @@ pub struct BufferedOutput {
 }
 
 impl BufferedOutput {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             current_text: RwLock::new(String::new()),
@@ -239,6 +244,10 @@ impl BufferedOutput {
         }
     }
 
+    /// Consumes the buffer and returns the data.
+    ///
+    /// # Panics
+    /// Probably never
     pub fn get_buffer(&self) -> String {
         self.buffer.read().unwrap().clone()
     }
@@ -255,7 +264,7 @@ impl Output for BufferedOutput {
         let mut current_text = self.current_text.write().unwrap();
         *current_text = message.to_string();
         let mut buffer = self.buffer.write().unwrap();
-        buffer.push_str(&format!("{}...\n", message));
+        let _ = writeln!(buffer, "{message}...");
     }
 
     fn start_substep(&self, message: &str) -> Substep<'_> {
@@ -264,11 +273,12 @@ impl Output for BufferedOutput {
         let message = message.to_string();
         substeps.push(message.clone());
         let mut buffer = self.buffer.write().unwrap();
-        buffer.push_str(&format!(
-            "{} {}...\n",
+        let _ = writeln!(
+            buffer,
+            "{} {}...",
             self.current_text.read().unwrap(),
-            format!("({})", message).dimmed()
-        ));
+            format!("({message})").dimmed()
+        );
 
         Substep::new(Box::new(move || {
             let mut substeps = self.substeps.write().unwrap();
@@ -276,13 +286,14 @@ impl Output for BufferedOutput {
             let mut buffer = self.buffer.write().unwrap();
 
             if substeps.is_empty() {
-                buffer.push_str(&format!("{}...\n", self.current_text.read().unwrap()));
+                let _ = writeln!(buffer, "{}...", self.current_text.read().unwrap());
             } else {
-                buffer.push_str(&format!(
-                    "{} {}...\n",
+                let _ = writeln!(
+                    buffer,
+                    "{} {}...",
                     self.current_text.read().unwrap(),
                     format!("({})", substeps.join(", ")).dimmed()
-                ));
+                );
             }
         }))
     }
@@ -292,23 +303,24 @@ impl Output for BufferedOutput {
         let mut buffer = self.buffer.write().unwrap();
 
         if message.is_empty() {
-            buffer.push_str(&format!("{}...\n", current_text));
+            let _ = writeln!(buffer, "{current_text}...");
         } else {
-            buffer.push_str(&format!(
-                "{} {}...\n",
+            let _ = writeln!(
+                buffer,
+                "{} {}...",
                 current_text,
-                format!("({})", message).dimmed()
-            ));
+                format!("({message})").dimmed()
+            );
         }
     }
 
     fn log_message(&self, message: &str) {
         let mut buffer = self.buffer.write().unwrap();
-        buffer.push_str(&format!("{}...\n", message));
+        let _ = writeln!(buffer, "{message}...");
     }
 
     fn log_completed(&self, message: &str) {
         let mut buffer = self.buffer.write().unwrap();
-        buffer.push_str(&format!("{}...\n", message));
+        let _ = writeln!(buffer, "{message}...");
     }
 }

@@ -199,7 +199,7 @@ async fn test_skip_update_when_description_unchanged() -> Result<()> {
         .expect("PR A should exist")
         .body
         .unwrap()
-        .to_string();
+        .clone();
 
     repo.run(["submit", &branch_b]).await;
 

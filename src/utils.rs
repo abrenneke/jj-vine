@@ -117,7 +117,10 @@ where
 
     result_indices
         .into_iter()
-        .map(|idx| items.remove(&idx).unwrap())
+        .map(|idx| {
+            #[expect(clippy::missing_panics_doc, reason = "infallible")]
+            items.remove(&idx).unwrap()
+        })
         .collect()
 }
 
@@ -131,12 +134,13 @@ pub enum ResultWithWarnings<T, E = crate::error::Error, W = Vec<String>> {
 impl<T, E, W> ResultWithWarnings<T, E, W> {
     pub fn warnings(&self) -> Option<&W> {
         match self {
-            ResultWithWarnings::OkWarnings(_, warnings) => Some(warnings),
-            ResultWithWarnings::ErrWarnings(_, warnings) => Some(warnings),
+            ResultWithWarnings::OkWarnings(_, warnings)
+            | ResultWithWarnings::ErrWarnings(_, warnings) => Some(warnings),
             _ => None,
         }
     }
 
+    #[allow(clippy::missing_errors_doc)]
     pub fn into_result(self) -> Result<(T, Option<W>), E> {
         match self {
             Self::Ok(value) => Ok((value, None)),
@@ -231,7 +235,7 @@ mod tests {
         fn with_parents(id: &str, parents: impl AsRef<[&'static str]>) -> Self {
             Self {
                 id: id.to_string(),
-                parents: parents.as_ref().iter().map(|p| p.to_string()).collect(),
+                parents: parents.as_ref().iter().map(ToString::to_string).collect(),
             }
         }
     }

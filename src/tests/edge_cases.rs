@@ -96,11 +96,11 @@ fn test_graph_skips_default_branch_history() -> Result<()> {
 
     for i in 1..=50 {
         repo.create_change(
-            &format!("file{}.txt", i),
-            &format!("content {}", i),
-            &format!("Commit {}", i),
+            &format!("file{i}.txt"),
+            &format!("content {i}"),
+            &format!("Commit {i}"),
         );
-        repo.jj.exec(["commit", "-m", &format!("Commit {}", i)])?;
+        repo.jj.exec(["commit", "-m", &format!("Commit {i}")])?;
     }
 
     repo.jj.exec(["bookmark", "set", "main", "--to", "@-"])?;
@@ -200,9 +200,9 @@ mod e2e {
 
         let output = repo.run(["submit", "--tracked", "--dry-run"]).await;
 
-        assert_contains!(output, &format!("Would create PR {} -> main", a));
-        assert_contains!(output, &format!("Would create PR {} -> {}", b, a));
-        assert_contains!(output, &format!("Would create PR {} -> main", c));
+        assert_contains!(output, &format!("Would create PR {a} -> main"));
+        assert_contains!(output, &format!("Would create PR {b} -> {a}"));
+        assert_contains!(output, &format!("Would create PR {c} -> main"));
 
         Ok(())
     }

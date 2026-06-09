@@ -58,7 +58,7 @@ impl ActionInfo for UpdateMRBaseAction {
     }
 
     fn dependencies(&self) -> Vec<String> {
-        self.dependencies.as_ref().cloned().unwrap_or_default()
+        self.dependencies.clone().unwrap_or_default()
     }
 }
 

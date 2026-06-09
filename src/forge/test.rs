@@ -1,3 +1,6 @@
+#![cfg(test)]
+#![allow(clippy::missing_panics_doc)]
+
 use std::{borrow::Cow, collections::HashMap, sync::RwLock};
 
 use bon::bon;
@@ -130,26 +133,26 @@ impl Forge for TestForge {
         &self.base_url
     }
 
-    async fn current_user(&self) -> Result<Self::User> {
-        Ok(self.current_user.clone())
+    fn current_user(&self) -> impl Future<Output = Result<Self::User>> {
+        std::future::ready(Ok(self.current_user.clone()))
     }
 
-    async fn user_by_username(&self, username: &str) -> Result<Option<Self::User>> {
-        Ok(self.users.get(username).cloned())
+    fn user_by_username(&self, username: &str) -> impl Future<Output = Result<Option<Self::User>>> {
+        std::future::ready(Ok(self.users.get(username).cloned()))
     }
 
-    async fn find_merge_request_by_source_branch(
+    fn find_merge_request_by_source_branch(
         &self,
         branch: &str,
-    ) -> Result<Option<Self::MergeRequest>> {
-        Ok(self
+    ) -> impl Future<Output = Result<Option<Self::MergeRequest>>> {
+        std::future::ready(Ok(self
             .state
             .read()
             .unwrap()
             .merge_requests
             .values()
             .find(|mr| mr.source_branch == branch)
-            .cloned())
+            .cloned()))
     }
 
     async fn create_merge_request(
@@ -223,10 +226,10 @@ impl Forge for TestForge {
             .ok_or(Error::new("Merge request not found"))?;
 
         if let Some(description) = description {
-            mr.description = Some(description.to_string());
+            mr.description = Some(description.clone());
         }
         if let Some(title) = title {
-            mr.title = title.to_string();
+            mr.title = title.clone();
         }
         if let Some(draft) = draft {
             mr.draft = draft;
@@ -300,6 +303,28 @@ impl Forge for TestForge {
         // Only supported for GitLab
         Ok(false).into()
     }
+
+    #[doc = " The full URL to the project in the forge. E.g. <https://gitlab.example.com/group/project>."]
+    fn project_url(&self) -> String {
+        format!("{}/{}", self.base_url(), self.project_id())
+    }
+
+    #[doc = " Find merge request by source branch name and base branch name. Returns"]
+    #[doc = " the first MR found. More optimized than"]
+    #[doc = " `find_merge_request_by_source_branch` for some forges."]
+    async fn find_merge_request_by_source_branch_base_branch(
+        &self,
+        source_branch: &str,
+        #[allow(unused)] base_branch: &str,
+    ) -> Result<Option<Self::MergeRequest>> {
+        self.find_merge_request_by_source_branch(source_branch)
+            .await
+    }
+
+    #[doc = " Returns true if the forge supports dependent merge requests."]
+    fn supports_dependent_merge_requests(&self) -> bool {
+        false
+    }
 }
 
 impl Default for TestForge {
@@ -312,7 +337,7 @@ impl FormatMergeRequest for TestForge {
     type Id = String;
 
     fn format_merge_request_id(&self, mr_iid: Cow<'_, str>) -> String {
-        format!("#{}", mr_iid)
+        format!("#{mr_iid}")
     }
 
     fn mr_name(&self) -> &'static str {

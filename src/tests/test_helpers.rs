@@ -138,7 +138,7 @@ impl TestRepo<GitLabForge> {
             .trim_end_matches('/')
             .trim_start_matches("https://")
             .trim_start_matches("http://");
-        let remote_url = format!("git@{}:{}.git", hostname, project);
+        let remote_url = format!("git@{hostname}:{project}.git");
 
         repo.jj
             .exec(["git", "remote", "add", "origin", &remote_url])
@@ -231,7 +231,7 @@ impl TestRepo<GitHubForge> {
             .replace("api.github.com", "github.com")
             .trim_end_matches("/api/v3")
             .to_string();
-        let remote_url = format!("git@{}:{}.git", hostname, project);
+        let remote_url = format!("git@{hostname}:{project}.git");
 
         repo.jj
             .exec(["git", "remote", "add", "origin", &remote_url])
@@ -266,7 +266,7 @@ impl TestRepo<ForgejoForge> {
 
         let RepoInfo { dir, path, .. } = Self::make_repo();
 
-        let forge = match ForgeImpl::new(
+        let ForgeImpl::Forgejo(forge) = ForgeImpl::new(
             &Config::builder()
                 .maybe_ca_bundle(ca_bundle.clone())
                 .tls_accept_non_compliant_certs(accept_non_compliant)
@@ -280,10 +280,8 @@ impl TestRepo<ForgejoForge> {
                 })
                 .build(),
         )
-        .unwrap()
-        {
-            ForgeImpl::Forgejo(forge) => forge,
-            _ => unreachable!(),
+        .unwrap() else {
+            unreachable!();
         };
 
         let repo = Self {
@@ -337,11 +335,11 @@ impl TestRepo<ForgejoForge> {
             .trim_start_matches("https://")
             .trim_start_matches("http://");
 
-        let hostname_no_port = hostname.split(":").next().unwrap_or(hostname);
+        let hostname_no_port = hostname.split(':').next().unwrap_or(hostname);
 
         let port = if host.contains("localhost") { 222 } else { 22 };
 
-        let remote_url = format!("ssh://git@{}:{}/{}.git", hostname_no_port, port, project);
+        let remote_url = format!("ssh://git@{hostname_no_port}:{port}/{project}.git");
 
         repo.jj
             .exec(["git", "remote", "add", "origin", &remote_url])
@@ -452,7 +450,7 @@ impl TestRepo<AzureDevOpsForge> {
                 .unwrap();
         }
 
-        let remote_url = format!("git@{}:v3/{}/{}/{}", ssh_host, org, project, repo_name);
+        let remote_url = format!("git@{ssh_host}:v3/{org}/{project}/{repo_name}");
 
         repo.jj
             .exec(["git", "remote", "add", "origin", &remote_url])
@@ -535,12 +533,12 @@ impl TestRepo<TestRepo<()>> {
 }
 
 impl<T> TestRepo<T> {
-    /// Gets the unique identifier for this TestRepo.
+    /// Gets the unique identifier for this `TestRepo`.
     pub fn id(&self) -> &str {
         &self.id
     }
 
-    /// Gets a bookmark name that is unique to this TestRepo.
+    /// Gets a bookmark name that is unique to this `TestRepo`.
     pub fn bookmark_name(&self, bookmark: &str) -> String {
         format!("{}-{}", self.id(), bookmark)
     }
@@ -552,6 +550,7 @@ impl<T> TestRepo<T> {
         self
     }
 
+    #[allow(clippy::needless_pass_by_value, reason = "ergonomics")]
     pub fn create_bookmark(&self, bookmark: impl JJName) -> &Self {
         self.jj
             .exec(["bookmark", "create", &bookmark.name_for_jj()])
@@ -562,7 +561,7 @@ impl<T> TestRepo<T> {
     /// Create a commit with a bookmark, then start new working copy
     pub fn create_change_and_bookmark(&self, bookmark: impl JJName) -> &Self {
         self.create_change(
-            &format!("{}.txt", bookmark.raw_name().replace("/", "--")),
+            &format!("{}.txt", bookmark.raw_name().replace('/', "--")),
             &format!("content for {}", bookmark.raw_name()),
             &format!("Commit for {} bookmark", bookmark.raw_name()),
         )
@@ -572,6 +571,7 @@ impl<T> TestRepo<T> {
     }
 
     /// Push a bookmark to origin
+    #[allow(clippy::needless_pass_by_value, reason = "ergonomics")]
     pub fn push_bookmark(&self, bookmark: impl JJName) -> &Self {
         self.jj
             .exec(["git", "push", "--bookmark", &bookmark.name_for_jj()])
@@ -594,7 +594,7 @@ impl<T> TestRepo<T> {
     pub async fn try_run<'a>(&self, args: impl AsRef<[&'a str]>) -> Result<String> {
         let args = args.as_ref();
         let mut cli = Cli::try_parse_from(["jj-vine"].iter().chain(args)).context(ClapSnafu {
-            arguments: args.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
+            arguments: args.iter().map(ToString::to_string).collect::<Vec<_>>(),
         })?;
         cli.repository = cli.repository.or(Some(self.path.clone()));
         cli.run_captured().await
@@ -618,6 +618,7 @@ impl<T> TestRepo<T> {
         self
     }
 
+    #[allow(clippy::needless_pass_by_value, reason = "ergonomics")]
     pub fn track_bookmark(&self, bookmark: impl JJName) -> &Self {
         let output = self
             .jj
@@ -630,9 +631,11 @@ impl<T> TestRepo<T> {
             ])
             .unwrap();
 
-        if output.stdout.contains("Nothing changed.") {
-            panic!("Failed to track {}", bookmark.raw_name());
-        }
+        assert!(
+            !output.stdout.contains("Nothing changed."),
+            "Failed to track {}",
+            bookmark.raw_name()
+        );
 
         self
     }
@@ -646,7 +649,7 @@ impl<T> TestRepo<T> {
     /// Creates a change, creates a bookmark, and tracks it
     pub fn create_change_and_tracked_bookmark(&self, bookmark: impl JJName) -> &Self {
         self.create_change(
-            &format!("{}.txt", bookmark.raw_name().replace("/", "--")),
+            &format!("{}.txt", bookmark.raw_name().replace('/', "--")),
             &format!("content for {}", bookmark.raw_name()),
             &format!(
                 "Commit for {} bookmark\nDescription for {} bookmark",

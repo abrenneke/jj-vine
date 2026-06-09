@@ -89,7 +89,7 @@ impl ExecuteAction for PushCreateAction {
                 .jj
                 .push_changes_create(&self.change_ids, Some(&self.remote))
             {
-                Ok(_) => {
+                Ok(()) => {
                     let changes = ctx.execute.jj.log(self.change_ids.join("|"))?;
                     let bookmarks: Vec<_> = Bookmark::from_changes(&changes).into_iter().collect();
 

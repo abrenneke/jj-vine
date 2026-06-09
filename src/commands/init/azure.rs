@@ -8,7 +8,8 @@ use crate::{
     error::Result,
 };
 
-pub async fn init(repo_path: impl Into<PathBuf>, remotes: Option<Remotes>) -> Result<()> {
+#[allow(clippy::too_many_lines, reason = "important")]
+pub fn init(repo_path: impl Into<PathBuf>, remotes: Option<&Remotes>) -> Result<()> {
     let repo_path = repo_path.into();
     let existing_host = get_config(&repo_path, "jj-vine.azure.host");
     let existing_vssps_host = get_config(&repo_path, "jj-vine.azure.vsspsHost");

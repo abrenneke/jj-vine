@@ -62,9 +62,10 @@ pub struct StatusCommandConfig {
 }
 
 impl StatusCommandConfig {
+    #[must_use]
     pub fn help_long() -> String {
         format!(
-            r#"
+            "
 Show the status of tracked bookmarks and their {}
 
 {}
@@ -77,7 +78,7 @@ Show the status of all tracked bookmarks:
 
 Show the status of a specific revset:
 {}
-"#,
+",
             match ForgeImpl::from_cwd() {
                 Ok(forge) => format!("{}s", forge.mr_name()),
                 Err(_) => "MRs/PRs".to_string(),
@@ -133,10 +134,8 @@ fn resolve_bool(yes: Option<bool>, no: bool, default: bool) -> bool {
     // wheeeeeeeee
     match (yes, no) {
         (Some(true), false) => true,
-        (Some(false), true) => false,
-        (Some(false), false) => false,
+        (Some(false) | None, true) | (Some(false), false) => false,
         (None, false) => default,
-        (None, true) => false,
         (Some(true), true) => unreachable!(),
     }
 }
@@ -260,7 +259,7 @@ impl std::str::FromStr for StatusFormat {
         match s {
             "flat" => Ok(StatusFormat::TwoLineCompact),
             _ => Err(ConfigSnafu {
-                message: format!("Invalid output mode: {}. Valid modes are: flat", s),
+                message: format!("Invalid output mode: {s}. Valid modes are: flat"),
             }
             .build()),
         }
@@ -355,16 +354,9 @@ async fn two_line_compact_status(
             );
 
             // TODO would love templating language like jj has
-            let first_line = match parse_components("iid title") {
-                Ok(line) => line,
-                Err(e) => return Some(e.to_string()),
-            };
-            let second_line = match parse_components(
-                "bookmark ready checks approval num_discussions created url",
-            ) {
-                Ok(line) => line,
-                Err(e) => return Some(e.to_string()),
-            };
+            let first_line = parse_components("iid title");
+            let second_line =
+                parse_components("bookmark ready checks approval num_discussions created url");
 
             let (first_line, second_line) = match try_join!(
                 render_components(first_line, &data),
@@ -375,7 +367,7 @@ async fn two_line_compact_status(
             };
 
             let second_line_padding =
-                " ".repeat(first_line.first().unwrap_or(&"".to_string()).visual_width() + 1);
+                " ".repeat(first_line.first().unwrap_or(&String::new()).visual_width() + 1);
 
             Some(format!(
                 "{}\n{}{}",
@@ -437,12 +429,9 @@ async fn slack_status(
             );
 
             // TODO would love templating language like jj has
-            let line = match parse_components(
+            let line = parse_components(
                 "iid_linked_slack title • ready • checks • approval • num_discussions • created",
-            ) {
-                Ok(line) => line,
-                Err(e) => return Some(e.to_string()),
-            };
+            );
 
             let line = match render_components(line, &data).await {
                 Ok(lines) => lines,
@@ -470,10 +459,10 @@ async fn slack_status(
     output.map(|output| strip_ansi::strip_str(&output).to_string())
 }
 
-fn parse_components(line: &str) -> Result<Vec<StatusComponentImpl>> {
+fn parse_components(line: &str) -> Vec<StatusComponentImpl> {
     line.split_whitespace()
         .map(get_component)
-        .collect::<Result<Vec<_>>>()
+        .collect::<Vec<_>>()
 }
 
 async fn render_components(
@@ -495,22 +484,22 @@ async fn render_components(
         .collect())
 }
 
-fn get_component(name: &str) -> Result<StatusComponentImpl> {
+fn get_component(name: &str) -> StatusComponentImpl {
     match name {
-        "bookmark" => Ok(BookmarkNameComponent {}.into()),
-        "iid" => Ok(MergeRequestIIDComponent {}.into()),
-        "iid_linked_slack" => Ok(MergeRequestIIDLinkedSlackComponent {}.into()),
-        "title" => Ok(MergeRequestTitleComponent {}.into()),
-        "ready" => Ok(ReadyToMergeComponent {}.into()),
-        "checks" => Ok(ChecksStatusComponent {}.into()),
-        "approval" => Ok(ApprovalStatusComponent {}.into()),
-        "created" => Ok(CreatedAtComponent {}.into()),
-        "url" => Ok(MergeRequestURLComponent {}.into()),
-        "num_discussions" => Ok(NumOpenDiscussionsComponent {}.into()),
-        literal => Ok(LiteralComponent {
+        "bookmark" => BookmarkNameComponent {}.into(),
+        "iid" => MergeRequestIIDComponent {}.into(),
+        "iid_linked_slack" => MergeRequestIIDLinkedSlackComponent {}.into(),
+        "title" => MergeRequestTitleComponent {}.into(),
+        "ready" => ReadyToMergeComponent {}.into(),
+        "checks" => ChecksStatusComponent {}.into(),
+        "approval" => ApprovalStatusComponent {}.into(),
+        "created" => CreatedAtComponent {}.into(),
+        "url" => MergeRequestURLComponent {}.into(),
+        "num_discussions" => NumOpenDiscussionsComponent {}.into(),
+        literal => LiteralComponent {
             literal: literal.to_string(),
         }
-        .into()),
+        .into(),
     }
 }
 
@@ -622,6 +611,7 @@ component!(ApprovalStatusComponent, async |data: &StatusData<'_>| {
         blocking_count,
     } = data.status.approval_status.clone();
 
+    #[allow(clippy::cast_possible_wrap, reason = "values will never be that high")]
     Ok(Some(match satisfaction {
         ApprovalSatisfaction::Satisfied if required_count == 0 => {
             pluralize("approval", approved_count as isize, true)
@@ -698,6 +688,7 @@ component!(NumOpenDiscussionsComponent, async |data: &StatusData<
         .num_open_discussions(data.merge_request.iid())
         .await?;
 
+    #[allow(clippy::cast_possible_wrap, reason = "values will never be that high")]
     match num_open_discussions.unresolved {
         0 => Ok(None),
         unresolved => Ok(Some(
@@ -718,7 +709,7 @@ struct LiteralComponent {
 
 impl StatusComponent for LiteralComponent {
     async fn render(&self, _status: &StatusData<'_>) -> Result<Option<String>> {
-        Ok(Some(self.literal.to_string()))
+        Ok(Some(self.literal.clone()))
     }
 }
 

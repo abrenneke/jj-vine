@@ -89,7 +89,7 @@ pub mod find_pr_by_head_ref {
     };
 
     pub fn query() -> &'static str {
-        r#"
+        "
 query FindPRByHeadRef($owner: String!, $repositoryName: String!, $headRefName: String!) {
   repository(owner: $owner, name: $repositoryName) {
     pullRequests(states: OPEN, headRefName: $headRefName, first: 10) {
@@ -123,7 +123,7 @@ query FindPRByHeadRef($owner: String!, $repositoryName: String!, $headRefName: S
     }
   }
 }
-"#
+"
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -217,8 +217,7 @@ query FindPRByHeadRef($owner: String!, $repositoryName: String!, $headRefName: S
                 },
                 state: match self.state.as_str() {
                     "OPEN" => "open".to_string(),
-                    "CLOSED" => "closed".to_string(),
-                    "MERGED" => "closed".to_string(),
+                    "CLOSED" | "MERGED" => "closed".to_string(),
                     other => other.to_lowercase(),
                 },
                 html_url: self.url,
@@ -245,7 +244,7 @@ query FindPRByHeadRef($owner: String!, $repositoryName: String!, $headRefName: S
                             id: u.database_id,
                             login: u.login,
                         }),
-                        _ => None,
+                        RequestedReviewer::Other => None,
                     })
                     .collect(),
                 draft: self.is_draft,
@@ -259,7 +258,7 @@ pub mod set_pr_is_draft {
     use serde::{Deserialize, Serialize};
 
     pub fn query() -> &'static str {
-        r#"
+        "
 mutation SetPRIsDraft($id: ID!) {
   convertPullRequestToDraft(input: { pullRequestId: $id }) {
     pullRequest {
@@ -268,7 +267,7 @@ mutation SetPRIsDraft($id: ID!) {
     }
   }
 }
-"#
+"
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -301,7 +300,7 @@ pub mod set_pr_not_draft {
     use serde::{Deserialize, Serialize};
 
     pub fn query() -> &'static str {
-        r#"
+        "
 mutation SetPRNotDraft($id: ID!) {
   markPullRequestReadyForReview(input: { pullRequestId: $id }) {
     pullRequest {
@@ -310,7 +309,7 @@ mutation SetPRNotDraft($id: ID!) {
     }
   }
 }
-"#
+"
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]

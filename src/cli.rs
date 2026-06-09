@@ -48,14 +48,14 @@ pub struct CliConfig<'a> {
 }
 
 impl Cli {
+    #[must_use]
     pub fn default_verbosity() -> bool {
         std::env::var("RUST_LOG").is_ok_and(|v| !v.is_empty())
     }
 
     pub async fn run_stdout(&self) -> Result<()> {
         let can_have_interactive_output = match self.command {
-            Commands::Submit(_) => true,
-            Commands::Status(_) => true,
+            Commands::Submit(_) | Commands::Status(_) => true,
             Commands::Init => false,
         };
 
@@ -95,14 +95,17 @@ impl Cli {
         Ok(strip_ansi::strip_str(&buffered_output.get_buffer()).to_string())
     }
 
+    /// # Panics
+    ///
+    /// Panics if the current directory is inaccessible.
     pub async fn run(&self, output: &dyn Output) -> Result<()> {
-        let repo_path =
-            self.repository.as_ref().map(Into::into).unwrap_or_else(|| {
-                std::env::current_dir().expect("Failed to get current directory")
-            });
+        let repo_path = self.repository.as_ref().map_or_else(
+            || std::env::current_dir().expect("Failed to get current directory"),
+            Into::into,
+        );
 
         let main_config = CliConfig {
-            repository: repo_path.to_path_buf(),
+            repository: repo_path.clone(),
             output,
         };
 
@@ -112,7 +115,7 @@ impl Cli {
                 Ok(())
             }
             Commands::Init => {
-                crate::commands::init::init(&main_config).await?;
+                crate::commands::init::init(&main_config)?;
                 Ok(())
             }
             Commands::Status(options) => {

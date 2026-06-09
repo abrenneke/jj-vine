@@ -57,7 +57,7 @@ async fn test_submit_creates_stacked_mrs() -> Result<()> {
         repo.forge()
             .find_merge_request_by_source_branch(&branch_a)
             .await?
-            .map(|mr| mr.target_branch.to_string()),
+            .map(|mr| mr.target_branch.clone()),
         Some("main".to_string())
     );
 
@@ -65,7 +65,7 @@ async fn test_submit_creates_stacked_mrs() -> Result<()> {
         repo.forge()
             .find_merge_request_by_source_branch(&branch_b)
             .await?
-            .map(|mr| mr.target_branch.to_string()),
+            .map(|mr| mr.target_branch.clone()),
         Some(branch_a)
     );
 
@@ -73,7 +73,7 @@ async fn test_submit_creates_stacked_mrs() -> Result<()> {
         repo.forge()
             .find_merge_request_by_source_branch(&branch_c)
             .await?
-            .map(|mr| mr.target_branch.to_string()),
+            .map(|mr| mr.target_branch.clone()),
         Some(branch_b)
     );
 

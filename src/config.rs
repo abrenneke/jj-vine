@@ -27,6 +27,7 @@ pub enum ForgeType {
 }
 
 impl ForgeType {
+    #[must_use]
     pub fn display_name(&self) -> &str {
         match self {
             ForgeType::GitLab => "GitLab",
@@ -62,7 +63,7 @@ impl std::str::FromStr for ForgeType {
             "forgejo" => Ok(Self::Forgejo),
             "azure" => Ok(Self::AzureDevOps),
             _ => Err(ConfigSnafu {
-                message: format!("Invalid forge type: {}", s),
+                message: format!("Invalid forge type: {s}"),
             }
             .build()),
         }
@@ -70,6 +71,7 @@ impl std::str::FromStr for ForgeType {
 }
 
 impl ForgeType {
+    #[must_use]
     pub fn detect_from_host(host: &str) -> Option<Self> {
         if host.contains("gitlab") {
             Some(Self::GitLab)
@@ -111,6 +113,7 @@ const fn default_true() -> bool {
 /// Configuration for jj-vine
 #[derive(Debug, Clone, Deserialize, Builder)]
 #[serde(rename_all = "camelCase")]
+#[allow(clippy::struct_excessive_bools)]
 pub struct Config {
     /// Which forge to use.
     pub forge: ForgeType,
@@ -223,7 +226,7 @@ pub struct Config {
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(untagged)]
 pub enum RepoFetchConfig {
-    /// If true, is equivalent to ["git", "fetch", "--tracked"]. If false,
+    /// If true, is equivalent to `["git", "fetch", "--tracked"]`. If false,
     /// fetching before planning is disabled.
     Enabled(bool),
 
@@ -235,7 +238,7 @@ impl RepoFetchConfig {
     pub fn to_args(&self) -> Option<Vec<&str>> {
         match self {
             RepoFetchConfig::Enabled(true) => Some(vec!["git", "fetch", "--tracked"]),
-            RepoFetchConfig::Command(command) => Some(command.iter().map(|s| s.as_str()).collect()),
+            RepoFetchConfig::Command(command) => Some(command.iter().map(String::as_str).collect()),
             RepoFetchConfig::Enabled(false) => None,
         }
     }
@@ -317,7 +320,7 @@ impl<'de> Deserialize<'de> for TitleFormat {
     {
         struct TitleFormatVisitor;
 
-        impl<'de> Visitor<'de> for TitleFormatVisitor {
+        impl Visitor<'_> for TitleFormatVisitor {
             type Value = TitleFormat;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -372,6 +375,7 @@ pub struct GitLabConfig {
 
 impl GitLabConfig {
     /// Get the project where MRs target.
+    #[must_use]
     pub fn target_project(&self) -> &str {
         if self.target_project.is_empty() {
             &self.project
@@ -381,11 +385,13 @@ impl GitLabConfig {
     }
 
     /// Get the project where branches are pushed.
+    #[must_use]
     pub fn source_project(&self) -> &str {
         &self.project
     }
 
     /// Check if this is a fork workflow (target differs from source).
+    #[must_use]
     pub fn is_fork_workflow(&self) -> bool {
         self.target_project() != self.project
     }
@@ -427,6 +433,7 @@ pub struct GitHubConfig {
 
 impl GitHubConfig {
     /// Get the repository where PRs target.
+    #[must_use]
     pub fn target_project(&self) -> &str {
         if self.target_project.is_empty() {
             &self.project
@@ -436,11 +443,13 @@ impl GitHubConfig {
     }
 
     /// Get the repository where branches are pushed.
+    #[must_use]
     pub fn source_project(&self) -> &str {
         &self.project
     }
 
     /// Check if this is a fork workflow (target differs from source).
+    #[must_use]
     pub fn is_fork_workflow(&self) -> bool {
         self.target_project() != self.project
     }
@@ -481,6 +490,7 @@ pub struct ForgejoConfig {
 
 impl ForgejoConfig {
     /// Get the repository where PRs target.
+    #[must_use]
     pub fn target_project(&self) -> &str {
         if self.target_project.is_empty() {
             &self.project
@@ -490,6 +500,7 @@ impl ForgejoConfig {
     }
 
     /// Get the repository where branches are pushed.
+    #[must_use]
     pub fn source_project(&self) -> &str {
         &self.project
     }
@@ -528,10 +539,12 @@ pub struct AzureDevOpsConfig {
 }
 
 impl AzureDevOpsConfig {
+    #[must_use]
     pub fn source_project_id(&self) -> &str {
         &self.project
     }
 
+    #[must_use]
     pub fn target_project_id(&self) -> &str {
         if self.target_project.is_empty() {
             &self.project
@@ -540,6 +553,7 @@ impl AzureDevOpsConfig {
         }
     }
 
+    #[must_use]
     pub fn target_repository_name(&self) -> Option<&str> {
         if self.target_repository_name.is_none() {
             self.source_repository_name.as_deref()
@@ -548,6 +562,7 @@ impl AzureDevOpsConfig {
         }
     }
 
+    #[must_use]
     pub fn target_repository_id(&self) -> Option<&str> {
         if self.target_repository_id.is_none() {
             self.source_repository_id.as_deref()
@@ -600,7 +615,7 @@ impl Default for DescriptionConfig {
         Self {
             enabled: true,
             sync: false,
-            diagram: Default::default(),
+            diagram: DescriptionDiagramConfig::default(),
             single_revision: DescriptionMode::NotFirstLine,
             multiple_revisions: DescriptionMode::CommitListFull,
         }
@@ -637,7 +652,7 @@ impl<'de> Deserialize<'de> for DescriptionMode {
         D: serde::Deserializer<'de>,
     {
         struct DescriptionModeVisitor;
-        impl<'de> Visitor<'de> for DescriptionModeVisitor {
+        impl Visitor<'_> for DescriptionModeVisitor {
             type Value = DescriptionMode;
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
                 formatter.write_str("a description mode")
@@ -653,10 +668,10 @@ impl<'de> Deserialize<'de> for DescriptionMode {
                     "fullMessage" => Ok(DescriptionMode::FullMessage),
                     "commitListFirstLine" => Ok(DescriptionMode::CommitListFirstLine),
                     "commitListFull" => Ok(DescriptionMode::CommitListFull),
-                    mode if mode.starts_with("file(") && mode.ends_with(")") => {
+                    mode if mode.starts_with("file(") && mode.ends_with(')') => {
                         Ok(DescriptionMode::File(
                             mode.trim_start_matches("file(")
-                                .trim_end_matches(")")
+                                .trim_end_matches(')')
                                 .to_string(),
                         ))
                     }
@@ -709,7 +724,7 @@ impl Config {
 
         let toml_value: toml::Value = toml::from_str(&output.stdout).map_err(|e| {
             ConfigSnafu {
-                message: format!("Failed to parse config as TOML: {}", e),
+                message: format!("Failed to parse config as TOML: {e}"),
             }
             .build()
         })?;
@@ -723,7 +738,7 @@ impl Config {
 
         let config: Config = jj_vine_value.clone().try_into().map_err(|e| {
             ConfigSnafu {
-                message: format!("Failed to parse jj-vine config: {}", e),
+                message: format!("Failed to parse jj-vine config: {e}"),
             }
             .build()
         })?;
@@ -859,8 +874,7 @@ mod tests {
                 message.contains("missing field")
                     || message.contains("gitlab")
                     || message.contains("jj-vine"),
-                "Error should mention missing field, got: {}",
-                message
+                "Error should mention missing field, got: {message}"
             );
         } else {
             panic!("Expected Config error for missing required field");
@@ -1369,7 +1383,7 @@ mod tests {
         let config = GitLabConfig {
             host: "https://gitlab.com".to_string(),
             project: "myuser/myrepo".to_string(),
-            target_project: "".to_string(),
+            target_project: String::new(),
             token: "token".to_string(),
             create_merge_request_dependencies: true,
         };
@@ -1416,7 +1430,7 @@ mod tests {
             .gitlab(GitLabConfig {
                 host: "https://gitlab.com".to_string(),
                 project: "git@gitlab.com:myuser/repo.git".to_string(),
-                target_project: "".to_string(),
+                target_project: String::new(),
                 token: "token".to_string(),
                 create_merge_request_dependencies: true,
             })
@@ -1450,7 +1464,7 @@ mod tests {
         let config = GitHubConfig {
             host: "https://api.github.com".to_string(),
             project: "myuser/myrepo".to_string(),
-            target_project: "".to_string(),
+            target_project: String::new(),
             token: "token".to_string(),
         };
 

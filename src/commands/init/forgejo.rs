@@ -9,7 +9,8 @@ use crate::{
 };
 
 /// Initialize Forgejo/Codeburg/Gitea-specific configuration
-pub async fn init(repo_path: impl Into<PathBuf>, remotes: Option<Remotes>) -> Result<()> {
+#[allow(clippy::too_many_lines, reason = "important")]
+pub fn init(repo_path: impl Into<PathBuf>, remotes: Option<&Remotes>) -> Result<()> {
     let repo_path = repo_path.into();
     let existing_host = get_config(&repo_path, "jj-vine.forgejo.host");
     let existing_project = get_config(&repo_path, "jj-vine.forgejo.project");
@@ -89,11 +90,7 @@ pub async fn init(repo_path: impl Into<PathBuf>, remotes: Option<Remotes>) -> Re
         println!();
         println!(
             "  {}",
-            format!(
-                "Create token at: {}/user/settings/applications",
-                forgejo_host
-            )
-            .dimmed(),
+            format!("Create token at: {forgejo_host}/user/settings/applications").dimmed(),
         );
         println!();
 

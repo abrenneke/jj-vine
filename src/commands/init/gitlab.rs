@@ -9,7 +9,8 @@ use crate::{
 };
 
 /// Initialize GitLab-specific configuration
-pub async fn init(repo_path: impl Into<PathBuf>, remotes: Option<Remotes>) -> Result<()> {
+#[allow(clippy::too_many_lines, reason = "important")]
+pub fn init(repo_path: impl Into<PathBuf>, remotes: Option<&Remotes>) -> Result<()> {
     let repo_path = repo_path.into();
     let existing_host = get_config(&repo_path, "jj-vine.gitlab.host");
     let existing_project = get_config(&repo_path, "jj-vine.gitlab.project");
@@ -107,11 +108,8 @@ pub async fn init(repo_path: impl Into<PathBuf>, remotes: Option<Remotes>) -> Re
         );
         println!(
             "  {}",
-            format!(
-                "Create token at: {}/-/user_settings/personal_access_tokens",
-                gitlab_host
-            )
-            .dimmed()
+            format!("Create token at: {gitlab_host}/-/user_settings/personal_access_tokens")
+                .dimmed()
         );
         println!();
 

@@ -50,7 +50,7 @@ impl ActionInfo for SyncDependentMergeRequestsAction {
     }
 
     fn dependencies(&self) -> Vec<String> {
-        self.dependencies.as_ref().cloned().unwrap_or_default()
+        self.dependencies.clone().unwrap_or_default()
     }
 }
 
@@ -116,7 +116,7 @@ impl ExecuteAction for SyncDependentMergeRequestsAction {
                 mr.iid(),
                 dependent_merge_request_iids
                     .iter()
-                    .map(|s| s.into())
+                    .map(Into::into)
                     .collect::<Vec<_>>()
                     .as_slice(),
             )

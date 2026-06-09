@@ -5,7 +5,7 @@ use owo_colors::OwoColorize;
 use snafu::whatever;
 
 use crate::{
-    bookmark::BookmarkRef,
+    bookmark::{BookmarkOrPending, BookmarkRef},
     description::{generate_description, remove_jj_vine_stack_from_description},
     error::{Error, Result},
     forge::{AnyForgeMergeRequest, Forge},
@@ -70,6 +70,11 @@ impl PlanMergeRequest {
 }
 
 /// Create a submission plan
+///
+/// # Panics
+///
+/// Panics if many reasons
+#[allow(clippy::too_many_lines, reason = "important")]
 pub async fn plan(ctx: PlanContext<'_>) -> Result<SubmissionPlan> {
     ctx.output.log_current("Planning submission");
 
@@ -123,7 +128,7 @@ pub async fn plan(ctx: PlanContext<'_>) -> Result<SubmissionPlan> {
     let (to_push_create, to_push_update): (Vec<_>, Vec<_>) = ctx
         .bookmark_graph
         .bookmarks()
-        .partition(|bookmark| bookmark.is_pending());
+        .partition(BookmarkOrPending::is_pending);
 
     if !to_push_create.is_empty() {
         let push_action = PushCreateAction::builder()
@@ -211,59 +216,51 @@ pub async fn plan(ctx: PlanContext<'_>) -> Result<SubmissionPlan> {
                     .flatten(),
             );
 
-            match existing_mrs.get(bookmark.name()) {
-                Some(existing_mr) => {
-                    if existing_mr.target_branch() != target_branch {
-                        let update_mr_base_action = UpdateMRBaseAction::builder()
-                            .bookmark(bookmark.name().to_string())
-                            .mr_iid(existing_mr.iid().to_string())
-                            .new_target_branch(target_branch.to_string())
-                            .dependencies(dependencies)
-                            .build();
-
-                        mr_action_ids.push(update_mr_base_action.id());
-
-                        batches.push(vec![Action::UpdateMRBase(update_mr_base_action)]);
-                    }
-                }
-                None => {
-                    let revisions = bookmark.revisions(ctx.jj)?;
-                    let title = get_mr_title(
-                        ctx.jj,
-                        &ctx.config.title,
-                        bookmark.clone(),
-                        component,
-                        revisions,
-                    )?;
-
-                    let description = generate_description(
-                        &ctx.config.description,
-                        &bookmark.revisions(ctx.jj)?,
-                        Path::new(&ctx.jj.exec(["root"])?.stdout),
-                    );
-
-                    let create_mr_action = CreateMRAction::builder()
-                        .bookmark(BookmarkNameOrPendingChangeId::new_from_pointer(bookmark))
-                        .target_branch(target_branch.to_string())
-                        .title(title.clone())
-                        .description(description.clone())
+            if let Some(existing_mr) = existing_mrs.get(bookmark.name()) {
+                if existing_mr.target_branch() != target_branch {
+                    let update_mr_base_action = UpdateMRBaseAction::builder()
+                        .bookmark(bookmark.name().to_string())
+                        .mr_iid(existing_mr.iid().to_string())
+                        .new_target_branch(target_branch.clone())
                         .dependencies(dependencies)
                         .build();
 
-                    mr_action_ids.push(create_mr_action.id());
+                    mr_action_ids.push(update_mr_base_action.id());
 
-                    batches.push(vec![Action::CreateMR(create_mr_action)]);
-
-                    plan_mrs.insert(
-                        bookmark.name().to_string(),
-                        PlanMergeRequest {
-                            bookmark: bookmark.name().to_string(),
-                            target_branch: target_branch.to_string(),
-                            title,
-                            description,
-                        },
-                    );
+                    batches.push(vec![Action::UpdateMRBase(update_mr_base_action)]);
                 }
+            } else {
+                let revisions = bookmark.revisions(ctx.jj)?;
+                let title =
+                    get_mr_title(ctx.jj, &ctx.config.title, bookmark, component, revisions)?;
+
+                let description = generate_description(
+                    &ctx.config.description,
+                    &bookmark.revisions(ctx.jj)?,
+                    Path::new(&ctx.jj.exec(["root"])?.stdout),
+                );
+
+                let create_mr_action = CreateMRAction::builder()
+                    .bookmark(BookmarkNameOrPendingChangeId::new_from_pointer(bookmark))
+                    .target_branch(target_branch.clone())
+                    .title(title.clone())
+                    .description(description.clone())
+                    .dependencies(dependencies)
+                    .build();
+
+                mr_action_ids.push(create_mr_action.id());
+
+                batches.push(vec![Action::CreateMR(create_mr_action)]);
+
+                plan_mrs.insert(
+                    bookmark.name().to_string(),
+                    PlanMergeRequest {
+                        bookmark: bookmark.name().to_string(),
+                        target_branch: target_branch.clone(),
+                        title,
+                        description,
+                    },
+                );
             }
         }
     }
@@ -297,15 +294,15 @@ pub async fn plan(ctx: PlanContext<'_>) -> Result<SubmissionPlan> {
                             let new_title = get_mr_title(
                                 ctx.jj,
                                 &ctx.config.title,
-                                bookmark.clone(),
+                                bookmark,
                                 component,
                                 revisions,
                             )?;
 
-                            if new_title != *current_title {
-                                Some(new_title)
-                            } else {
+                            if new_title == *current_title {
                                 None
+                            } else {
+                                Some(new_title)
                             }
                         } else {
                             None
@@ -320,11 +317,11 @@ pub async fn plan(ctx: PlanContext<'_>) -> Result<SubmissionPlan> {
                                 );
 
                                 if new_description.trim()
-                                    != remove_jj_vine_stack_from_description(current_description)
+                                    == remove_jj_vine_stack_from_description(current_description)
                                 {
-                                    Some(new_description)
-                                } else {
                                     None
+                                } else {
+                                    Some(new_description)
                                 }
                             } else {
                                 None

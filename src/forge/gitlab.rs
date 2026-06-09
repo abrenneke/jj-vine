@@ -103,7 +103,7 @@ impl GitLabForge {
 
             let certs = reqwest::Certificate::from_pem_bundle(&ca_cert).map_err(|e| {
                 ConfigSnafu {
-                    message: format!("Failed to parse CA bundle: {}", e),
+                    message: format!("Failed to parse CA bundle: {e}"),
                 }
                 .build()
             })?;
@@ -115,7 +115,7 @@ impl GitLabForge {
 
         let client = client_builder.build().map_err(|e| {
             ConfigSnafu {
-                message: format!("Failed to build HTTP client: {:?}", e),
+                message: format!("Failed to build HTTP client: {e:?}"),
             }
             .build()
         })?;
@@ -191,8 +191,7 @@ impl GitLabForge {
         let data: T = serde_json::from_str(&body).map_err(|e| {
             GitLabApiSnafu {
                 message: format!(
-                    "Failed to parse {} response to {}: {}, response: {}",
-                    method, path, e, body
+                    "Failed to parse {method} response to {path}: {e}, response: {body}"
                 ),
                 method,
                 url,
@@ -204,10 +203,10 @@ impl GitLabForge {
         Ok(data)
     }
 
-    fn wrap_draft(&self, title: &str, draft: bool) -> String {
+    fn wrap_draft(title: &str, draft: bool) -> String {
         let title = title.trim_start_matches("Draft: ");
         if draft {
-            format!("Draft: {}", title)
+            format!("Draft: {title}")
         } else {
             title.to_string()
         }
@@ -328,24 +327,24 @@ impl Forge for GitLabForge {
             source_branch,
             target_branch,
             // I think? Gitlab be weird
-            title: self.wrap_draft(&title, open_as_draft),
+            title: Self::wrap_draft(&title, open_as_draft),
             remove_source_branch,
             squash,
-            source_project_id: if self.source_project_id != self.target_project_id {
-                Some(self.source_project_id.clone())
-            } else {
+            source_project_id: if self.source_project_id == self.target_project_id {
                 None
+            } else {
+                Some(self.source_project_id.clone())
             },
             description,
-            assignee_ids: if !assignees.is_empty() {
+            assignee_ids: if assignees.is_empty() {
+                None
+            } else {
                 Some(assignees.into_iter().map(|user| user.0).collect())
-            } else {
-                None
             },
-            reviewer_ids: if !reviewers.is_empty() {
-                Some(reviewers.into_iter().map(|user| user.0).collect())
-            } else {
+            reviewer_ids: if reviewers.is_empty() {
                 None
+            } else {
+                Some(reviewers.into_iter().map(|user| user.0).collect())
             },
         };
 
@@ -408,12 +407,12 @@ impl Forge for GitLabForge {
         }
         let body = Body {
             title: match (draft, title) {
-                (Some(draft), Some(title)) => Some(self.wrap_draft(&title, draft)),
-                (Some(draft), None) => Some(self.wrap_draft(&current_title, draft)),
-                (None, Some(title)) => Some(self.wrap_draft(&title, current_is_draft)),
+                (Some(draft), Some(title)) => Some(Self::wrap_draft(&title, draft)),
+                (Some(draft), None) => Some(Self::wrap_draft(&current_title, draft)),
+                (None, Some(title)) => Some(Self::wrap_draft(&title, current_is_draft)),
                 (None, None) => None,
             },
-            description: description.map(|description| description.to_string()),
+            description,
         };
 
         let mr: MergeRequest = self
@@ -465,14 +464,13 @@ impl Forge for GitLabForge {
         // Can't figure out how to get the blocking count
         // https://stackoverflow.com/questions/78573772/how-to-get-changes-requested-info-on-gitlab-mr
 
+        #[allow(clippy::cast_possible_truncation, reason = "will never get high")]
         let approved_count = approvals
             .as_ref()
-            .map(|approvals| approvals.approved_by.len() as u32)
-            .unwrap_or(0);
+            .map_or(0, |approvals| approvals.approved_by.len() as u32);
         let required_count = approvals
             .as_ref()
-            .map(|approvals| approvals.approvals_required)
-            .unwrap_or(0);
+            .map_or(0, |approvals| approvals.approvals_required);
 
         Ok(ApprovalStatus {
             blocking_count: 0,
@@ -527,9 +525,9 @@ impl Forge for GitLabForge {
                     _ => Ok(CheckStatus::None),
                 }
             }
-            StatusCode::NOT_FOUND => Ok(CheckStatus::None),
+            StatusCode::NOT_FOUND
             // Shrug, guess this means no pipeline is configured
-            StatusCode::FORBIDDEN => Ok(CheckStatus::None),
+            | StatusCode::FORBIDDEN => Ok(CheckStatus::None),
             _ => Err(GitLabApiSnafu {
                 message: format!("Failed to get pipeline status: {}", response.status()),
                 method: Method::GET,
@@ -573,7 +571,7 @@ impl Forge for GitLabForge {
                 // We only need the root note
                 [note, ..] => Some(note),
             })
-            .fold(Default::default(), |mut acc, first_note| {
+            .fold(DiscussionCount::default(), |mut acc, first_note| {
                 acc.all += 1;
 
                 if first_note.resolved {
@@ -738,7 +736,7 @@ impl FormatMergeRequest for GitLabForge {
     type Id = u64;
 
     fn format_merge_request_id(&self, mr_iid: Self::Id) -> String {
-        format!("!{}", mr_iid)
+        format!("!{mr_iid}")
     }
 
     fn mr_name(&self) -> &'static str {
@@ -872,7 +870,7 @@ struct MergeRequestApprovals {
     /// Number of approvals still needed
     pub approvals_left: u32,
 
-    /// Whether the MR is approved (approvals_left == 0)
+    /// Whether the MR is approved (`approvals_left == 0`)
     pub approved: bool,
 
     /// List of users who approved
@@ -979,16 +977,16 @@ struct NoteSuggestion {
 }
 
 /// An individual item in a discussion on an issue, merge request, commit, or
-/// snippet. Items of type DiscussionNote are not returned as part of the Note
-/// API. Not available in the Events API. https://docs.gitlab.com/api/discussions/#list-project-merge-request-discussion-items
+/// snippet. Items of type `DiscussionNote` are not returned as part of the Note
+/// API. Not available in the Events API. <https://docs.gitlab.com/api/discussions/#list-project-merge-request-discussion-items>
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct DiscussionNote {
     /// The ID of the note.
     id: u64,
 
     /// The type of note.
-    /// (DiscussionNote should probably be an
-    /// enum of { DiscussionNote, DiffNote } instead technically)
+    /// (`DiscussionNote` should probably be an
+    /// enum of { `DiscussionNote`, `DiffNote` } instead technically)
     #[serde(rename = "type")]
     note_type: Option<DiscussionNoteType>,
 

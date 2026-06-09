@@ -24,6 +24,7 @@ use crate::{
         ForgeUser,
         MergeRequestStatus,
         UserId,
+        github::graphql::find_pr_by_head_ref::PRNode,
     },
     utils::ResultWithWarnings,
 };
@@ -230,7 +231,7 @@ struct Review {
     /// Review body/comment
     pub body: Option<String>,
 
-    /// Review state: APPROVED, CHANGES_REQUESTED, COMMENTED, DISMISSED, PENDING
+    /// The state of the review.
     pub state: ReviewState,
 
     /// HTML URL to view the review
@@ -256,8 +257,8 @@ struct BranchRule {
     #[serde(rename = "type")]
     pub rule_type: BranchRuleType,
 
-    /// Rule parameters (contains required_approving_review_count for
-    /// pull_request rule)
+    /// Rule parameters (contains `required_approving_review_count` for
+    /// `pull_request` rule)
     #[serde(default)]
     pub parameters: Option<BranchRuleParameters>,
 }
@@ -265,7 +266,7 @@ struct BranchRule {
 /// Parameters for branch rules
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct BranchRuleParameters {
-    /// Required approving review count (for pull_request rules)
+    /// Required approving review count (for `pull_request` rules)
     #[serde(default)]
     pub required_approving_review_count: Option<u32>,
 }
@@ -360,7 +361,7 @@ impl GitHubForge {
 
             let certs = reqwest::Certificate::from_pem_bundle(&ca_cert).map_err(|e| {
                 ConfigSnafu {
-                    message: format!("Failed to parse CA bundle: {}", e),
+                    message: format!("Failed to parse CA bundle: {e}"),
                 }
                 .build()
             })?;
@@ -372,7 +373,7 @@ impl GitHubForge {
 
         let client = client_builder.build().map_err(|e| {
             ConfigSnafu {
-                message: format!("Failed to build HTTP client: {:?}", e),
+                message: format!("Failed to build HTTP client: {e:?}"),
             }
             .build()
         })?;
@@ -414,7 +415,7 @@ impl GitHubForge {
             let status = response.status();
             let text = response.text().await?;
             return Err(GitHubApiSnafu {
-                message: format!("Failed to get: {} - {}", status, text),
+                message: format!("Failed to get: {status} - {text}"),
             }
             .build());
         }
@@ -467,7 +468,7 @@ impl GitHubForge {
             let status = response.status();
             let text = response.text().await?;
             return Err(GitHubApiSnafu {
-                message: format!("GraphQL request failed: {} - {}", status, text),
+                message: format!("GraphQL request failed: {status} - {text}"),
             }
             .build());
         }
@@ -475,10 +476,7 @@ impl GitHubForge {
         let body = response.text().await?;
         let data: GraphQLResponse<T> = serde_json::from_str(&body).map_err(|e| {
             GitHubApiSnafu {
-                message: format!(
-                    "Failed to parse GraphQL response: {}, response: {}",
-                    e, body
-                ),
+                message: format!("Failed to parse GraphQL response: {e}, response: {body}"),
             }
             .build()
         })?;
@@ -542,7 +540,7 @@ impl Forge for GitHubForge {
 
     async fn user_by_username(&self, username: &str) -> Result<Option<Self::User>> {
         match self
-            .request::<GitHubUser>(Method::GET, format!("/users/{}", username), None::<()>)
+            .request::<GitHubUser>(Method::GET, format!("/users/{username}"), None::<()>)
             .await
         {
             Ok(user) => Ok(Some(user)),
@@ -593,7 +591,7 @@ impl Forge for GitHubForge {
             "PR lookup result (filtered by head repository)"
         );
 
-        Ok(prs.into_iter().next().map(|pr| pr.into_pull_request()))
+        Ok(prs.into_iter().next().map(PRNode::into_pull_request))
     }
 
     async fn create_merge_request(
@@ -615,11 +613,6 @@ impl Forge for GitHubForge {
             squash: _squash,
         }: ForgeCreateMergeRequestOptions<Self::UserId>,
     ) -> Result<Self::MergeRequest> {
-        // head_repo in "owner/repo" format tells GitHub which repository the
-        // branch lives in, handling same-repo, same-org fork, and cross-org
-        // fork cases uniformly.
-        let head_repo = &self.source_project_id;
-
         #[derive(Serialize)]
         #[serde(rename_all = "camelCase")]
         struct Body {
@@ -630,13 +623,19 @@ impl Forge for GitHubForge {
             draft: bool,
 
             #[serde(skip_serializing_if = "Option::is_none")]
+            #[allow(clippy::struct_field_names, reason = "deserialized")]
             body: Option<String>,
         }
+
+        // head_repo in "owner/repo" format tells GitHub which repository the
+        // branch lives in, handling same-repo, same-org fork, and cross-org
+        // fork cases uniformly.
+        let head_repo = &self.source_project_id;
 
         let payload = Body {
             title,
             head: source_branch,
-            head_repo: head_repo.to_string(),
+            head_repo: head_repo.clone(),
             base: target_branch,
             draft: open_as_draft,
             body: description,
@@ -787,6 +786,7 @@ impl Forge for GitHubForge {
                 .collect()
         });
 
+        #[allow(clippy::cast_possible_truncation, reason = "will never get that high")]
         let approved_count = user_reviews.as_ref().map(|reviews| {
             reviews
                 .values()
@@ -794,6 +794,7 @@ impl Forge for GitHubForge {
                 .count() as u32
         });
 
+        #[allow(clippy::cast_possible_truncation, reason = "will never get that high")]
         let blocking_count = user_reviews.as_ref().map(|reviews| {
             reviews
                 .values()
@@ -854,11 +855,14 @@ impl Forge for GitHubForge {
                     has_failed = true;
                 }
                 (CheckRunStatus::Completed, _) => {}
-                (CheckRunStatus::Queued, _)
-                | (CheckRunStatus::InProgress, _)
-                | (CheckRunStatus::Waiting, _)
-                | (CheckRunStatus::Pending, _)
-                | (CheckRunStatus::Requested, _) => {
+                (
+                    CheckRunStatus::Queued
+                    | CheckRunStatus::InProgress
+                    | CheckRunStatus::Waiting
+                    | CheckRunStatus::Pending
+                    | CheckRunStatus::Requested,
+                    _,
+                ) => {
                     has_pending = true;
                 }
             }
@@ -924,7 +928,7 @@ impl FormatMergeRequest for GitHubForge {
     type Id = u64;
 
     fn format_merge_request_id(&self, mr_iid: Self::Id) -> String {
-        format!("#{}", mr_iid)
+        format!("#{mr_iid}")
     }
 
     fn mr_name(&self) -> &'static str {
@@ -1002,7 +1006,7 @@ impl GitHubForge {
         // TODO pagination, real gql client
         let response: graphql::GetDiscussionsQueryResponse = self
             .graphql(
-                r#"
+                "
 query GetDiscussions($owner: String!, $name: String!, $pr_number: Int!) {
   repository(owner: $owner, name: $name) {
     pullRequest(number: $pr_number) {
@@ -1055,7 +1059,7 @@ query GetDiscussions($owner: String!, $name: String!, $pr_number: Int!) {
     }
   }
 }
-        "#,
+        ",
                 serde_json::json!({
                     "owner": owner,
                     "name": name,
@@ -1075,7 +1079,7 @@ query GetDiscussions($owner: String!, $name: String!, $pr_number: Int!) {
             .pull_request
             .ok_or(
                 GitHubApiSnafu {
-                    message: format!("Pull request {} not found", pr_number),
+                    message: format!("Pull request {pr_number} not found"),
                 }
                 .build(),
             )?;
@@ -1099,10 +1103,7 @@ query GetDiscussions($owner: String!, $name: String!, $pr_number: Int!) {
 fn split_project_id(project_id: &str) -> Result<(&str, &str)> {
     project_id.split_once('/').ok_or_else(|| {
         ConfigSnafu {
-            message: format!(
-                "Invalid project ID '{}': expected 'owner/repo' format",
-                project_id
-            ),
+            message: format!("Invalid project ID '{project_id}': expected 'owner/repo' format"),
         }
         .build()
     })

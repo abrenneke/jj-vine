@@ -72,7 +72,7 @@ impl ActionInfo for CreateMRAction {
     }
 
     fn dependencies(&self) -> Vec<String> {
-        self.dependencies.as_ref().cloned().unwrap_or_default()
+        self.dependencies.clone().unwrap_or_default()
     }
 }
 
@@ -113,7 +113,7 @@ impl ExecuteAction for CreateMRAction {
                 Ok(user) => Some(vec![user]),
                 Err(e) => {
                     let warning =
-                        format!("Warning: Failed to get current user for assignment: {}", e);
+                        format!("Warning: Failed to get current user for assignment: {e}");
                     ctx.execute
                         .output
                         .log_message(&warning.yellow().to_string());
@@ -131,14 +131,13 @@ impl ExecuteAction for CreateMRAction {
                     reviewers.push(user);
                 }
                 Ok(None) => {
-                    let warning = format!("Warning: Reviewer '{}' not found", username);
+                    let warning = format!("Warning: Reviewer '{username}' not found");
                     ctx.execute
                         .output
                         .log_message(&warning.yellow().to_string());
                 }
                 Err(e) => {
-                    let warning =
-                        format!("Warning: Failed to look up reviewer '{}': {}", username, e);
+                    let warning = format!("Warning: Failed to look up reviewer '{username}': {e}");
                     ctx.execute
                         .output
                         .log_message(&warning.yellow().to_string());
@@ -156,7 +155,7 @@ impl ExecuteAction for CreateMRAction {
                     .title(title)
                     .remove_source_branch(ctx.execute.config.delete_source_branch)
                     .squash(ctx.execute.config.squash_commits)
-                    .description(desc.map(|s| s.to_string()))
+                    .description(desc.map(ToString::to_string))
                     .assignees(assignees.unwrap_or_default())
                     .reviewers(reviewers)
                     .open_as_draft(ctx.execute.config.open_as_draft)

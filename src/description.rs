@@ -1,6 +1,8 @@
 use std::{
     borrow::Cow,
     collections::{HashMap, HashSet},
+    fmt::Write,
+    hash::{BuildHasher, RandomState},
     path::Path,
 };
 
@@ -39,7 +41,8 @@ pub enum DescriptionFormatter {
 }
 
 impl DescriptionFormatter {
-    pub fn format_single(&self, context: &FormatContext) -> String {
+    #[must_use]
+    pub fn format_single<S: BuildHasher>(&self, context: &FormatContext<S>) -> String {
         match self {
             DescriptionFormatter::None => String::new(),
             DescriptionFormatter::LinearList(formatter) => formatter.format_single(context),
@@ -47,7 +50,8 @@ impl DescriptionFormatter {
         }
     }
 
-    pub fn format_linear(&self, context: &FormatContext) -> String {
+    #[must_use]
+    pub fn format_linear<S: BuildHasher>(&self, context: &FormatContext<S>) -> String {
         match self {
             DescriptionFormatter::None => String::new(),
             DescriptionFormatter::LinearList(formatter) => formatter.format_linear(context),
@@ -55,7 +59,8 @@ impl DescriptionFormatter {
         }
     }
 
-    pub fn format_tree(&self, context: &FormatContext) -> String {
+    #[must_use]
+    pub fn format_tree<S: BuildHasher>(&self, context: &FormatContext<S>) -> String {
         match self {
             DescriptionFormatter::None => String::new(),
             DescriptionFormatter::LinearList(formatter) => formatter.format_tree(context),
@@ -63,7 +68,8 @@ impl DescriptionFormatter {
         }
     }
 
-    pub fn format_graph(&self, context: &FormatContext) -> String {
+    #[must_use]
+    pub fn format_graph<S: BuildHasher>(&self, context: &FormatContext<S>) -> String {
         match self {
             DescriptionFormatter::None => String::new(),
             DescriptionFormatter::LinearList(formatter) => formatter.format_graph(context),
@@ -75,7 +81,11 @@ impl DescriptionFormatter {
 pub struct LinearListFormatter;
 
 impl LinearListFormatter {
-    pub fn format_single(&self, context: &FormatContext) -> String {
+    /// # Panics
+    ///
+    /// Panics if the context is malformed.
+    #[must_use]
+    pub fn format_single<S: BuildHasher>(&self, context: &FormatContext<S>) -> String {
         let mut lines = Vec::new();
         let mr_name = context.format_merge_request.mr_name();
 
@@ -110,7 +120,11 @@ impl LinearListFormatter {
         lines.join("\n")
     }
 
-    pub fn format_linear(&self, context: &FormatContext) -> String {
+    /// # Panics
+    ///
+    /// Panics if the context is malformed.
+    #[must_use]
+    pub fn format_linear<S: BuildHasher>(&self, context: &FormatContext<S>) -> String {
         let mut lines = Vec::new();
         let mr_name = context.format_merge_request.mr_name();
 
@@ -146,7 +160,11 @@ impl LinearListFormatter {
         lines.join("\n")
     }
 
-    pub fn format_tree(&self, context: &FormatContext) -> String {
+    /// # Panics
+    ///
+    /// Panics if the context is malformed.
+    #[must_use]
+    pub fn format_tree<S: BuildHasher>(&self, context: &FormatContext<S>) -> String {
         let mut lines = Vec::new();
         let mr_name = context.format_merge_request.mr_name();
 
@@ -209,7 +227,11 @@ impl LinearListFormatter {
         lines.join("\n")
     }
 
-    pub fn format_graph(&self, context: &FormatContext) -> String {
+    /// # Panics
+    ///
+    /// Panics if the context is malformed.
+    #[must_use]
+    pub fn format_graph<S: BuildHasher>(&self, context: &FormatContext<S>) -> String {
         let mut lines = Vec::new();
         let mr_name = context.format_merge_request.mr_name();
 
@@ -276,10 +298,10 @@ impl LinearListFormatter {
         lines.join("\n")
     }
 
-    fn format_bookmark(
+    fn format_bookmark<S: BuildHasher>(
         bookmark: &BookmarkRef<'_>,
         idx: usize,
-        context: &FormatContext,
+        context: &FormatContext<S>,
         parents: Option<&[BookmarkRef<'_>]>,
         _num_siblings: usize,
     ) -> String {
@@ -320,7 +342,11 @@ impl LinearListFormatter {
 pub struct TreeFormatter;
 
 impl TreeFormatter {
-    pub fn format_single(&self, context: &FormatContext) -> String {
+    /// # Panics
+    ///
+    /// Panics if the context is malformed.
+    #[must_use]
+    pub fn format_single<S: BuildHasher>(&self, context: &FormatContext<S>) -> String {
         let mut lines = Vec::new();
         let mr_name = context.format_merge_request.mr_name();
 
@@ -328,12 +354,16 @@ impl TreeFormatter {
             "This {mr_name} is part of a stack containing 1 {mr_name}:\n",
         ));
 
-        self.format_tree_recursive(&BookmarkRef::Trunk, None, 0, context, &mut lines, 0, 0);
+        Self::format_tree_recursive(&BookmarkRef::Trunk, None, 0, context, &mut lines, 0, 0);
 
         lines.join("\n")
     }
 
-    pub fn format_linear(&self, context: &FormatContext) -> String {
+    /// # Panics
+    ///
+    /// Panics if the context is malformed.
+    #[must_use]
+    pub fn format_linear<S: BuildHasher>(&self, context: &FormatContext<S>) -> String {
         let mut lines = Vec::new();
         let mr_name = context.format_merge_request.mr_name();
 
@@ -342,12 +372,16 @@ impl TreeFormatter {
             context.component.len()
         ));
 
-        self.format_tree_recursive(&BookmarkRef::Trunk, None, 0, context, &mut lines, 0, 0);
+        Self::format_tree_recursive(&BookmarkRef::Trunk, None, 0, context, &mut lines, 0, 0);
 
         lines.join("\n")
     }
 
-    pub fn format_tree(&self, context: &FormatContext) -> String {
+    /// # Panics
+    ///
+    /// Panics if the context is malformed.
+    #[must_use]
+    pub fn format_tree<S: BuildHasher>(&self, context: &FormatContext<S>) -> String {
         let mut lines = Vec::new();
         let mr_name = context.format_merge_request.mr_name();
 
@@ -356,12 +390,16 @@ impl TreeFormatter {
             context.component.len()
         ));
 
-        self.format_tree_recursive(&BookmarkRef::Trunk, None, 0, context, &mut lines, 0, 0);
+        Self::format_tree_recursive(&BookmarkRef::Trunk, None, 0, context, &mut lines, 0, 0);
 
         lines.join("\n")
     }
 
-    pub fn format_graph(&self, context: &FormatContext) -> String {
+    /// # Panics
+    ///
+    /// Panics if the context is malformed.
+    #[must_use]
+    pub fn format_graph<S: BuildHasher>(&self, context: &FormatContext<S>) -> String {
         let mut lines = Vec::new();
         let mr_name = context.format_merge_request.mr_name();
 
@@ -370,18 +408,17 @@ impl TreeFormatter {
             context.component.len()
         ));
 
-        self.format_tree_recursive(&BookmarkRef::Trunk, None, 0, context, &mut lines, 0, 0);
+        Self::format_tree_recursive(&BookmarkRef::Trunk, None, 0, context, &mut lines, 0, 0);
 
         lines.join("\n")
     }
 
     #[allow(clippy::too_many_arguments)] // It's fine
-    fn format_tree_recursive(
-        &self,
+    fn format_tree_recursive<S: BuildHasher>(
         item: &BookmarkRef,
         parent: Option<&BookmarkRef>,
         depth: usize,
-        context: &FormatContext,
+        context: &FormatContext<S>,
         lines: &mut Vec<String>,
         num_siblings: usize,
         idx: usize,
@@ -412,7 +449,7 @@ impl TreeFormatter {
             .collect();
 
         for (idx, child) in children.iter().enumerate() {
-            self.format_tree_recursive(
+            Self::format_tree_recursive(
                 &BookmarkRef::Bookmark((*child).clone()),
                 Some(item),
                 depth + 1,
@@ -424,12 +461,12 @@ impl TreeFormatter {
         }
     }
 
-    fn format_bookmark_tree(
+    fn format_bookmark_tree<S: BuildHasher>(
         bookmark: &BookmarkRef<'_>,
         parent: Option<&BookmarkRef>,
         idx: usize,
         depth: usize,
-        context: &FormatContext,
+        context: &FormatContext<S>,
         num_siblings: usize,
     ) -> String {
         let parents = match bookmark {
@@ -473,12 +510,12 @@ impl TreeFormatter {
     }
 }
 
-fn format_bookmark_entry(
+fn format_bookmark_entry<S: BuildHasher>(
     bookmark: &BookmarkRef<'_>,
     prefix: &str,
     list_indicator: &str,
     suffix: &str,
-    context: &FormatContext,
+    context: &FormatContext<S>,
 ) -> String {
     match bookmark {
         BookmarkRef::Bookmark(bookmark) => {
@@ -515,7 +552,7 @@ pub const START_MARKER: &str = "<!-- start jj-vine stack -->";
 pub const END_MARKER: &str = "<!-- end jj-vine stack -->";
 
 /// Context for building stack visualizations
-pub struct FormatContext<'a, 'forge, 'lookup> {
+pub struct FormatContext<'a, 'forge, 'lookup, S: BuildHasher = RandomState> {
     /// The component to format.
     pub component: ChangeComponent<'a>,
 
@@ -523,7 +560,7 @@ pub struct FormatContext<'a, 'forge, 'lookup> {
     pub this_bookmark: String,
 
     /// Lookup of merge requests by bookmark name
-    pub merge_request_lookup: &'lookup HashMap<String, AnyForgeMergeRequest>,
+    pub merge_request_lookup: &'lookup HashMap<String, AnyForgeMergeRequest, S>,
 
     /// Base branch name (e.g., "main", "master")
     pub base_branch: String,
@@ -533,6 +570,7 @@ pub struct FormatContext<'a, 'forge, 'lookup> {
 }
 
 /// Generate a new description with stack visualization and user content
+#[must_use]
 pub fn insert_stack_into_description<'a>(
     stack_description: &str,
     existing_description: &'a str,
@@ -555,26 +593,23 @@ pub fn insert_stack_into_description<'a>(
     };
 
     if !before.is_empty() {
-        result.push_str(&format!("{before}\n\n"));
+        let _ = writeln!(result, "{before}\n");
     }
 
-    result.push_str(&format!(
-        "{START_MARKER}\n{}\n{END_MARKER}",
-        stack_description
-    ));
+    let _ = write!(result, "{START_MARKER}\n{stack_description}\n{END_MARKER}");
 
     if !after.is_empty() {
-        result.push_str(&format!("\n\n{after}"));
+        let _ = write!(result, "\n\n{after}");
     }
 
     Cow::Owned(result)
 }
 
 /// Generates a description for a bookmark in a stack.
-pub fn generate_stack_description(
+pub fn generate_stack_description<S: std::hash::BuildHasher>(
     bookmark: &str,
     component: &ChangeComponent,
-    existing_mrs: &HashMap<String, AnyForgeMergeRequest>,
+    existing_mrs: &HashMap<String, AnyForgeMergeRequest, S>,
     config: &DescriptionConfig,
     base_branch: &str,
     format_merge_request: &ForgeImpl,
@@ -605,6 +640,7 @@ pub fn generate_stack_description(
     }
 }
 
+#[must_use]
 pub fn remove_jj_vine_stack_from_description(description: &str) -> String {
     let (before, after) = match (description.find(START_MARKER), description.find(END_MARKER)) {
         (Some(start), Some(end)) if start < end => (
@@ -717,6 +753,7 @@ fn read_file(repository_root: &Path, path: &Path) -> String {
 }
 
 #[cfg(test)]
+#[allow(clippy::too_many_lines, reason = "it's fine")]
 mod tests {
     use pretty_assertions::assert_str_eq;
 
@@ -758,7 +795,7 @@ mod tests {
 
         let graph = BookmarkGraph::from_lookups(
             changes.create_bookmark_map(),
-            changes.create_adjacency_list(),
+            &changes.create_adjacency_list(),
         );
 
         let component = &graph.components()[0];
@@ -843,7 +880,7 @@ mod tests {
 
         let graph = BookmarkGraph::from_lookups(
             changes.create_bookmark_map(),
-            changes.create_adjacency_list(),
+            &changes.create_adjacency_list(),
         );
 
         let component = &graph.components()[0];
@@ -990,7 +1027,7 @@ mod tests {
 
         let graph = BookmarkGraph::from_lookups(
             changes.create_bookmark_map(),
-            changes.create_adjacency_list(),
+            &changes.create_adjacency_list(),
         );
 
         let component = &graph.components()[0];
@@ -1128,7 +1165,7 @@ mod tests {
 
         let graph = BookmarkGraph::from_lookups(
             changes.create_bookmark_map(),
-            changes.create_adjacency_list(),
+            &changes.create_adjacency_list(),
         );
 
         let component = &graph.components()[0];
@@ -1213,7 +1250,7 @@ mod tests {
 
         let graph = BookmarkGraph::from_lookups(
             changes.create_bookmark_map(),
-            changes.create_adjacency_list(),
+            &changes.create_adjacency_list(),
         );
 
         let component = &graph.components()[0];
@@ -1360,7 +1397,7 @@ mod tests {
 
         let graph = BookmarkGraph::from_lookups(
             changes.create_bookmark_map(),
-            changes.create_adjacency_list(),
+            &changes.create_adjacency_list(),
         );
 
         let component = &graph.components()[0];
@@ -1529,8 +1566,8 @@ mod tests {
     fn mock_commit(commit_id: &str, parents: impl AsRef<[&'static str]>) -> Change {
         Change {
             commit_id: commit_id.to_string(),
-            parent_commit_ids: parents.as_ref().iter().map(|p| p.to_string()).collect(),
-            change_id: format!("change_{}", commit_id),
+            parent_commit_ids: parents.as_ref().iter().map(ToString::to_string).collect(),
+            change_id: format!("change_{commit_id}"),
             description: "Message\n\nBody".to_string(),
             bookmarks: vec![],
             pending_bookmark: false,
@@ -1727,7 +1764,7 @@ mod tests {
 
         let graph = BookmarkGraph::from_lookups(
             changes.create_bookmark_map(),
-            changes.create_adjacency_list(),
+            &changes.create_adjacency_list(),
         );
 
         let component = &graph.components()[0];
@@ -1813,7 +1850,7 @@ mod tests {
 
         let graph = BookmarkGraph::from_lookups(
             changes.create_bookmark_map(),
-            changes.create_adjacency_list(),
+            &changes.create_adjacency_list(),
         );
 
         let component = &graph.components()[0];
@@ -1932,7 +1969,7 @@ mod tests {
 
         let graph = BookmarkGraph::from_lookups(
             changes.create_bookmark_map(),
-            changes.create_adjacency_list(),
+            &changes.create_adjacency_list(),
         );
 
         let component = &graph.components()[0];
@@ -2018,7 +2055,7 @@ mod tests {
 
         let graph = BookmarkGraph::from_lookups(
             changes.create_bookmark_map(),
-            changes.create_adjacency_list(),
+            &changes.create_adjacency_list(),
         );
 
         let component = &graph.components()[0];

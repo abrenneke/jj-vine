@@ -1,6 +1,12 @@
 #![allow(async_fn_in_trait)]
 #![feature(try_trait_v2)]
 #![feature(try_trait_v2_residual)]
+#![warn(clippy::pedantic)]
+#![allow(clippy::missing_errors_doc, reason = "TODO")]
+#![allow(
+    clippy::unused_async_trait_impl,
+    reason = "It's a bit buggy with ? right now"
+)]
 
 pub mod bookmark;
 pub mod cli;
