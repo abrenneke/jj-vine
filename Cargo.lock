@@ -908,7 +908,7 @@ dependencies = [
 
 [[package]]
 name = "jj-vine"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "assertables",
  "bon",
