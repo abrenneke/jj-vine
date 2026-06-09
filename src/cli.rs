@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 use tracing::Level;
-use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
+use tracing_subscriber::{EnvFilter, layer::SubscriberExt as _, util::SubscriberInitExt as _};
 
 use crate::{
     commands::{status::StatusCommandConfig, submit::SubmitCommandConfig},
@@ -15,11 +15,11 @@ use crate::{
 #[command(name = "jj-vine")]
 #[command(about = "GitLab MR submission tool for Jujutsu workflows", long_about = None, version)]
 pub struct Cli {
-    /// Repository path (defaults to current directory)
+    /// Repository path (defaults to current directory).
     #[arg(short = 'R', long, global = true)]
     pub repository: Option<PathBuf>,
 
-    /// Enable verbose logging
+    /// Enable verbose logging.
     #[arg(short = 'v', long, global = true, default_value_t = Cli::default_verbosity())]
     pub verbose: bool,
 
@@ -32,18 +32,19 @@ pub enum Commands {
     #[command(about = SubmitCommandConfig::help_long())]
     Submit(SubmitCommandConfig),
 
-    /// Initialize jj-vine configuration for this repository
+    /// Initialize jj-vine configuration for this repository.
     Init,
 
-    /// Show status of tracked bookmarks and their MRs/PRs
+    /// Show status of tracked bookmarks and their MRs/PRs.
     Status(StatusCommandConfig),
 }
 
+#[expect(clippy::module_name_repetitions, reason = "it's fine")]
 pub struct CliConfig<'a> {
-    /// Repository path (defaults to current directory)
+    /// Repository path (defaults to current directory).
     pub repository: PathBuf,
 
-    /// Output formatter
+    /// Output formatter.
     pub output: &'a dyn Output,
 }
 

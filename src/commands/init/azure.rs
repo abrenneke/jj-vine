@@ -1,14 +1,15 @@
 use std::path::PathBuf;
 
 use dialoguer::{Input, Password};
-use owo_colors::OwoColorize;
+use owo_colors::OwoColorize as _;
 
 use crate::{
     commands::init::{Remotes, get_config, set_config},
     error::Result,
 };
 
-#[allow(clippy::too_many_lines, reason = "important")]
+#[expect(clippy::too_many_lines, reason = "important")]
+#[expect(clippy::single_call_fn, reason = "important")]
 pub fn init(repo_path: impl Into<PathBuf>, remotes: Option<&Remotes>) -> Result<()> {
     let repo_path = repo_path.into();
     let existing_host = get_config(&repo_path, "jj-vine.azure.host");
@@ -32,7 +33,7 @@ pub fn init(repo_path: impl Into<PathBuf>, remotes: Option<&Remotes>) -> Result<
 
     let mut default_host = existing_host
         .or(forge.map(|f| f.host.clone()))
-        .unwrap_or_else(|| "https://dev.azure.com".to_string());
+        .unwrap_or_else(|| "https://dev.azure.com".to_owned());
 
     // Handle ssh.dev.azure.com
     if default_host.starts_with("https://ssh.") {

@@ -5,7 +5,7 @@ mod e2e {
     use crate::{error::Result, tests::TestRepo};
 
     #[tokio::test]
-    async fn test_submit_dry_run_shows_would_create() -> Result<()> {
+    async fn submit_dry_run_shows_would_create() -> Result<()> {
         let repo = TestRepo::with_forgejo_remote();
 
         let branch = repo.bookmark_name("dry-run-test");
@@ -21,7 +21,7 @@ mod e2e {
     }
 
     #[tokio::test]
-    async fn test_topological_ordering_in_stack() -> Result<()> {
+    async fn topological_ordering_in_stack() -> Result<()> {
         let repo = TestRepo::with_forgejo_remote();
 
         let a = repo.bookmark_name("topo-a");

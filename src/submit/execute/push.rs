@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use bon::Builder;
-use itertools::Itertools;
-use owo_colors::OwoColorize;
+use itertools::Itertools as _;
+use owo_colors::OwoColorize as _;
 use tracing::{debug, error};
 
 use crate::{
@@ -10,7 +10,7 @@ use crate::{
     submit::execute::{ActionInfo, ActionResultData, ExecuteAction, ExecuteActionContext},
 };
 
-/// Push bookmarks to a remote
+/// Push bookmarks to a remote.
 #[derive(Debug, Clone, PartialEq, Eq, Builder)]
 pub struct PushAction {
     pub bookmarks: Vec<String>,
@@ -24,7 +24,7 @@ impl ActionInfo for PushAction {
     }
 
     fn group_text(&self) -> String {
-        "Pushing bookmarks".to_string()
+        "Pushing bookmarks".to_owned()
     }
 
     fn text(&self) -> String {
@@ -53,7 +53,7 @@ impl ExecuteAction for PushAction {
         ctx: ExecuteActionContext<'_>,
     ) -> impl Future<Output = Result<ActionResultData>> {
         let bookmarks_string = self.bookmarks.iter().map(|b| b.magenta()).join(", ");
-        std::future::ready(if ctx.execute.dry_run {
+        core::future::ready(if ctx.execute.dry_run {
             ctx.execute.output.log_message(&format!(
                 "Would push bookmarks to remote {}: {bookmarks_string}",
                 self.remote.cyan()

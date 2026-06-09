@@ -1,7 +1,7 @@
 use reqwest::{Method, StatusCode};
-use snafu::{Backtrace, ChainCompat, Location, Snafu};
+use snafu::{Backtrace, ChainCompat, ErrorCompat as _, Location, Snafu};
 
-pub type Result<T, E = Error> = std::result::Result<T, E>;
+pub type Result<T, E = Error> = core::result::Result<T, E>;
 
 macro_rules! make_whatever {
     ($fmt:literal$(, $($arg:expr),* $(,)?)?) => {
@@ -13,22 +13,23 @@ macro_rules! make_whatever {
 
 pub(crate) use make_whatever;
 
-#[allow(unused)]
+#[expect(unused, reason = "will use")]
 macro_rules! err_whatever {
 ($fmt:literal$(, $($arg:expr),* $(,)?)?) => {
         core::result::Result::Err(make_whatever!($fmt$(, $($arg),*)*))
     };
 }
 
-#[allow(unused)]
+#[expect(unused, reason = "will use")]
 pub(crate) use err_whatever;
 
 #[derive(Snafu)]
 #[snafu(visibility(pub))]
+#[expect(clippy::error_impl_error, reason = "will think about it")]
 pub enum Error {
     #[snafu(display("{} error(s) occurred: {:?}", errors.len(), errors))]
     Aggregate {
-        errors: Vec<Box<dyn std::error::Error>>,
+        errors: Vec<Box<dyn core::error::Error>>,
         backtrace: Box<Backtrace>,
 
         #[snafu(implicit)]
@@ -189,8 +190,8 @@ pub enum Error {
         #[snafu(implicit)]
         location: Box<Location>,
 
-        #[snafu(source(from(Box<dyn std::error::Error>, Some)))]
-        source: Option<Box<dyn std::error::Error>>,
+        #[snafu(source(from(Box<dyn core::error::Error>, Some)))]
+        source: Option<Box<dyn core::error::Error>>,
     },
 
     #[snafu(display("Invalid component: {component}"))]
@@ -204,16 +205,17 @@ pub enum Error {
 }
 
 #[derive(Debug, Clone)]
+#[expect(clippy::module_name_repetitions, reason = "this one is fine")]
 pub struct ClonableError {
     pub message: String,
-    backtrace: Option<String>,
-    location: Option<Location>,
+    pub backtrace: Option<String>,
+    pub location: Option<Location>,
 }
 
 impl snafu::Error for ClonableError {}
 
-impl std::fmt::Display for ClonableError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for ClonableError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{}", self.message)?;
         if let Some(backtrace) = &self.backtrace {
             writeln!(f, "\nBacktrace:\n{backtrace}")?;
@@ -226,28 +228,8 @@ impl std::fmt::Display for ClonableError {
 }
 
 impl Error {
-    #[must_use]
-    pub fn backtrace(&self) -> Option<&Backtrace> {
-        match self {
-            Error::JjCommand { backtrace, .. }
-            | Error::GitCommand { backtrace, .. }
-            | Error::GitLabApi { backtrace, .. }
-            | Error::GitHubApi { backtrace, .. }
-            | Error::ForgejoApi { backtrace, .. }
-            | Error::Clap { backtrace, .. }
-            | Error::Config { backtrace, .. }
-            | Error::BookmarkNotFound { backtrace, .. }
-            | Error::InvalidGraph { backtrace, .. }
-            | Error::Io { backtrace, .. }
-            | Error::Http { backtrace, .. }
-            | Error::Json { backtrace, .. }
-            | Error::Utf8 { backtrace, .. }
-            | Error::Parse { backtrace, .. }
-            | Error::Other { backtrace, .. }
-            | Error::InvalidComponent { backtrace, .. }
-            | Error::Aggregate { backtrace, .. }
-            | Error::AzureDevOpsApi { backtrace, .. } => Some(backtrace),
-        }
+    pub fn new(message: impl Into<String>) -> Self {
+        make_whatever!("{}", message.into())
     }
 
     #[must_use]
@@ -284,9 +266,24 @@ impl Error {
     }
 }
 
-impl std::fmt::Debug for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        error_trace(self, f)?;
+impl core::fmt::Debug for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        writeln!(f, "{self}")?;
+
+        let sources = ChainCompat::new(self).skip(1);
+        let plurality = sources.clone().take(2).count();
+
+        match plurality {
+            0 => {}
+            1 => writeln!(f, "\nCaused by this error:")?,
+            _ => writeln!(f, "\nCaused by these errors (recent errors listed first):")?,
+        }
+
+        for (i, source) in sources.enumerate() {
+            // Let's use 1-based indexing for presentation
+            let i = i.saturating_add(1);
+            writeln!(f, "{i:3}: {source}")?;
+        }
 
         if let Some(backtrace) = self.backtrace() {
             writeln!(f, "\nBacktrace:\n{backtrace}")?;
@@ -297,33 +294,6 @@ impl std::fmt::Debug for Error {
         }
 
         Ok(())
-    }
-}
-
-fn error_trace(error: &Error, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
-    writeln!(f, "{error}")?;
-
-    let sources = ChainCompat::new(error).skip(1);
-    let plurality = sources.clone().take(2).count();
-
-    match plurality {
-        0 => {}
-        1 => writeln!(f, "\nCaused by this error:")?,
-        _ => writeln!(f, "\nCaused by these errors (recent errors listed first):")?,
-    }
-
-    for (i, source) in sources.enumerate() {
-        // Let's use 1-based indexing for presentation
-        let i = i + 1;
-        writeln!(f, "{i:3}: {source}")?;
-    }
-
-    Ok(())
-}
-
-impl Error {
-    pub fn new(message: impl Into<String>) -> Self {
-        make_whatever!("{}", message.into())
     }
 }
 
@@ -355,8 +325,8 @@ impl From<dialoguer::Error> for Error {
     }
 }
 
-impl From<std::num::ParseIntError> for Error {
-    fn from(source: std::num::ParseIntError) -> Self {
+impl From<core::num::ParseIntError> for Error {
+    fn from(source: core::num::ParseIntError) -> Self {
         ParseSnafu {
             message: source.to_string(),
         }
@@ -366,52 +336,53 @@ impl From<std::num::ParseIntError> for Error {
 
 #[cfg(test)]
 mod tests {
-    use snafu::ResultExt;
+    use snafu::ResultExt as _;
 
     use super::*;
 
     #[test]
-    fn test_error_new() {
+    fn error_new() {
         let err = Error::new("test error");
         assert_eq!(err.to_string(), "test error");
     }
 
     #[test]
-    fn test_config_error() {
+    fn config_error() {
         let err = ConfigSnafu {
-            message: "missing config".to_string(),
+            message: "missing config".to_owned(),
         }
         .build();
         assert_eq!(err.to_string(), "Configuration error: missing config");
     }
 
     #[test]
-    fn test_bookmark_not_found() {
+    fn bookmark_not_found() {
         let err = BookmarkNotFoundSnafu {
-            name: "feature".to_string(),
+            name: "feature".to_owned(),
         }
         .build();
         assert_eq!(err.to_string(), "Bookmark not found: feature");
     }
 
     #[test]
-    fn test_io_error_conversion() {
+    #[expect(clippy::std_instead_of_core, reason = "gated feature")]
+    fn io_error_conversion() {
         let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file not found");
         let err: Error = io_err.into();
         assert!(err.to_string().contains("file not found"));
     }
 
     #[test]
-    fn test_utf8_error_conversion() {
+    fn utf8_error_conversion() {
         let bytes = vec![0, 159, 146, 150]; // Invalid UTF-8
         let err = String::from_utf8(bytes).context(Utf8Snafu).unwrap_err();
         assert!(err.to_string().contains("UTF-8 decoding error"));
     }
 
     #[test]
-    fn test_jj_command_error() {
+    fn jj_command_error() {
         let err = JjCommandSnafu {
-            message: "command failed".to_string(),
+            message: "command failed".to_owned(),
             output: None,
         }
         .build();
@@ -419,9 +390,9 @@ mod tests {
     }
 
     #[test]
-    fn test_gitlab_api_error() {
+    fn gitlab_api_error() {
         let err = GitLabApiSnafu {
-            message: "API returned 404".to_string(),
+            message: "API returned 404".to_owned(),
             method: Method::POST,
             url: "https://example.com/api/foo",
             status: StatusCode::NOT_FOUND,

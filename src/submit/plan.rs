@@ -1,20 +1,20 @@
 use std::{collections::HashMap, path::Path};
 
-use futures::{StreamExt, stream::FuturesUnordered};
-use owo_colors::OwoColorize;
+use futures::{StreamExt as _, stream::FuturesUnordered};
+use owo_colors::OwoColorize as _;
 use snafu::whatever;
 
 use crate::{
     bookmark::{BookmarkOrPending, BookmarkRef},
     description::{generate_description, remove_jj_vine_stack_from_description},
     error::{Error, Result},
-    forge::{AnyForgeMergeRequest, Forge},
-    output::OutputExt,
+    forge::{AnyForgeMergeRequest, Forge as _},
+    output::OutputExt as _,
     submit::{
         PlanContext,
         execute::{
             Action,
-            ActionInfo,
+            ActionInfo as _,
             BookmarkNameOrPendingChangeId,
             create_mr::CreateMRAction,
             push::PushAction,
@@ -27,8 +27,9 @@ use crate::{
     title::get_mr_title,
 };
 
-/// Plan for submission execution
+/// Plan for submission execution.
 #[derive(Debug, Clone)]
+#[expect(clippy::module_name_repetitions, reason = "it's fine")]
 pub struct SubmissionPlan {
     /// Actions organized into batches. Each batch's actions execute in
     /// parallel, and batches execute sequentially.
@@ -38,10 +39,10 @@ pub struct SubmissionPlan {
     pub existing_mrs: HashMap<String, AnyForgeMergeRequest>,
 }
 
-impl std::fmt::Display for SubmissionPlan {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for SubmissionPlan {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         for (i, batch) in self.actions.iter().enumerate() {
-            writeln!(f, "Batch {}:", i + 1)?;
+            writeln!(f, "Batch {}:", i.strict_add(1))?;
             for action in batch {
                 writeln!(f, "  {}", action.plan_text())?;
             }
@@ -50,7 +51,7 @@ impl std::fmt::Display for SubmissionPlan {
     }
 }
 
-#[allow(dead_code)]
+#[expect(dead_code, reason = "will be used")]
 struct PlanMergeRequest {
     bookmark: String,
     target_branch: String,
@@ -59,22 +60,23 @@ struct PlanMergeRequest {
 }
 
 impl PlanMergeRequest {
+    #[expect(clippy::single_call_fn, reason = "seems fine")]
     fn from_forge_mr(mr: &AnyForgeMergeRequest) -> Self {
         Self {
-            bookmark: mr.source_branch().to_string(),
-            target_branch: mr.target_branch().to_string(),
-            title: mr.title().to_string(),
-            description: mr.description().to_string(),
+            bookmark: mr.source_branch().to_owned(),
+            target_branch: mr.target_branch().to_owned(),
+            title: mr.title().to_owned(),
+            description: mr.description().to_owned(),
         }
     }
 }
 
-/// Create a submission plan
+/// Create a submission plan.
 ///
 /// # Panics
 ///
-/// Panics if many reasons
-#[allow(clippy::too_many_lines, reason = "important")]
+/// Panics if many reasons.
+#[expect(clippy::too_many_lines, reason = "important")]
 pub async fn plan(ctx: PlanContext<'_>) -> Result<SubmissionPlan> {
     ctx.output.log_current("Planning submission");
 
@@ -104,7 +106,7 @@ pub async fn plan(ctx: PlanContext<'_>) -> Result<SubmissionPlan> {
                             )
                             .await?
                         {
-                            Ok(Some((bookmark.name().to_string(), mr)))
+                            Ok(Some((bookmark.name().to_owned(), mr)))
                         } else {
                             Ok(None)
                         }
@@ -135,7 +137,7 @@ pub async fn plan(ctx: PlanContext<'_>) -> Result<SubmissionPlan> {
             .change_ids(
                 to_push_create
                     .iter()
-                    .map(|b| b.change_id().to_string())
+                    .map(|b| b.change_id().to_owned())
                     .collect(),
             )
             .remote(ctx.config.remote_name.clone())
@@ -147,12 +149,7 @@ pub async fn plan(ctx: PlanContext<'_>) -> Result<SubmissionPlan> {
 
     if !to_push_update.is_empty() {
         let push_action = PushAction::builder()
-            .bookmarks(
-                to_push_update
-                    .iter()
-                    .map(|b| b.name().to_string())
-                    .collect(),
-            )
+            .bookmarks(to_push_update.iter().map(|b| b.name().to_owned()).collect())
             .remote(ctx.config.remote_name.clone())
             .build();
 
@@ -169,7 +166,7 @@ pub async fn plan(ctx: PlanContext<'_>) -> Result<SubmissionPlan> {
         .values()
         .map(|mr| {
             (
-                mr.source_branch().to_string(),
+                mr.source_branch().to_owned(),
                 PlanMergeRequest::from_forge_mr(mr),
             )
         })
@@ -219,7 +216,7 @@ pub async fn plan(ctx: PlanContext<'_>) -> Result<SubmissionPlan> {
             if let Some(existing_mr) = existing_mrs.get(bookmark.name()) {
                 if existing_mr.target_branch() != target_branch {
                     let update_mr_base_action = UpdateMRBaseAction::builder()
-                        .bookmark(bookmark.name().to_string())
+                        .bookmark(bookmark.name().to_owned())
                         .mr_iid(existing_mr.iid().to_string())
                         .new_target_branch(target_branch.clone())
                         .dependencies(dependencies)
@@ -253,9 +250,9 @@ pub async fn plan(ctx: PlanContext<'_>) -> Result<SubmissionPlan> {
                 batches.push(vec![Action::CreateMR(create_mr_action)]);
 
                 plan_mrs.insert(
-                    bookmark.name().to_string(),
+                    bookmark.name().to_owned(),
                     PlanMergeRequest {
-                        bookmark: bookmark.name().to_string(),
+                        bookmark: bookmark.name().to_owned(),
                         target_branch: target_branch.clone(),
                         title,
                         description,

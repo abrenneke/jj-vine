@@ -17,7 +17,7 @@ use crate::{
     utils::ResultWithWarnings,
 };
 
-pub trait ForgeUser: std::fmt::Debug {
+pub trait UserLike: core::fmt::Debug {
     fn id(&self) -> Option<Cow<'_, str>>;
 
     fn username(&self) -> Option<Cow<'_, str>>;
@@ -39,8 +39,8 @@ impl BorrowId for i32 {
     type Id<'a> = i32;
 }
 
-pub trait ForgeMergeRequest: std::fmt::Debug {
-    type User: ForgeUser;
+pub trait MergeRequestLike: core::fmt::Debug {
+    type User: UserLike;
 
     type Id: BorrowId;
 
@@ -54,7 +54,7 @@ pub trait ForgeMergeRequest: std::fmt::Debug {
 
     fn target_branch(&self) -> &str;
 
-    fn state(&self) -> ForgeMergeRequestState;
+    fn state(&self) -> MergeRequestState;
 
     fn url(&self) -> Cow<'_, str>;
 
@@ -72,23 +72,23 @@ pub trait ForgeMergeRequest: std::fmt::Debug {
 
     fn clone_boxed(
         &self,
-    ) -> Box<dyn ForgeMergeRequest<User = Self::User, Id = Self::Id> + Send + Sync>
+    ) -> Box<dyn MergeRequestLike<User = Self::User, Id = Self::Id> + Send + Sync>
     where
         Self: Sync + Send;
 }
 
-pub struct ForgeMergeRequestWrapper<T, Id> {
-    inner: Box<dyn ForgeMergeRequest<User = T, Id = Id> + Send + Sync>,
+pub struct MergeRequestWrapper<T, Id> {
+    inner: Box<dyn MergeRequestLike<User = T, Id = Id> + Send + Sync>,
 }
 
-impl<T, Id> std::fmt::Debug for ForgeMergeRequestWrapper<T, Id> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<T, Id> core::fmt::Debug for MergeRequestWrapper<T, Id> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "ForgeMergeRequestWrapper {{ inner: {:?} }}", self.inner)
     }
 }
 
-impl<T, Id> ForgeMergeRequestWrapper<T, Id> {
-    pub fn new(inner: impl ForgeMergeRequest<User = T, Id = Id> + Send + Sync + 'static) -> Self {
+impl<T, Id> MergeRequestWrapper<T, Id> {
+    pub fn new(inner: impl MergeRequestLike<User = T, Id = Id> + Send + Sync + 'static) -> Self {
         Self {
             inner: Box::new(inner),
         }
@@ -97,37 +97,37 @@ impl<T, Id> ForgeMergeRequestWrapper<T, Id> {
 
 #[derive(Debug)]
 pub struct AnyForgeMergeRequest(
-    Box<dyn ForgeMergeRequest<User = AnyForgeUser, Id = String> + Send + Sync>,
+    Box<dyn MergeRequestLike<User = AnyForgeUser, Id = String> + Send + Sync>,
 );
 
 impl AnyForgeMergeRequest {
     pub fn new<T>(inner: T) -> Self
     where
-        T: ForgeMergeRequest + Send + Sync + 'static,
-        T::User: ForgeUser + Send + Sync + 'static,
+        T: MergeRequestLike + Send + Sync + 'static,
+        T::User: UserLike + Send + Sync + 'static,
         for<'a> <T::Id as BorrowId>::Id<'a>: ToString,
     {
-        Self(Box::new(ForgeMergeRequestWrapper::new(inner)))
+        Self(Box::new(MergeRequestWrapper::new(inner)))
     }
 }
 
-impl std::ops::Deref for AnyForgeMergeRequest {
-    type Target = Box<dyn ForgeMergeRequest<User = AnyForgeUser, Id = String> + Send + Sync>;
+impl core::ops::Deref for AnyForgeMergeRequest {
+    type Target = Box<dyn MergeRequestLike<User = AnyForgeUser, Id = String> + Send + Sync>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl std::ops::DerefMut for AnyForgeMergeRequest {
+impl core::ops::DerefMut for AnyForgeMergeRequest {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
 
-impl<T, Id> ForgeMergeRequest for ForgeMergeRequestWrapper<T, Id>
+impl<T, Id> MergeRequestLike for MergeRequestWrapper<T, Id>
 where
-    T: ForgeUser + Send + Sync + 'static,
+    T: UserLike + Send + Sync + 'static,
     Id: BorrowId + 'static,
     for<'a> <Id as BorrowId>::Id<'a>: ToString,
 {
@@ -154,7 +154,7 @@ where
         self.inner.target_branch()
     }
 
-    fn state(&self) -> ForgeMergeRequestState {
+    fn state(&self) -> MergeRequestState {
         self.inner.state()
     }
 
@@ -196,14 +196,14 @@ where
 
     fn clone_boxed(
         &self,
-    ) -> Box<dyn ForgeMergeRequest<User = Self::User, Id = Self::Id> + Send + Sync> {
+    ) -> Box<dyn MergeRequestLike<User = Self::User, Id = Self::Id> + Send + Sync> {
         Box::new(Self {
             inner: self.inner.clone_boxed(),
         })
     }
 }
 
-impl ForgeMergeRequest for AnyForgeMergeRequest {
+impl MergeRequestLike for AnyForgeMergeRequest {
     type User = AnyForgeUser;
 
     type Id = String;
@@ -228,7 +228,7 @@ impl ForgeMergeRequest for AnyForgeMergeRequest {
         (**self).target_branch()
     }
 
-    fn state(&self) -> ForgeMergeRequestState {
+    fn state(&self) -> MergeRequestState {
         (**self).state()
     }
 
@@ -262,7 +262,7 @@ impl ForgeMergeRequest for AnyForgeMergeRequest {
 
     fn clone_boxed(
         &self,
-    ) -> Box<dyn ForgeMergeRequest<User = Self::User, Id = Self::Id> + Send + Sync> {
+    ) -> Box<dyn MergeRequestLike<User = Self::User, Id = Self::Id> + Send + Sync> {
         (**self).clone_boxed()
     }
 }
@@ -274,54 +274,54 @@ impl Clone for AnyForgeMergeRequest {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
-pub enum ForgeMergeRequestState {
+pub enum MergeRequestState {
     #[default]
     Open,
     Closed,
     Merged,
 }
 
-/// Status of CI/Pipeline checks
+/// Status of CI/Pipeline checks.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum CheckStatus {
-    /// All checks passed
+    /// All checks passed.
     Success,
-    /// Checks are still running
+    /// Checks are still running.
     Pending,
-    /// Some checks failed
+    /// Some checks failed.
     Failed,
-    /// No checks configured or required
+    /// No checks configured or required.
     #[default]
     None,
 }
 
-/// Satisfaction of approval requirements
+/// Satisfaction of approval requirements.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ApprovalSatisfaction {
-    /// All approval requirements are satisfied
+    /// All approval requirements are satisfied.
     Satisfied,
 
-    /// Some approval requirements are not satisfied
+    /// Some approval requirements are not satisfied.
     Unsatisfied,
 
-    /// Approval requirements are unknown
+    /// Approval requirements are unknown.
     Unknown,
 }
 
-/// Approval status of a merge request
+/// Approval status of a merge request.
 #[derive(Debug, Clone)]
 pub struct ApprovalStatus {
-    /// Number of approvals received for the merge request
+    /// Number of approvals received for the merge request.
     pub approved_count: u32,
 
-    /// Number of approvals required by the project
+    /// Number of approvals required by the project.
     pub required_count: u32,
 
     /// Number of reviews that are blocking the merge request (i.e. request
-    /// changes)
+    /// changes).
     pub blocking_count: u32,
 
-    /// Whether approval requirements are satisfied
+    /// Whether approval requirements are satisfied.
     pub satisfaction: ApprovalSatisfaction,
 }
 
@@ -336,16 +336,16 @@ impl Default for ApprovalStatus {
     }
 }
 
-/// Complete status information for a merge request
+/// Complete status information for a merge request.
 #[derive(Debug, Clone)]
 pub struct MergeRequestStatus {
-    /// The internal ID of the merge request
+    /// The internal ID of the merge request.
     pub iid: String,
 
-    /// CI/Pipeline check status
+    /// CI/Pipeline check status.
     pub check_status: CheckStatus,
 
-    /// Approval status
+    /// Approval status.
     pub approval_status: ApprovalStatus,
 }
 
@@ -358,43 +358,43 @@ impl MergeRequestStatus {
 }
 
 #[derive(Builder, Default)]
-pub struct ForgeCreateMergeRequestOptions<User> {
-    /// The source branch of the merge request
+pub struct CreateMergeRequestOptions<User> {
+    /// The source branch of the merge request.
     pub source_branch: String,
 
-    /// The target branch of the merge request
+    /// The target branch of the merge request.
     pub target_branch: String,
 
-    /// The title of the merge request
+    /// The title of the merge request.
     pub title: String,
 
-    /// The description of the merge request
+    /// The description of the merge request.
     #[builder(required)]
     pub description: Option<String>,
 
-    /// The initial assignees of the merge request
+    /// The initial assignees of the merge request.
     pub assignees: Vec<User>,
 
-    /// The initial reviewers of the merge request
+    /// The initial reviewers of the merge request.
     pub reviewers: Vec<User>,
 
-    /// Whether to remove the source branch after the merge request is merged
+    /// Whether to remove the source branch after the merge request is merged.
     pub remove_source_branch: bool,
 
-    /// Whether to squash the commits into a single commit
+    /// Whether to squash the commits into a single commit.
     pub squash: bool,
 
-    /// Whether to open the merge request as a draft
+    /// Whether to open the merge request as a draft.
     pub open_as_draft: bool,
 }
 
-impl<T> ForgeCreateMergeRequestOptions<T> {
+impl<T> CreateMergeRequestOptions<T> {
     pub fn from_other<U>(
-        options: ForgeCreateMergeRequestOptions<U>,
+        options: CreateMergeRequestOptions<U>,
     ) -> Result<Self, <T as TryFrom<U>>::Error>
     where
         T: TryFrom<U>,
-        T::Error: std::error::Error,
+        T::Error: core::error::Error,
     {
         Ok(Self {
             source_branch: options.source_branch,
@@ -417,19 +417,17 @@ impl<T> ForgeCreateMergeRequestOptions<T> {
         })
     }
 
-    pub fn into_other<U>(
-        self,
-    ) -> Result<ForgeCreateMergeRequestOptions<U>, <U as TryFrom<T>>::Error>
+    pub fn into_other<U>(self) -> Result<CreateMergeRequestOptions<U>, <U as TryFrom<T>>::Error>
     where
         U: TryFrom<T>,
-        U::Error: std::error::Error,
+        U::Error: core::error::Error,
     {
-        ForgeCreateMergeRequestOptions::from_other(self)
+        CreateMergeRequestOptions::from_other(self)
     }
 }
 
 #[derive(Debug, Builder, Default)]
-pub struct ForgeUpdateMergeRequestInfoOptions {
+pub struct UpdateMergeRequestInfoOptions {
     /// The new description of the merge request. If None, the description will
     /// not be updated.
     pub description: Option<String>,
@@ -456,8 +454,8 @@ pub struct UserId<T>(pub T);
 
 impl<T> TryFrom<AnyForgeUser> for UserId<T>
 where
-    T: std::str::FromStr,
-    <T as std::str::FromStr>::Err: std::fmt::Display,
+    T: core::str::FromStr,
+    <T as core::str::FromStr>::Err: core::fmt::Display,
 {
     type Error = Error;
 
@@ -466,7 +464,7 @@ where
             user.id()
                 .ok_or(Error::new("User ID is required"))?
                 .parse()
-                .map_err(|e: <T as std::str::FromStr>::Err| Error::new(e.to_string()))?,
+                .map_err(|e: <T as core::str::FromStr>::Err| Error::new(e.to_string()))?,
         ))
     }
 }
@@ -504,9 +502,9 @@ pub struct DiscussionCount {
 /// A trait for a code forge (e.g. GitLab, GitHub, Forgejo, etc.)
 #[enum_dispatch]
 pub trait Forge: Send + Sync + FormatMergeRequest {
-    type User: Send + Sync + ForgeUser;
+    type User: Send + Sync + UserLike;
 
-    type MergeRequest: Send + Sync + ForgeMergeRequest<User = Self::User, Id = Self::Id>;
+    type MergeRequest: Send + Sync + MergeRequestLike<User = Self::User, Id = Self::Id>;
 
     type UserId: Send + Sync;
 
@@ -536,7 +534,7 @@ pub trait Forge: Send + Sync + FormatMergeRequest {
     async fn user_by_username(&self, username: &str) -> Result<Option<Self::User>>;
 
     /// Find merge request by source branch name. Returns the first MR found.
-    /// with the given source branch, or None if not found
+    /// with the given source branch, or None if not found.
     async fn find_merge_request_by_source_branch(
         &self,
         branch: &str,
@@ -548,7 +546,7 @@ pub trait Forge: Send + Sync + FormatMergeRequest {
     async fn find_merge_request_by_source_branch_base_branch(
         &self,
         source_branch: &str,
-        #[allow(unused)] base_branch: &str,
+        #[expect(unused, reason = "keep name for trait")] base_branch: &str,
     ) -> Result<Option<Self::MergeRequest>> {
         self.find_merge_request_by_source_branch(source_branch)
             .await
@@ -557,7 +555,7 @@ pub trait Forge: Send + Sync + FormatMergeRequest {
     /// Create a new merge request in the forge for the project.
     async fn create_merge_request(
         &self,
-        options: ForgeCreateMergeRequestOptions<Self::UserId>,
+        options: CreateMergeRequestOptions<Self::UserId>,
     ) -> Result<Self::MergeRequest>;
 
     /// Update the target branch (base) of an existing merge request.
@@ -571,7 +569,7 @@ pub trait Forge: Send + Sync + FormatMergeRequest {
     async fn update_merge_request_info<'a>(
         &'a self,
         merge_request_iid: <Self::Id as BorrowId>::Id<'a>,
-        options: ForgeUpdateMergeRequestInfoOptions,
+        options: UpdateMergeRequestInfoOptions,
     ) -> Result<Self::MergeRequest>;
 
     /// Get a specific merge request by IID.
@@ -619,6 +617,7 @@ pub trait Forge: Send + Sync + FormatMergeRequest {
     ) -> ResultWithWarnings<bool>;
 }
 
+#[expect(clippy::module_name_repetitions, reason = "Impl would be a dumb name")]
 pub enum ForgeImpl {
     GitLab(gitlab::GitLabForge),
     GitHub(github::GitHubForge),
@@ -628,7 +627,7 @@ pub enum ForgeImpl {
     AzureDevOps(azure::AzureDevOpsForge),
 }
 
-impl ForgeUser for AnyForgeUser {
+impl UserLike for AnyForgeUser {
     fn id(&self) -> Option<Cow<'_, str>> {
         (**self).id()
     }
@@ -638,7 +637,7 @@ impl ForgeUser for AnyForgeUser {
     }
 }
 
-pub type AnyForgeUser = Box<dyn ForgeUser + Send + Sync>;
+pub type AnyForgeUser = Box<dyn UserLike + Send + Sync>;
 
 impl Forge for ForgeImpl {
     type User = AnyForgeUser;
@@ -744,7 +743,7 @@ impl Forge for ForgeImpl {
     }
 
     /// Find merge request by source branch name. Returns the first MR found.
-    /// with the given source branch, or None if not found
+    /// with the given source branch, or None if not found.
     async fn find_merge_request_by_source_branch(
         &self,
         branch: &str,
@@ -807,7 +806,7 @@ impl Forge for ForgeImpl {
     /// Create a new merge request in the forge for the project.
     async fn create_merge_request(
         &self,
-        options: ForgeCreateMergeRequestOptions<Self::UserId>,
+        options: CreateMergeRequestOptions<Self::UserId>,
     ) -> Result<Self::MergeRequest> {
         let mr: Self::MergeRequest = match self {
             ForgeImpl::GitLab(forge) => {
@@ -875,37 +874,37 @@ impl Forge for ForgeImpl {
     async fn update_merge_request_info(
         &self,
         merge_request_iid: Cow<'_, str>,
-        update: ForgeUpdateMergeRequestInfoOptions,
+        options: UpdateMergeRequestInfoOptions,
     ) -> Result<Self::MergeRequest> {
         let mr: Self::MergeRequest = match self {
             ForgeImpl::GitLab(forge) => AnyForgeMergeRequest::new(
                 forge
-                    .update_merge_request_info(merge_request_iid.parse::<u64>()?, update)
+                    .update_merge_request_info(merge_request_iid.parse::<u64>()?, options)
                     .await?,
             ),
 
             ForgeImpl::GitHub(forge) => AnyForgeMergeRequest::new(
                 forge
-                    .update_merge_request_info(merge_request_iid.parse::<u64>()?, update)
+                    .update_merge_request_info(merge_request_iid.parse::<u64>()?, options)
                     .await?,
             ),
 
             ForgeImpl::Forgejo(forge) => AnyForgeMergeRequest::new(
                 forge
-                    .update_merge_request_info(merge_request_iid.parse::<u64>()?, update)
+                    .update_merge_request_info(merge_request_iid.parse::<u64>()?, options)
                     .await?,
             ),
 
             #[cfg(test)]
             ForgeImpl::Test(forge) => AnyForgeMergeRequest::new(
                 forge
-                    .update_merge_request_info(merge_request_iid, update)
+                    .update_merge_request_info(merge_request_iid, options)
                     .await?,
             ),
 
             ForgeImpl::AzureDevOps(forge) => AnyForgeMergeRequest::new(
                 forge
-                    .update_merge_request_info(merge_request_iid.parse::<i32>()?, update)
+                    .update_merge_request_info(merge_request_iid.parse::<i32>()?, options)
                     .await?,
             ),
         };
@@ -1200,8 +1199,8 @@ impl ForgeImpl {
                 let target = config.gitlab.target_project();
                 gitlab::GitLabForge::new(
                     config.gitlab.host.clone(),
-                    source.to_string(),
-                    target.to_string(),
+                    source.to_owned(),
+                    target.to_owned(),
                     config.gitlab.token.clone(),
                     config.ca_bundle.clone(),
                     config.tls_accept_non_compliant_certs,
@@ -1214,8 +1213,8 @@ impl ForgeImpl {
                 let target = config.github.target_project();
                 github::GitHubForge::new(
                     config.github.host.clone(),
-                    source.to_string(),
-                    target.to_string(),
+                    source.to_owned(),
+                    target.to_owned(),
                     config.github.token.clone(),
                     config.ca_bundle.clone(),
                     config.tls_accept_non_compliant_certs,
@@ -1227,8 +1226,8 @@ impl ForgeImpl {
                 let target = config.forgejo.target_project();
                 forgejo::ForgejoForge::new(
                     config.forgejo.host.clone(),
-                    source.to_string(),
-                    target.to_string(),
+                    source.to_owned(),
+                    target.to_owned(),
                     config.forgejo.token.clone(),
                     config.ca_bundle.clone(),
                     config.tls_accept_non_compliant_certs,
@@ -1244,10 +1243,12 @@ impl ForgeImpl {
                 .token(config.azure.token.clone())
                 .maybe_source_repository_name(config.azure.source_repository_name.clone())
                 .maybe_target_repository_name(
-                    config.azure.target_repository_name().map(str::to_string),
+                    config.azure.target_repository_name().map(ToOwned::to_owned),
                 )
                 .maybe_source_repository_id(config.azure.source_repository_id.clone())
-                .maybe_target_repository_id(config.azure.target_repository_id().map(str::to_string))
+                .maybe_target_repository_id(
+                    config.azure.target_repository_id().map(ToOwned::to_owned),
+                )
                 .accept_non_compliant_certs(config.tls_accept_non_compliant_certs)
                 .maybe_ca_bundle(config.ca_bundle.clone())
                 .build()

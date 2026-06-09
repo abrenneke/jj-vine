@@ -1,4 +1,4 @@
-use std::fmt;
+use core::fmt;
 
 use tracing::{Event, field::Visit};
 use tracing_subscriber::{
@@ -79,7 +79,7 @@ struct MessageVisitor {
 impl Visit for MessageVisitor {
     fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
         if field.name() == "message" {
-            self.message = Some(value.to_string());
+            self.message = Some(value.to_owned());
         }
     }
 

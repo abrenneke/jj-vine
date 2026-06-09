@@ -1,17 +1,17 @@
-use unicode_segmentation::UnicodeSegmentation;
+use unicode_segmentation::UnicodeSegmentation as _;
 
 pub mod init;
 pub mod status;
 pub mod submit;
 
 pub enum GetBookmarksOptions {
-    /// Use a manual revset
+    /// Use a manual revset.
     Revset(String),
 
-    /// Include only `(mine() & tracked_remote_bookmarks()) ~ trunk()`
+    /// Include only `(mine() & tracked_remote_bookmarks()) ~ trunk()`.
     Tracked,
 
-    /// Include only `(mine() & bookmarks()) ~ trunk()`
+    /// Include only `(mine() & bookmarks()) ~ trunk()`.
     Mine,
 }
 
@@ -21,9 +21,9 @@ impl GetBookmarksOptions {
         match self {
             GetBookmarksOptions::Revset(revset) => revset.clone(),
             GetBookmarksOptions::Tracked => {
-                "(mine() & tracked_remote_bookmarks()) ~ ::trunk()".to_string()
+                "(mine() & tracked_remote_bookmarks()) ~ ::trunk()".to_owned()
             }
-            GetBookmarksOptions::Mine => "(mine() & bookmarks()) ~ ::trunk()".to_string(),
+            GetBookmarksOptions::Mine => "(mine() & bookmarks()) ~ ::trunk()".to_owned(),
         }
     }
 }

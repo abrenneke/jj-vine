@@ -1,3 +1,4 @@
+#![expect(clippy::single_call_fn, reason = "important in this file")]
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -216,8 +217,8 @@ query FindPRByHeadRef($owner: String!, $repositoryName: String!, $headRefName: S
                     }),
                 },
                 state: match self.state.as_str() {
-                    "OPEN" => "open".to_string(),
-                    "CLOSED" | "MERGED" => "closed".to_string(),
+                    "OPEN" => "open".to_owned(),
+                    "CLOSED" | "MERGED" => "closed".to_owned(),
                     other => other.to_lowercase(),
                 },
                 html_url: self.url,

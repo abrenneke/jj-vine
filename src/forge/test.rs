@@ -1,5 +1,6 @@
 #![cfg(test)]
-#![allow(clippy::missing_panics_doc)]
+#![allow(clippy::missing_panics_doc, reason = "tests")]
+#![allow(clippy::module_name_repetitions, reason = "it's fine")]
 
 use std::{borrow::Cow, collections::HashMap, sync::RwLock};
 
@@ -12,15 +13,15 @@ use crate::{
         AnyForgeMergeRequest,
         ApprovalStatus,
         CheckStatus,
+        CreateMergeRequestOptions,
         DiscussionCount,
         Forge,
-        ForgeCreateMergeRequestOptions,
-        ForgeMergeRequest,
-        ForgeMergeRequestState,
-        ForgeUpdateMergeRequestInfoOptions,
-        ForgeUser,
+        MergeRequestLike,
+        MergeRequestState,
         MergeRequestStatus,
+        UpdateMergeRequestInfoOptions,
         UserId,
+        UserLike,
     },
     utils::ResultWithWarnings,
 };
@@ -43,7 +44,7 @@ pub struct TestForgeUser {
     pub username: String,
 }
 
-impl ForgeUser for TestForgeUser {
+impl UserLike for TestForgeUser {
     fn id(&self) -> Option<Cow<'_, str>> {
         Some(Cow::Borrowed(&self.id))
     }
@@ -62,6 +63,7 @@ struct TestForgeState {
 #[bon]
 impl TestForge {
     #[builder]
+    #[expect(clippy::single_call_fn, reason = "necessary")]
     pub fn new(
         #[builder(default)] project_id: String,
         #[builder(default)] source_project_id: String,
@@ -81,8 +83,8 @@ impl TestForge {
             id_expands_title,
             users,
             current_user: current_user.unwrap_or_else(|| TestForgeUser {
-                id: "test".to_string(),
-                username: "test".to_string(),
+                id: "test".to_owned(),
+                username: "test".to_owned(),
             }),
             state: RwLock::new(TestForgeState {
                 next_merge_request_id: 1,
@@ -134,18 +136,18 @@ impl Forge for TestForge {
     }
 
     fn current_user(&self) -> impl Future<Output = Result<Self::User>> {
-        std::future::ready(Ok(self.current_user.clone()))
+        core::future::ready(Ok(self.current_user.clone()))
     }
 
     fn user_by_username(&self, username: &str) -> impl Future<Output = Result<Option<Self::User>>> {
-        std::future::ready(Ok(self.users.get(username).cloned()))
+        core::future::ready(Ok(self.users.get(username).cloned()))
     }
 
     fn find_merge_request_by_source_branch(
         &self,
         branch: &str,
     ) -> impl Future<Output = Result<Option<Self::MergeRequest>>> {
-        std::future::ready(Ok(self
+        core::future::ready(Ok(self
             .state
             .read()
             .unwrap()
@@ -157,7 +159,7 @@ impl Forge for TestForge {
 
     async fn create_merge_request(
         &self,
-        options: ForgeCreateMergeRequestOptions<Self::UserId>,
+        options: CreateMergeRequestOptions<Self::UserId>,
     ) -> Result<Self::MergeRequest> {
         let mr = MergeRequest::builder()
             .id(self
@@ -174,18 +176,21 @@ impl Forge for TestForge {
                 options
                     .assignees
                     .into_iter()
-                    .map(|id| self.users.get(&id.0).unwrap().clone())
+                    .map(|id| self.users[&id.0].clone())
                     .collect(),
             )
             .reviewers(
                 options
                     .reviewers
                     .into_iter()
-                    .map(|id| self.users.get(&id.0).unwrap().clone())
+                    .map(|id| self.users[&id.0].clone())
                     .collect(),
             )
             .build();
-        self.state.write().unwrap().next_merge_request_id += 1;
+        {
+            let mut state = self.state.write().unwrap();
+            state.next_merge_request_id = state.next_merge_request_id.strict_add(1);
+        };
         self.state
             .write()
             .unwrap()
@@ -204,20 +209,20 @@ impl Forge for TestForge {
             .merge_requests
             .get_mut(merge_request_iid.as_ref())
             .ok_or(Error::new("Merge request not found"))?;
-        mr.target_branch = new_base.to_string();
+        mr.target_branch = new_base.to_owned();
         Ok(mr.clone())
     }
 
     async fn update_merge_request_info(
         &self,
         merge_request_iid: Cow<'_, str>,
-        ForgeUpdateMergeRequestInfoOptions {
+        UpdateMergeRequestInfoOptions {
             title,
             description,
             draft,
             current_title: _current_title, // Unneeded for TestForge
             current_is_draft: _current_is_draft, // Unneeded for TestForge
-        }: ForgeUpdateMergeRequestInfoOptions,
+        }: UpdateMergeRequestInfoOptions,
     ) -> Result<Self::MergeRequest> {
         let mut state = self.state.write().unwrap();
         let mr = state
@@ -315,7 +320,7 @@ impl Forge for TestForge {
     async fn find_merge_request_by_source_branch_base_branch(
         &self,
         source_branch: &str,
-        #[allow(unused)] base_branch: &str,
+        #[expect(unused, reason = "keep argument name")] base_branch: &str,
     ) -> Result<Option<Self::MergeRequest>> {
         self.find_merge_request_by_source_branch(source_branch)
             .await
@@ -358,7 +363,7 @@ pub struct MergeRequest {
     pub target_branch: String,
 
     #[builder(default)]
-    pub state: ForgeMergeRequestState,
+    pub state: MergeRequestState,
 
     #[builder(default)]
     pub created_at: jiff::Timestamp,
@@ -394,7 +399,7 @@ pub struct MergeRequest {
     pub draft: bool,
 }
 
-impl ForgeMergeRequest for MergeRequest {
+impl MergeRequestLike for MergeRequest {
     type User = TestForgeUser;
 
     type Id = String;
@@ -419,7 +424,7 @@ impl ForgeMergeRequest for MergeRequest {
         &self.target_branch
     }
 
-    fn state(&self) -> ForgeMergeRequestState {
+    fn state(&self) -> MergeRequestState {
         self.state
     }
 
@@ -453,7 +458,7 @@ impl ForgeMergeRequest for MergeRequest {
 
     fn clone_boxed(
         &self,
-    ) -> Box<dyn ForgeMergeRequest<User = Self::User, Id = Self::Id> + Send + Sync>
+    ) -> Box<dyn MergeRequestLike<User = Self::User, Id = Self::Id> + Send + Sync>
     where
         Self: Sync + Send,
     {

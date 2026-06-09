@@ -1,12 +1,16 @@
 use bon::Builder;
-use owo_colors::OwoColorize;
+use owo_colors::OwoColorize as _;
 use snafu::whatever;
 use tracing::error;
 
 use crate::{
-    description::{FormatMergeRequest, generate_stack_description, insert_stack_into_description},
+    description::{
+        FormatMergeRequest as _,
+        generate_stack_description,
+        insert_stack_into_description,
+    },
     error::{Error, Result},
-    forge::{Forge, ForgeUpdateMergeRequestInfoOptions},
+    forge::{Forge as _, UpdateMergeRequestInfoOptions},
     submit::execute::{
         ActionInfo,
         ActionResultData,
@@ -18,7 +22,7 @@ use crate::{
     },
 };
 
-/// Update MR description (after all MRs created)
+/// Update MR description (after all MRs created).
 #[derive(Debug, Clone, PartialEq, Eq, Builder)]
 pub struct UpdateMRTitleDescriptionAction {
     /// The new title for the MR. If None, the title will not be updated.
@@ -42,7 +46,7 @@ impl ActionInfo for UpdateMRTitleDescriptionAction {
     }
 
     fn group_text(&self) -> String {
-        "Updating MR descriptions".to_string()
+        "Updating MR descriptions".to_owned()
     }
 
     fn text(&self) -> String {
@@ -169,11 +173,11 @@ impl ExecuteAction for UpdateMRTitleDescriptionAction {
             .forge
             .update_merge_request_info(
                 current_mr.iid(),
-                ForgeUpdateMergeRequestInfoOptions::builder()
+                UpdateMergeRequestInfoOptions::builder()
                     .description(new_description.to_string())
                     .maybe_title(self.title.clone())
                     .current_is_draft(current_mr.is_draft())
-                    .current_title(current_mr.title().to_string())
+                    .current_title(current_mr.title().to_owned())
                     .build(),
             )
             .await
@@ -188,11 +192,11 @@ impl ExecuteAction for UpdateMRTitleDescriptionAction {
                     mr: updated_mr,
                     bookmark: bookmark.clone(),
                     update_type: MRUpdateType::new_updated()
-                        .old_description(current_mr.description().to_string())
+                        .old_description(current_mr.description().to_owned())
                         .maybe_new_description(
                             description_unchanged.then(|| new_description.to_string()),
                         )
-                        .old_title(current_mr.title().to_string())
+                        .old_title(current_mr.title().to_owned())
                         .maybe_new_title(self.title.clone())
                         .call(),
                     warnings: None,

@@ -1,6 +1,6 @@
 use std::{borrow::Cow, collections::HashSet, path::Path};
 
-use futures::{StreamExt, stream::FuturesUnordered, try_join};
+use futures::{StreamExt as _, stream::FuturesUnordered, try_join};
 use reqwest::{Method, StatusCode};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
@@ -12,20 +12,20 @@ use crate::{
         ApprovalSatisfaction,
         ApprovalStatus,
         CheckStatus,
+        CreateMergeRequestOptions,
         DiscussionCount,
         Forge,
-        ForgeCreateMergeRequestOptions,
-        ForgeMergeRequest,
-        ForgeMergeRequestState,
-        ForgeUpdateMergeRequestInfoOptions,
-        ForgeUser,
+        MergeRequestLike,
+        MergeRequestState,
         MergeRequestStatus,
+        UpdateMergeRequestInfoOptions,
         UserId,
+        UserLike,
     },
     utils::ResultWithWarnings,
 };
 
-/// GitLab REST API client
+/// GitLab REST API client.
 pub struct GitLabForge {
     base_url: String,
     source_project_id: String,
@@ -43,7 +43,7 @@ pub struct GitLabUser {
     pub username: String,
 }
 
-impl ForgeUser for GitLabUser {
+impl UserLike for GitLabUser {
     fn id(&self) -> Option<Cow<'_, str>> {
         Some(Cow::Owned(self.id.to_string()))
     }
@@ -71,7 +71,7 @@ impl TryFrom<AnyForgeUser> for GitLabUser {
 }
 
 impl GitLabForge {
-    /// Create a new GitLab client
+    /// Create a new GitLab client.
     pub fn new(
         base_url: impl Into<String>,
         source_project_id: impl Into<String>,
@@ -121,7 +121,7 @@ impl GitLabForge {
         })?;
 
         Ok(Self {
-            base_url: base_url.into().trim_end_matches('/').to_string(),
+            base_url: base_url.into().trim_end_matches('/').to_owned(),
             source_project_id: source_project_id.into(),
             target_project_id: target_project_id.into(),
             token: token.into(),
@@ -155,12 +155,15 @@ impl GitLabForge {
         message
     }
 
-    async fn request<T: DeserializeOwned>(
+    async fn request<T>(
         &self,
         method: Method,
         path: impl AsRef<str>,
         payload: Option<impl Serialize>,
-    ) -> Result<T> {
+    ) -> Result<T>
+    where
+        T: DeserializeOwned,
+    {
         let path = path.as_ref();
         let url = format!("{}{}", self.base_url, path);
         let mut req = self
@@ -208,15 +211,81 @@ impl GitLabForge {
         if draft {
             format!("Draft: {title}")
         } else {
-            title.to_string()
+            title.to_owned()
         }
+    }
+
+    async fn get_discussions(&self, merge_request_iid: u64) -> Result<Vec<Discussion>> {
+        self.request(
+            Method::GET,
+            format!(
+                "/api/v4/projects/{}/merge_requests/{}/discussions",
+                self.encoded_target_project_id(),
+                merge_request_iid
+            ),
+            None::<()>,
+        )
+        .await
+    }
+
+    pub async fn get_merge_request_dependencies(
+        &self,
+        merge_request_iid: u64,
+    ) -> Result<Vec<MergeRequestDependency>> {
+        self.request(
+            Method::GET,
+            format!(
+                "/api/v4/projects/{}/merge_requests/{}/blocks",
+                self.encoded_target_project_id(),
+                merge_request_iid
+            ),
+            None::<()>,
+        )
+        .await
+    }
+
+    async fn delete_merge_request_dependency(
+        &self,
+        merge_request_iid: u64,
+        dependency_id: u64,
+    ) -> Result<NoContent> {
+        self.request(
+            Method::DELETE,
+            format!(
+                "/api/v4/projects/{}/merge_requests/{}/blocks/{}",
+                self.encoded_target_project_id(),
+                merge_request_iid,
+                dependency_id
+            ),
+            None::<()>,
+        )
+        .await
+    }
+
+    async fn create_merge_request_dependency(
+        &self,
+        merge_request_iid: u64,
+        blocking_merge_request_global_id: u64,
+    ) -> Result<MergeRequestDependency> {
+        self.request(
+            Method::POST,
+            format!(
+                "/api/v4/projects/{}/merge_requests/{}/blocks",
+                self.encoded_target_project_id(),
+                merge_request_iid
+            ),
+            Some(serde_json::json!({
+                "blocking_merge_request_id": blocking_merge_request_global_id
+            })),
+        )
+        .await
     }
 }
 
 struct NoContent;
 
 impl<'de> Deserialize<'de> for NoContent {
-    fn deserialize<D>(_deserializer: D) -> std::result::Result<Self, D::Error>
+    fn deserialize<D>(_deserializer: D) -> core::result::Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
@@ -247,7 +316,7 @@ impl Forge for GitLabForge {
         &self.base_url
     }
 
-    /// Get the current authenticated user
+    /// Get the current authenticated user.
     async fn current_user(&self) -> Result<Self::User> {
         let user: GitLabUser = self
             .request(Method::GET, "/api/v4/user", None::<()>)
@@ -255,7 +324,7 @@ impl Forge for GitLabForge {
         Ok(user)
     }
 
-    /// Get user by username
+    /// Get user by username.
     async fn user_by_username(&self, username: &str) -> Result<Option<Self::User>> {
         let users: Vec<GitLabUser> = self
             .request(
@@ -268,7 +337,7 @@ impl Forge for GitLabForge {
     }
 
     /// Find merge request by source branch name. Returns the first MR found
-    /// with the given source branch, or None if not found
+    /// with the given source branch, or None if not found.
     async fn find_merge_request_by_source_branch(
         &self,
         branch: &str,
@@ -287,10 +356,10 @@ impl Forge for GitLabForge {
         Ok(mrs.into_iter().next())
     }
 
-    /// Create a new merge request
+    /// Create a new merge request.
     async fn create_merge_request(
         &self,
-        ForgeCreateMergeRequestOptions {
+        CreateMergeRequestOptions {
             assignees,
             description,
             open_as_draft,
@@ -300,7 +369,7 @@ impl Forge for GitLabForge {
             squash,
             target_branch,
             title,
-        }: ForgeCreateMergeRequestOptions<Self::UserId>,
+        }: CreateMergeRequestOptions<Self::UserId>,
     ) -> Result<Self::MergeRequest> {
         #[derive(Serialize)]
         struct Body {
@@ -362,11 +431,11 @@ impl Forge for GitLabForge {
         Ok(mr)
     }
 
-    /// Update the target branch (base) of an existing merge request
+    /// Update the target branch (base) of an existing merge request.
     async fn update_merge_request_base(
         &self,
         merge_request_iid: Self::Id,
-        new_target_branch: &str,
+        new_base: &str,
     ) -> Result<Self::MergeRequest> {
         let mr: MergeRequest = self
             .request(
@@ -377,7 +446,7 @@ impl Forge for GitLabForge {
                     merge_request_iid
                 ),
                 Some(serde_json::json!({
-                    "target_branch": new_target_branch,
+                    "target_branch": new_base,
                 })),
             )
             .await?;
@@ -385,17 +454,17 @@ impl Forge for GitLabForge {
         Ok(mr)
     }
 
-    /// Update the description of an existing merge request
+    /// Update the description of an existing merge request.
     async fn update_merge_request_info(
         &self,
         merge_request_iid: Self::Id,
-        ForgeUpdateMergeRequestInfoOptions {
+        UpdateMergeRequestInfoOptions {
             title,
             description,
             draft,
             current_title,
             current_is_draft,
-        }: ForgeUpdateMergeRequestInfoOptions,
+        }: UpdateMergeRequestInfoOptions,
     ) -> Result<Self::MergeRequest> {
         #[derive(Serialize)]
         struct Body {
@@ -430,7 +499,7 @@ impl Forge for GitLabForge {
         Ok(mr)
     }
 
-    /// Get a specific merge request by IID
+    /// Get a specific merge request by IID.
     async fn get_merge_request(&self, merge_request_iid: Self::Id) -> Result<Self::MergeRequest> {
         let mr: MergeRequest = self
             .request(
@@ -447,7 +516,7 @@ impl Forge for GitLabForge {
         Ok(mr)
     }
 
-    /// Get approval status for a merge request
+    /// Get approval status for a merge request.
     async fn get_approval_status(&self, merge_request_iid: Self::Id) -> Result<ApprovalStatus> {
         let approvals: Result<MergeRequestApprovals, _> = self
             .request(
@@ -464,10 +533,9 @@ impl Forge for GitLabForge {
         // Can't figure out how to get the blocking count
         // https://stackoverflow.com/questions/78573772/how-to-get-changes-requested-info-on-gitlab-mr
 
-        #[allow(clippy::cast_possible_truncation, reason = "will never get high")]
-        let approved_count = approvals
-            .as_ref()
-            .map_or(0, |approvals| approvals.approved_by.len() as u32);
+        let approved_count = approvals.as_ref().map_or(0, |approvals| {
+            approvals.approved_by.len().try_into().expect("too large")
+        });
         let required_count = approvals
             .as_ref()
             .map_or(0, |approvals| approvals.approvals_required);
@@ -484,7 +552,7 @@ impl Forge for GitLabForge {
         })
     }
 
-    /// Get CI/pipeline check status for a merge request
+    /// Get CI/pipeline check status for a merge request.
     async fn get_check_status(&self, merge_request_iid: Self::Id) -> Result<CheckStatus> {
         let source_branch = self
             .get_merge_request(merge_request_iid)
@@ -572,13 +640,16 @@ impl Forge for GitLabForge {
                 [note, ..] => Some(note),
             })
             .fold(DiscussionCount::default(), |mut acc, first_note| {
-                acc.all += 1;
+                acc.all = acc.all.strict_add(1);
 
                 if first_note.resolved {
-                    acc.resolved += 1;
+                    acc.resolved = acc.resolved.strict_add(1);
                 } else if first_note.resolvable {
-                    acc.unresolved += 1;
+                    acc.unresolved = acc.unresolved.strict_add(1);
+                } else {
+                    // only adjust all in this case
                 }
+
                 acc
             }))
     }
@@ -652,7 +723,7 @@ impl Forge for GitLabForge {
                     ResultWithWarnings::ErrWarnings(
                         error,
                         vec![
-                            "Updating merge request dependencies failed with a 404. Note that merge request dependencies are only available in GitLab Premium >=17.5. You may want to disable `jj-vine.gitlab.createMergeRequestDependencies` if you do not have this feature.".to_string(),
+                            "Updating merge request dependencies failed with a 404. Note that merge request dependencies are only available in GitLab Premium >=17.5. You may want to disable `jj-vine.gitlab.createMergeRequestDependencies` if you do not have this feature.".to_owned(),
                         ],
                     )
                 }
@@ -661,74 +732,6 @@ impl Forge for GitLabForge {
         }?;
 
         ResultWithWarnings::Ok(made_changes)
-    }
-}
-
-impl GitLabForge {
-    async fn get_discussions(&self, merge_request_iid: u64) -> Result<Vec<Discussion>> {
-        self.request(
-            Method::GET,
-            format!(
-                "/api/v4/projects/{}/merge_requests/{}/discussions",
-                self.encoded_target_project_id(),
-                merge_request_iid
-            ),
-            None::<()>,
-        )
-        .await
-    }
-
-    pub async fn get_merge_request_dependencies(
-        &self,
-        merge_request_iid: u64,
-    ) -> Result<Vec<MergeRequestDependency>> {
-        self.request(
-            Method::GET,
-            format!(
-                "/api/v4/projects/{}/merge_requests/{}/blocks",
-                self.encoded_target_project_id(),
-                merge_request_iid
-            ),
-            None::<()>,
-        )
-        .await
-    }
-
-    async fn delete_merge_request_dependency(
-        &self,
-        merge_request_iid: u64,
-        dependency_id: u64,
-    ) -> Result<NoContent> {
-        self.request(
-            Method::DELETE,
-            format!(
-                "/api/v4/projects/{}/merge_requests/{}/blocks/{}",
-                self.encoded_target_project_id(),
-                merge_request_iid,
-                dependency_id
-            ),
-            None::<()>,
-        )
-        .await
-    }
-
-    async fn create_merge_request_dependency(
-        &self,
-        merge_request_iid: u64,
-        blocking_merge_request_global_id: u64,
-    ) -> Result<MergeRequestDependency> {
-        self.request(
-            Method::POST,
-            format!(
-                "/api/v4/projects/{}/merge_requests/{}/blocks",
-                self.encoded_target_project_id(),
-                merge_request_iid
-            ),
-            Some(serde_json::json!({
-                "blocking_merge_request_id": blocking_merge_request_global_id
-            })),
-        )
-        .await
     }
 }
 
@@ -744,47 +747,47 @@ impl FormatMergeRequest for GitLabForge {
     }
 }
 
-/// GitLab Merge Request
+/// GitLab Merge Request.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MergeRequest {
-    /// MR internal ID (unique within project)
+    /// MR internal ID (unique within project).
     pub iid: u64,
 
-    /// MR global ID
+    /// MR global ID.
     pub id: u64,
 
-    /// MR title
+    /// MR title.
     pub title: String,
 
-    /// MR description
+    /// MR description.
     pub description: Option<String>,
 
-    /// Source branch name
+    /// Source branch name.
     pub source_branch: String,
 
-    /// Target branch name
+    /// Target branch name.
     pub target_branch: String,
 
     /// MR state (opened, closed, merged, etc.)
     pub state: String,
 
-    /// Web URL to view the MR
+    /// Web URL to view the MR.
     pub web_url: String,
 
-    /// User of the author of the MR
+    /// User of the author of the MR.
     pub author: GitLabUser,
 
-    /// Created at timestamp of the MR (ISO 8601)
+    /// Created at timestamp of the MR (ISO 8601).
     pub created_at: String,
 
-    /// Assignees of the MR
+    /// Assignees of the MR.
     pub assignees: Vec<GitLabUser>,
 
-    /// Reviewers of the MR
+    /// Reviewers of the MR.
     pub reviewers: Vec<GitLabUser>,
 }
 
-impl ForgeMergeRequest for MergeRequest {
+impl MergeRequestLike for MergeRequest {
     type User = GitLabUser;
 
     type Id = u64;
@@ -809,15 +812,15 @@ impl ForgeMergeRequest for MergeRequest {
         &self.target_branch
     }
 
-    fn state(&self) -> ForgeMergeRequestState {
+    fn state(&self) -> MergeRequestState {
         if self.state == "opened" {
-            ForgeMergeRequestState::Open
+            MergeRequestState::Open
         } else if self.state == "closed" {
-            ForgeMergeRequestState::Closed
+            MergeRequestState::Closed
         } else if self.state == "merged" {
-            ForgeMergeRequestState::Merged
+            MergeRequestState::Merged
         } else {
-            ForgeMergeRequestState::Open
+            MergeRequestState::Open
         }
     }
 
@@ -853,7 +856,7 @@ impl ForgeMergeRequest for MergeRequest {
 
     fn clone_boxed(
         &self,
-    ) -> Box<dyn ForgeMergeRequest<User = Self::User, Id = Self::Id> + Send + Sync>
+    ) -> Box<dyn MergeRequestLike<User = Self::User, Id = Self::Id> + Send + Sync>
     where
         Self: Sync + Send,
     {
@@ -861,26 +864,26 @@ impl ForgeMergeRequest for MergeRequest {
     }
 }
 
-/// GitLab MR approval information
+/// GitLab MR approval information.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct MergeRequestApprovals {
-    /// Number of approvals required
+    /// Number of approvals required.
     pub approvals_required: u32,
 
-    /// Number of approvals still needed
+    /// Number of approvals still needed.
     pub approvals_left: u32,
 
-    /// Whether the MR is approved (`approvals_left == 0`)
+    /// Whether the MR is approved (`approvals_left == 0`).
     pub approved: bool,
 
-    /// List of users who approved
+    /// List of users who approved.
     pub approved_by: Vec<ApprovedBy>,
 }
 
-/// Represents an approval on a merge request
+/// Represents an approval on a merge request.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ApprovedBy {
-    /// User who approved
+    /// User who approved.
     pub user: GitLabUser,
 }
 
@@ -900,23 +903,23 @@ enum PipelineStatus {
     Scheduled,
 }
 
-/// GitLab pipeline information
+/// GitLab pipeline information.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Pipeline {
-    /// Pipeline ID
+    /// Pipeline ID.
     pub id: u64,
 
-    /// Pipeline status
+    /// Pipeline status.
     pub status: PipelineStatus,
 
-    /// Reference (branch/tag) the pipeline ran on
+    /// Reference (branch/tag) the pipeline ran on.
     #[serde(rename = "ref")]
     pub ref_name: String,
 
-    /// Commit SHA
+    /// Commit SHA.
     pub sha: String,
 
-    /// Web URL to view the pipeline
+    /// Web URL to view the pipeline.
     pub web_url: String,
 }
 
@@ -978,7 +981,7 @@ struct NoteSuggestion {
 
 /// An individual item in a discussion on an issue, merge request, commit, or
 /// snippet. Items of type `DiscussionNote` are not returned as part of the Note
-/// API. Not available in the Events API. <https://docs.gitlab.com/api/discussions/#list-project-merge-request-discussion-items>
+/// API. Not available in the Events API. <https://docs.gitlab.com/api/discussions/#list-project-merge-request-discussion-items>.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct DiscussionNote {
     /// The ID of the note.
@@ -986,7 +989,7 @@ struct DiscussionNote {
 
     /// The type of note.
     /// (`DiscussionNote` should probably be an
-    /// enum of { `DiscussionNote`, `DiffNote` } instead technically)
+    /// enum of { `DiscussionNote`, `DiffNote` } instead technically).
     #[serde(rename = "type")]
     note_type: Option<DiscussionNoteType>,
 
@@ -1049,12 +1052,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_gitlab_client_new() {
+    fn gitlab_client_new() {
         let client = GitLabForge::new(
-            "https://gitlab.example.com".to_string(),
-            "group/project".to_string(),
-            "group/project".to_string(),
-            "token123".to_string(),
+            "https://gitlab.example.com".to_owned(),
+            "group/project".to_owned(),
+            "group/project".to_owned(),
+            "token123".to_owned(),
             None::<&str>,
             false,
             true,
@@ -1068,12 +1071,12 @@ mod tests {
     }
 
     #[test]
-    fn test_encode_project_id() {
+    fn encode_project_id() {
         let client = GitLabForge::new(
-            "https://gitlab.example.com".to_string(),
-            "group/project".to_string(),
-            "group/project".to_string(),
-            "token123".to_string(),
+            "https://gitlab.example.com".to_owned(),
+            "group/project".to_owned(),
+            "group/project".to_owned(),
+            "token123".to_owned(),
             None::<&str>,
             false,
             true,
@@ -1085,12 +1088,12 @@ mod tests {
     }
 
     #[test]
-    fn test_gitlab_api_error_includes_request_context() {
+    fn gitlab_api_error_includes_request_context() {
         let client = GitLabForge::new(
-            "https://gitlab.example.com/".to_string(),
-            "user/fork".to_string(),
-            "group/project".to_string(),
-            "token123".to_string(),
+            "https://gitlab.example.com/".to_owned(),
+            "user/fork".to_owned(),
+            "group/project".to_owned(),
+            "token123".to_owned(),
             None::<&str>,
             false,
             true,
@@ -1111,8 +1114,8 @@ mod tests {
     }
 
     #[test]
-    fn test_ca_bundle_with_multiple_certificates() {
-        use std::io::Write;
+    fn ca_bundle_with_multiple_certificates() {
+        use std::io::Write as _;
 
         use tempfile::NamedTempFile;
 
@@ -1166,14 +1169,14 @@ uYyBeUf6LmQswHqXfxOmAoy1HbXDtNvmClznsb0=
         temp_file
             .write_all(cert_bundle.as_bytes())
             .expect("Failed to write to temp file");
-        let path = temp_file.path().to_str().unwrap().to_string();
+        let path = temp_file.path().to_str().unwrap().to_owned();
 
         // This should succeed with from_pem_bundle() but would fail with from_pem()
         GitLabForge::new(
-            "https://gitlab.example.com".to_string(),
-            "group/project".to_string(),
-            "group/project".to_string(),
-            "token123".to_string(),
+            "https://gitlab.example.com".to_owned(),
+            "group/project".to_owned(),
+            "group/project".to_owned(),
+            "token123".to_owned(),
             Some(path.as_str()),
             false,
             true,

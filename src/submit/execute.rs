@@ -9,8 +9,8 @@ use std::collections::HashMap;
 
 use bon::bon;
 use enum_dispatch::enum_dispatch;
-use futures::{StreamExt, stream::FuturesUnordered};
-use itertools::{Either, Itertools};
+use futures::{StreamExt as _, stream::FuturesUnordered};
+use itertools::{Either, Itertools as _};
 use snafu::whatever;
 use tracing::debug;
 
@@ -59,7 +59,7 @@ impl BookmarkNameOrPendingChangeId {
     #[must_use]
     pub fn new_from_bookmark(bookmark: &BookmarkOrPending<'_>) -> Self {
         match bookmark {
-            BookmarkOrPending::Bookmark(b) => Self::Bookmark(b.name().to_string()),
+            BookmarkOrPending::Bookmark(b) => Self::Bookmark(b.name().to_owned()),
             BookmarkOrPending::Pending { change, .. } => {
                 Self::PendingChangeId(change.change_id.clone())
             }
@@ -72,8 +72,8 @@ impl BookmarkNameOrPendingChangeId {
     }
 }
 
-impl std::fmt::Display for BookmarkNameOrPendingChangeId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for BookmarkNameOrPendingChangeId {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::Bookmark(name) => write!(f, "{name}"),
             Self::PendingChangeId(change_id) => {
@@ -83,16 +83,16 @@ impl std::fmt::Display for BookmarkNameOrPendingChangeId {
     }
 }
 
-/// Result of executing a submission plan
+/// Result of executing a submission plan.
 #[derive(Debug)]
 pub struct SubmissionResult {
-    /// All MRs (created, updated, and unchanged)
+    /// All MRs (created, updated, and unchanged).
     pub merge_requests: Vec<MRUpdate>,
 
-    /// Any errors that occurred (non-fatal)
+    /// Any errors that occurred (non-fatal).
     pub errors: Vec<ClonableError>,
 
-    /// Bookmarks that were successfully pushed
+    /// Bookmarks that were successfully pushed.
     pub bookmarks_pushed: Vec<String>,
 }
 
@@ -203,16 +203,16 @@ pub trait ActionInfo {
     }
 }
 
-/// Type of MR update
+/// Type of MR update.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MRUpdateType {
-    /// MR was unchanged
+    /// MR was unchanged.
     Unchanged,
 
-    /// MR was created
+    /// MR was created.
     Created,
 
-    /// Merge requested was updated in some way
+    /// Merge requested was updated in some way.
     Updated {
         old_target: Option<String>,
         new_target: Option<String>,
@@ -230,6 +230,7 @@ pub enum MRUpdateType {
 #[bon]
 impl MRUpdateType {
     #[builder]
+    #[expect(clippy::single_call_fn, reason = "important")]
     pub fn new_updated(
         old_target: Option<String>,
         new_target: Option<String>,
@@ -251,12 +252,12 @@ impl MRUpdateType {
     }
 }
 
-/// Execute a submission plan
+/// Execute a submission plan.
 ///
 /// # Panics
 ///
-/// Panics if many reasons
-#[allow(clippy::too_many_lines, reason = "important")]
+/// Panics if many reasons.
+#[expect(clippy::too_many_lines, reason = "important")]
 pub async fn execute(mut ctx: RootExecuteContext<'_>) -> Result<SubmissionResult> {
     let mut merge_requests = Vec::new();
     let mut errors = Vec::new();
@@ -334,6 +335,7 @@ pub async fn execute(mut ctx: RootExecuteContext<'_>) -> Result<SubmissionResult
                 created_bookmarks, ..
             }) = &result
             {
+                #[expect(clippy::iter_over_hash_type, reason = "don't need ordering here")]
                 for (change_id, name) in created_bookmarks {
                     let change = ctx
                         .changes

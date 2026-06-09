@@ -5,7 +5,7 @@ mod e2e {
     use crate::{error::Result, tests::TestRepo};
 
     #[tokio::test]
-    async fn test_bookmark_and_tracked_mutually_exclusive() -> Result<()> {
+    async fn bookmark_and_tracked_mutually_exclusive() -> Result<()> {
         let repo = TestRepo::new();
 
         let result = repo.try_run(["submit", "some-bookmark", "--tracked"]).await;
@@ -16,7 +16,7 @@ mod e2e {
     }
 
     #[tokio::test]
-    async fn test_submit_requires_bookmark_or_tracked() -> Result<()> {
+    async fn submit_requires_bookmark_or_tracked() -> Result<()> {
         let repo = TestRepo::new();
 
         let result = repo.try_run(["submit"]).await;
@@ -27,7 +27,7 @@ mod e2e {
     }
 
     #[tokio::test]
-    async fn test_tracked_with_no_pushed_bookmarks() -> Result<()> {
+    async fn tracked_with_no_pushed_bookmarks() -> Result<()> {
         let repo = TestRepo::new();
 
         repo.jj.exec(["new"])?;

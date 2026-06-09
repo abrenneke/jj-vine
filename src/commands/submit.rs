@@ -1,21 +1,22 @@
+#![expect(clippy::module_name_repetitions, reason = "seems fine")]
 use std::{borrow::Cow, collections::HashSet};
 
 use clap::Args;
 use cli_table::{
-    Cell,
-    Table,
+    Cell as _,
+    Table as _,
     format::{Border, Separator},
 };
-use itertools::Itertools;
-use owo_colors::OwoColorize;
+use itertools::Itertools as _;
+use owo_colors::OwoColorize as _;
 use snafu::{ensure_whatever, whatever};
 use tracing::{info, warn};
-use unicode_segmentation::UnicodeSegmentation;
+use unicode_segmentation::UnicodeSegmentation as _;
 
 use crate::{
     bookmark::{BookmarkGraph, BookmarkOrPending},
     cli::CliConfig,
-    commands::{GetBookmarksOptions, StrVisualWidth},
+    commands::{GetBookmarksOptions, StrVisualWidth as _},
     config::Config,
     error::{AggregateSnafu, Result},
     forge::ForgeImpl,
@@ -31,7 +32,7 @@ use crate::{
 
 #[derive(Args, Default)]
 pub struct SubmitCommandConfig {
-    /// Options for the revset
+    /// Options for the revset.
     #[command(flatten)]
     pub revset_options: SubmitCommandRevsetOptions,
 
@@ -63,7 +64,7 @@ pub struct SubmitCommandConfig {
     /// A, then:
     ///
     /// `jj-vine submit 'trunk()..' -c` -> creates bookmarks for A, B, and
-    /// C
+    /// C.
     ///
     /// `jj-vine submit 'trunk()..' -c C` -> only creates a bookmark for C, so
     /// the pull/merge request for C contains both A and C. A is not pushed
@@ -78,6 +79,26 @@ pub struct SubmitCommandConfig {
 }
 
 impl SubmitCommandConfig {
+    fn to_get_bookmarks_options(&self) -> Result<GetBookmarksOptions> {
+        match (
+            self.revset_options.revset_positional.as_deref(),
+            self.revset_options.revset.as_deref(),
+            self.revset_options.tracked,
+            self.create.as_deref(),
+        ) {
+            (Some(revset), None, false, _) | (None, Some(revset), false, _) => {
+                Ok(GetBookmarksOptions::Revset(revset.to_owned()))
+            }
+            (None, None, true, _) => Ok(GetBookmarksOptions::Tracked),
+
+            // Fall back to the same as -c if none of the other options are set
+            (None, None, false, Some(create)) => Ok(GetBookmarksOptions::Revset(create.to_owned())),
+            _ => whatever!(
+                "You must specify a revset to submit with a positional argument, with the -r option, or with the --tracked option. You can also use the -c option to create bookmarks for changes that don't have one."
+            ),
+        }
+    }
+
     #[must_use]
     pub fn help_long() -> String {
         format!(
@@ -104,7 +125,7 @@ Preview submitting a revset without making changes:
             "jj vine submit -r <revset> --dry-run".green().bold(),
         )
         .trim()
-        .to_string()
+        .to_owned()
     }
 }
 
@@ -130,34 +151,11 @@ pub struct SubmitCommandRevsetOptions {
     pub tracked: bool,
 }
 
-impl SubmitCommandConfig {
-    fn to_get_bookmarks_options(&self) -> Result<GetBookmarksOptions> {
-        match (
-            self.revset_options.revset_positional.as_deref(),
-            self.revset_options.revset.as_deref(),
-            self.revset_options.tracked,
-            self.create.as_deref(),
-        ) {
-            (Some(revset), None, false, _) | (None, Some(revset), false, _) => {
-                Ok(GetBookmarksOptions::Revset(revset.to_string()))
-            }
-            (None, None, true, _) => Ok(GetBookmarksOptions::Tracked),
-
-            // Fall back to the same as -c if none of the other options are set
-            (None, None, false, Some(create)) => {
-                Ok(GetBookmarksOptions::Revset(create.to_string()))
-            }
-            _ => whatever!(
-                "You must specify a revset to submit with a positional argument, with the -r option, or with the --tracked option. You can also use the -c option to create bookmarks for changes that don't have one."
-            ),
-        }
-    }
-}
-
 /// # Panics
 ///
-/// Can panic for many reasons
-#[allow(clippy::too_many_lines, reason = "important")]
+/// Can panic for many reasons.
+#[expect(clippy::too_many_lines, reason = "important")]
+#[expect(clippy::cognitive_complexity, reason = "main logic, it's fine")]
 pub async fn submit(config: &SubmitCommandConfig, cli_config: &CliConfig<'_>) -> Result<()> {
     let jj = Jujutsu::new(&cli_config.repository)?;
     let output = cli_config.output;
@@ -371,7 +369,7 @@ pub async fn submit(config: &SubmitCommandConfig, cli_config: &CliConfig<'_>) ->
             errors: result
                 .errors
                 .into_iter()
-                .map::<Box<dyn std::error::Error + 'static>, _>(|e| Box::new(e))
+                .map::<Box<dyn core::error::Error + 'static>, _>(|e| Box::new(e))
                 .collect::<Vec<_>>(),
         }
         .build());
@@ -381,7 +379,7 @@ pub async fn submit(config: &SubmitCommandConfig, cli_config: &CliConfig<'_>) ->
 }
 
 trait WrapText {
-    /// Wrap text to the given width by adding newlines at word boundaries
+    /// Wrap text to the given width by adding newlines at word boundaries.
     fn wrap(&self, max_width: usize) -> Cow<'_, str>;
 }
 
@@ -389,7 +387,7 @@ impl<T> WrapText for T
 where
     T: AsRef<str>,
 {
-    /// Wrap text to the given width by adding newlines at word boundaries
+    /// Wrap text to the given width by adding newlines at word boundaries.
     fn wrap(&self, max_width: usize) -> Cow<'_, str> {
         if self.visual_width() <= max_width {
             return Cow::Borrowed(self.as_ref());
@@ -399,9 +397,9 @@ where
         let mut current = String::new();
 
         for word in self.as_ref().split_word_bounds() {
-            if current.visual_width() + word.visual_width() > max_width {
-                lines.push(current);
-                current = word.trim_start().to_string();
+            if current.visual_width().strict_add(word.visual_width()) > max_width {
+                lines.push(current.clone());
+                word.trim_start().clone_into(&mut current);
             } else {
                 current.push_str(word);
             }

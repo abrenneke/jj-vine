@@ -3,7 +3,7 @@ mod graphql;
 use std::{borrow::Cow, collections::HashMap, path::Path};
 
 use futures::{join, try_join};
-use itertools::Itertools;
+use itertools::Itertools as _;
 use reqwest::Method;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use tracing::debug;
@@ -15,21 +15,21 @@ use crate::{
         ApprovalSatisfaction,
         ApprovalStatus,
         CheckStatus,
+        CreateMergeRequestOptions,
         DiscussionCount,
         Forge,
-        ForgeCreateMergeRequestOptions,
-        ForgeMergeRequest,
-        ForgeMergeRequestState,
-        ForgeUpdateMergeRequestInfoOptions,
-        ForgeUser,
+        MergeRequestLike,
+        MergeRequestState,
         MergeRequestStatus,
+        UpdateMergeRequestInfoOptions,
         UserId,
+        UserLike,
         github::graphql::find_pr_by_head_ref::PRNode,
     },
     utils::ResultWithWarnings,
 };
 
-/// GitHub REST API client
+/// GitHub REST API client.
 pub struct GitHubForge {
     base_url: String,
     source_project_id: String,
@@ -38,17 +38,17 @@ pub struct GitHubForge {
     client: reqwest::Client,
 }
 
-/// GitHub user
+/// GitHub user.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GitHubUser {
-    /// User ID
+    /// User ID.
     pub id: u64,
 
-    /// Username (login)
+    /// Username (login).
     pub login: String,
 }
 
-impl ForgeUser for GitHubUser {
+impl UserLike for GitHubUser {
     fn id(&self) -> Option<Cow<'_, str>> {
         Some(Cow::Owned(self.id.to_string()))
     }
@@ -58,76 +58,76 @@ impl ForgeUser for GitHubUser {
     }
 }
 
-/// Branch reference in a pull request
+/// Branch reference in a pull request.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BranchRef {
-    /// Branch name
+    /// Branch name.
     #[serde(rename = "ref")]
     pub ref_name: String,
 
-    /// Commit SHA
+    /// Commit SHA.
     pub sha: String,
 
-    /// Repository information (for cross-repo PRs)
+    /// Repository information (for cross-repo PRs).
     pub repo: Option<GitHubRepo>,
 }
 
-/// GitHub repository info
+/// GitHub repository info.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GitHubRepo {
-    /// Repository full name (owner/repo)
+    /// Repository full name (owner/repo).
     pub full_name: String,
 }
 
-/// GitHub Pull Request
+/// GitHub Pull Request.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PullRequest {
-    /// PR number (GitHub's equivalent to GitLab's IID)
+    /// PR number (GitHub's equivalent to GitLab's IID).
     pub number: u64,
 
-    /// PR ID (unique across GitHub)
+    /// PR ID (unique across GitHub).
     pub id: u64,
 
-    /// PR title
+    /// PR title.
     pub title: String,
 
-    /// PR body/description
+    /// PR body/description.
     pub body: Option<String>,
 
-    /// Head branch information
+    /// Head branch information.
     pub head: BranchRef,
 
-    /// Base branch information
+    /// Base branch information.
     pub base: BranchRef,
 
-    /// PR state (open, closed)
+    /// PR state (open, closed).
     pub state: String,
 
-    /// HTML URL to view the PR
+    /// HTML URL to view the PR.
     pub html_url: String,
 
-    /// User who created the PR
+    /// User who created the PR.
     pub user: GitHubUser,
 
-    /// Created at timestamp (ISO 8601)
+    /// Created at timestamp (ISO 8601).
     pub created_at: String,
 
-    /// Assignees of the PR
+    /// Assignees of the PR.
     pub assignees: Vec<GitHubUser>,
 
-    /// Requested reviewers (GitHub-specific)
+    /// Requested reviewers (GitHub-specific).
     pub requested_reviewers: Vec<GitHubUser>,
 
-    /// Draft status
+    /// Draft status.
     pub draft: bool,
 
     /// Whether the PR was merged (only present in individual PR fetch, not
-    /// list)
+    /// list).
     #[serde(default)]
     pub merged: bool,
 }
 
-impl ForgeMergeRequest for PullRequest {
+impl MergeRequestLike for PullRequest {
     type User = GitHubUser;
 
     type Id = u64;
@@ -152,13 +152,13 @@ impl ForgeMergeRequest for PullRequest {
         &self.base.ref_name
     }
 
-    fn state(&self) -> ForgeMergeRequestState {
+    fn state(&self) -> MergeRequestState {
         if self.merged {
-            ForgeMergeRequestState::Merged
+            MergeRequestState::Merged
         } else if self.state == "open" {
-            ForgeMergeRequestState::Open
+            MergeRequestState::Open
         } else {
-            ForgeMergeRequestState::Closed
+            MergeRequestState::Closed
         }
     }
 
@@ -194,7 +194,7 @@ impl ForgeMergeRequest for PullRequest {
 
     fn clone_boxed(
         &self,
-    ) -> Box<dyn ForgeMergeRequest<User = Self::User, Id = Self::Id> + Send + Sync>
+    ) -> Box<dyn MergeRequestLike<User = Self::User, Id = Self::Id> + Send + Sync>
     where
         Self: Sync + Send,
     {
@@ -222,22 +222,22 @@ enum ReviewState {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Review {
-    /// Review ID
+    /// Review ID.
     pub id: u64,
 
-    /// User who submitted the review
+    /// User who submitted the review.
     pub user: GitHubUser,
 
-    /// Review body/comment
+    /// Review body/comment.
     pub body: Option<String>,
 
     /// The state of the review.
     pub state: ReviewState,
 
-    /// HTML URL to view the review
+    /// HTML URL to view the review.
     pub html_url: String,
 
-    /// Submitted at timestamp (ISO 8601)
+    /// Submitted at timestamp (ISO 8601).
     pub submitted_at: Option<String>,
 }
 
@@ -250,34 +250,34 @@ enum BranchRuleType {
     Unknown,
 }
 
-/// GitHub Branch Rule
+/// GitHub Branch Rule.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct BranchRule {
-    /// Rule type
+    /// Rule type.
     #[serde(rename = "type")]
     pub rule_type: BranchRuleType,
 
     /// Rule parameters (contains `required_approving_review_count` for
-    /// `pull_request` rule)
+    /// `pull_request` rule).
     #[serde(default)]
     pub parameters: Option<BranchRuleParameters>,
 }
 
-/// Parameters for branch rules
+/// Parameters for branch rules.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct BranchRuleParameters {
-    /// Required approving review count (for `pull_request` rules)
+    /// Required approving review count (for `pull_request` rules).
     #[serde(default)]
     pub required_approving_review_count: Option<u32>,
 }
 
-/// Response from listing check runs
+/// Response from listing check runs.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct CheckRunsResponse {
-    /// Total count of check runs
+    /// Total count of check runs.
     pub total_count: u32,
 
-    /// List of check runs
+    /// List of check runs.
     pub check_runs: Vec<CheckRun>,
 }
 
@@ -304,19 +304,19 @@ enum CheckRunConclusion {
     ActionRequired,
 }
 
-/// GitHub Check Run
+/// GitHub Check Run.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct CheckRun {
-    /// Check run ID
+    /// Check run ID.
     pub id: u64,
 
-    /// Check run name
+    /// Check run name.
     pub name: String,
 
-    /// Status of the check run
+    /// Status of the check run.
     pub status: CheckRunStatus,
 
-    /// Conclusion (only present when status is completed)
+    /// Conclusion (only present when status is completed).
     pub conclusion: Option<CheckRunConclusion>,
 }
 
@@ -332,7 +332,7 @@ struct GraphQLError {
 }
 
 impl GitHubForge {
-    /// Create a new GitHub client
+    /// Create a new GitHub client.
     pub fn new(
         base_url: impl Into<String>,
         source_project_id: impl Into<String>,
@@ -380,7 +380,7 @@ impl GitHubForge {
 
         // Strip trailing slashes from base_url to avoid double slashes in constructed
         // URLs
-        let base_url = base_url.into().trim_end_matches('/').to_string();
+        let base_url = base_url.into().trim_end_matches('/').to_owned();
 
         Ok(Self {
             base_url,
@@ -391,12 +391,15 @@ impl GitHubForge {
         })
     }
 
-    async fn request<T: DeserializeOwned>(
+    async fn request<T>(
         &self,
         method: Method,
         path: impl AsRef<str>,
         payload: Option<impl Serialize>,
-    ) -> Result<T> {
+    ) -> Result<T>
+    where
+        T: DeserializeOwned,
+    {
         let mut req = self
             .client
             .request(method, format!("{}{}", self.base_url, path.as_ref()))
@@ -435,14 +438,13 @@ impl GitHubForge {
         Ok(data)
     }
 
-    async fn graphql<T: DeserializeOwned>(
-        &self,
-        query: &str,
-        variables: impl Serialize,
-    ) -> Result<T> {
+    async fn graphql<T>(&self, query: &str, variables: impl Serialize) -> Result<T>
+    where
+        T: DeserializeOwned,
+    {
         // TODO use a real graphql client
         let graphql_url = if self.base_url.starts_with("https://api.github.com") {
-            "https://api.github.com/graphql".to_string()
+            "https://api.github.com/graphql".to_owned()
         } else if self.base_url.contains("/api/v3") {
             self.base_url.replace("/api/v3", "/api/graphql")
         } else {
@@ -497,450 +499,7 @@ impl GitHubForge {
 
         Ok(data.data)
     }
-}
 
-impl Forge for GitHubForge {
-    type User = GitHubUser;
-
-    type MergeRequest = PullRequest;
-
-    type UserId = UserId<u64>;
-
-    fn project_id(&self) -> &str {
-        &self.target_project_id
-    }
-
-    fn source_project_id(&self) -> &str {
-        &self.source_project_id
-    }
-
-    fn target_project_id(&self) -> &str {
-        &self.target_project_id
-    }
-
-    fn base_url(&self) -> &str {
-        &self.base_url
-    }
-
-    fn project_url(&self) -> String {
-        let base_url = if self.base_url.starts_with("https://api.github.com") {
-            "https://github.com"
-        } else if self.base_url.contains("/api/v3") {
-            self.base_url.trim_end_matches("/api/v3")
-        } else {
-            &self.base_url
-        };
-        format!("{}/{}", base_url, self.target_project_id)
-    }
-
-    async fn current_user(&self) -> Result<Self::User> {
-        let user: GitHubUser = self.request(Method::GET, "/user", None::<()>).await?;
-        Ok(user)
-    }
-
-    async fn user_by_username(&self, username: &str) -> Result<Option<Self::User>> {
-        match self
-            .request::<GitHubUser>(Method::GET, format!("/users/{username}"), None::<()>)
-            .await
-        {
-            Ok(user) => Ok(Some(user)),
-            Err(Error::GitHubApi { message, .. }) if message.contains("404") => Ok(None),
-            Err(e) => Err(e),
-        }
-    }
-
-    async fn find_merge_request_by_source_branch(
-        &self,
-        branch: &str,
-    ) -> Result<Option<Self::MergeRequest>> {
-        let (target_owner, target_name) = split_project_id(&self.target_project_id)?;
-
-        debug!(
-            branch,
-            target_project = %self.target_project_id,
-            source_project = %self.source_project_id,
-            "Looking up PR by source branch via GraphQL"
-        );
-
-        let response: graphql::find_pr_by_head_ref::Response = self
-            .graphql(
-                graphql::find_pr_by_head_ref::query(),
-                serde_json::json!({
-                    "owner": target_owner,
-                    "repositoryName": target_name,
-                    "headRefName": branch,
-                }),
-            )
-            .await?;
-
-        let prs: Vec<_> = response
-            .repository
-            .into_iter()
-            .flat_map(|r| r.pull_requests.nodes)
-            .filter(|pr| {
-                pr.head_repository.as_ref().is_some_and(|r| {
-                    r.name_with_owner
-                        .eq_ignore_ascii_case(&self.source_project_id)
-                })
-            })
-            .collect();
-
-        debug!(
-            count = prs.len(),
-            source_project = %self.source_project_id,
-            "PR lookup result (filtered by head repository)"
-        );
-
-        Ok(prs.into_iter().next().map(PRNode::into_pull_request))
-    }
-
-    async fn create_merge_request(
-        &self,
-        ForgeCreateMergeRequestOptions {
-            assignees,
-            description,
-            reviewers,
-            source_branch,
-            target_branch,
-            title,
-            open_as_draft,
-
-            // In GitHub, removing the source branch is handled at *merge time*. Default is a
-            // project setting only.
-            remove_source_branch: _remove_source_branch,
-
-            // In GitHub, squashing is handled at *merge time*. Default is a project setting only.
-            squash: _squash,
-        }: ForgeCreateMergeRequestOptions<Self::UserId>,
-    ) -> Result<Self::MergeRequest> {
-        #[derive(Serialize)]
-        #[serde(rename_all = "camelCase")]
-        struct Body {
-            title: String,
-            head: String,
-            head_repo: String,
-            base: String,
-            draft: bool,
-
-            #[serde(skip_serializing_if = "Option::is_none")]
-            #[allow(clippy::struct_field_names, reason = "deserialized")]
-            body: Option<String>,
-        }
-
-        // head_repo in "owner/repo" format tells GitHub which repository the
-        // branch lives in, handling same-repo, same-org fork, and cross-org
-        // fork cases uniformly.
-        let head_repo = &self.source_project_id;
-
-        let payload = Body {
-            title,
-            head: source_branch,
-            head_repo: head_repo.clone(),
-            base: target_branch,
-            draft: open_as_draft,
-            body: description,
-        };
-
-        let pr: PullRequest = self
-            .request(
-                Method::POST,
-                format!("/repos/{}/pulls", self.target_project_id),
-                Some(payload),
-            )
-            .await?;
-
-        if !assignees.is_empty() {
-            self.add_assignees(
-                pr.number,
-                assignees.into_iter().map(|user| user.0).collect(),
-            )
-            .await?;
-        }
-
-        if !reviewers.is_empty() {
-            self.request_reviewers(
-                pr.number,
-                reviewers.into_iter().map(|user| user.0).collect(),
-            )
-            .await?;
-        }
-
-        Ok(pr)
-    }
-
-    async fn update_merge_request_base(
-        &self,
-        pr_number: Self::Id,
-        new_base: &str,
-    ) -> Result<Self::MergeRequest> {
-        let pr: PullRequest = self
-            .request(
-                Method::PATCH,
-                format!("/repos/{}/pulls/{}", self.target_project_id, pr_number),
-                Some(serde_json::json!({
-                    "base": new_base,
-                })),
-            )
-            .await?;
-
-        Ok(pr)
-    }
-
-    async fn update_merge_request_info(
-        &self,
-        pr_number: Self::Id,
-        ForgeUpdateMergeRequestInfoOptions {
-            title,
-            description,
-            draft,
-            current_title: _current_title,       // Unneeded for GitHub
-            current_is_draft: _current_is_draft, // Unneeded for GitHub
-        }: ForgeUpdateMergeRequestInfoOptions,
-    ) -> Result<Self::MergeRequest> {
-        #[derive(Serialize)]
-        #[serde(rename_all = "camelCase")]
-        struct Body {
-            #[serde(skip_serializing_if = "Option::is_none")]
-            title: Option<String>,
-
-            #[serde(skip_serializing_if = "Option::is_none")]
-            body: Option<String>,
-        }
-
-        let body = Body {
-            title,
-            body: description,
-        };
-
-        let mut pr: PullRequest = self
-            .request(
-                Method::PATCH,
-                format!("/repos/{}/pulls/{}", self.target_project_id, pr_number),
-                Some(body),
-            )
-            .await?;
-
-        match draft {
-            Some(true) => {
-                let response: graphql::set_pr_is_draft::Response = self
-                    .graphql(
-                        graphql::set_pr_is_draft::query(),
-                        graphql::set_pr_is_draft::Variables {
-                            id: pr.id.to_string(),
-                        },
-                    )
-                    .await?;
-                pr.draft = response.convert_pull_request_to_draft.pull_request.is_draft;
-            }
-            Some(false) => {
-                let response: graphql::set_pr_not_draft::Response = self
-                    .graphql(
-                        graphql::set_pr_not_draft::query(),
-                        graphql::set_pr_not_draft::Variables {
-                            id: pr.id.to_string(),
-                        },
-                    )
-                    .await?;
-                pr.draft = response.convert_pull_request_to_draft.pull_request.is_draft;
-            }
-            None => {}
-        }
-
-        Ok(pr)
-    }
-
-    async fn get_merge_request(&self, pr_number: Self::Id) -> Result<Self::MergeRequest> {
-        let pr: PullRequest = self
-            .request(
-                Method::GET,
-                format!("/repos/{}/pulls/{}", self.target_project_id, pr_number),
-                None::<()>,
-            )
-            .await?;
-
-        Ok(pr)
-    }
-
-    async fn get_approval_status(&self, pr_number: Self::Id) -> Result<ApprovalStatus> {
-        let pr = self.get_merge_request(pr_number).await?;
-        let base_branch = pr.base.ref_name;
-
-        let (reviews, required_count): (Result<Vec<Review>, _>, _) = join!(
-            self.request(
-                Method::GET,
-                format!(
-                    "/repos/{}/pulls/{}/reviews",
-                    self.target_project_id, pr_number
-                ),
-                None::<()>,
-            ),
-            self.get_required_approvals(&base_branch),
-        );
-
-        let user_reviews: Result<HashMap<u64, ReviewState>, _> = reviews.map(|reviews| {
-            reviews
-                .iter()
-                .filter(|review| review.submitted_at.is_some())
-                .sorted_by_key(|review| review.submitted_at.as_ref().unwrap())
-                .map(|review| (review.user.id, review.state.clone()))
-                .collect()
-        });
-
-        #[allow(clippy::cast_possible_truncation, reason = "will never get that high")]
-        let approved_count = user_reviews.as_ref().map(|reviews| {
-            reviews
-                .values()
-                .filter(|state| matches!(state, ReviewState::Approved))
-                .count() as u32
-        });
-
-        #[allow(clippy::cast_possible_truncation, reason = "will never get that high")]
-        let blocking_count = user_reviews.as_ref().map(|reviews| {
-            reviews
-                .values()
-                .filter(|state| matches!(state, ReviewState::ChangesRequested))
-                .count() as u32
-        });
-
-        Ok(ApprovalStatus {
-            approved_count: approved_count.unwrap_or(0),
-            required_count: *required_count.as_ref().unwrap_or(&0),
-            blocking_count: blocking_count.unwrap_or(0),
-            satisfaction: match (required_count, approved_count) {
-                (Ok(count), Ok(approved_count)) => {
-                    if approved_count >= count {
-                        ApprovalSatisfaction::Satisfied
-                    } else {
-                        ApprovalSatisfaction::Unsatisfied
-                    }
-                }
-                (_, _) => ApprovalSatisfaction::Unknown,
-            },
-        })
-    }
-
-    async fn get_check_status(&self, pr_number: Self::Id) -> Result<CheckStatus> {
-        let head_sha = self.get_merge_request(pr_number).await?.head.sha;
-
-        let response: CheckRunsResponse = self
-            .request(
-                Method::GET,
-                format!(
-                    "/repos/{}/commits/{}/check-runs",
-                    self.target_project_id,
-                    urlencoding::encode(&head_sha)
-                ),
-                None::<()>,
-            )
-            .await?;
-
-        if response.total_count == 0 {
-            return Ok(CheckStatus::None);
-        }
-
-        let mut has_pending = false;
-        let mut has_failed = false;
-
-        for check_run in response.check_runs {
-            match (check_run.status, check_run.conclusion) {
-                (
-                    CheckRunStatus::Completed,
-                    Some(
-                        CheckRunConclusion::Failure
-                        | CheckRunConclusion::Cancelled
-                        | CheckRunConclusion::TimedOut
-                        | CheckRunConclusion::ActionRequired,
-                    ),
-                ) => {
-                    has_failed = true;
-                }
-                (CheckRunStatus::Completed, _) => {}
-                (
-                    CheckRunStatus::Queued
-                    | CheckRunStatus::InProgress
-                    | CheckRunStatus::Waiting
-                    | CheckRunStatus::Pending
-                    | CheckRunStatus::Requested,
-                    _,
-                ) => {
-                    has_pending = true;
-                }
-            }
-        }
-
-        // Return the aggregated status
-        if has_failed {
-            Ok(CheckStatus::Failed)
-        } else if has_pending {
-            Ok(CheckStatus::Pending)
-        } else {
-            Ok(CheckStatus::Success)
-        }
-    }
-
-    async fn get_merge_request_status(&self, pr_number: Self::Id) -> Result<MergeRequestStatus> {
-        let (approval_status, check_status) = try_join!(
-            self.get_approval_status(pr_number),
-            self.get_check_status(pr_number),
-        )?;
-
-        Ok(MergeRequestStatus {
-            iid: pr_number.to_string(),
-            approval_status,
-            check_status,
-        })
-    }
-
-    async fn num_open_discussions(&self, pr_number: Self::Id) -> Result<DiscussionCount> {
-        let discussions = self.get_discussions(pr_number).await?;
-        Ok(discussions.iter().fold(
-            DiscussionCount {
-                all: 0,
-                unresolved: 0,
-                resolved: 0,
-            },
-            |mut acc, comment| {
-                acc.all += 1;
-
-                if comment.is_minimized {
-                    acc.resolved += 1;
-                    // Close enough?
-                } else if comment.viewer_can_minimize {
-                    acc.unresolved += 1;
-                }
-
-                acc
-            },
-        ))
-    }
-
-    async fn sync_dependent_merge_requests(
-        &self,
-        _merge_request_iid: Self::Id,
-        _dependent_merge_request_iids: &[Self::Id],
-    ) -> ResultWithWarnings<bool> {
-        // Only supported for GitLab
-        Ok(false).into()
-    }
-}
-
-impl FormatMergeRequest for GitHubForge {
-    type Id = u64;
-
-    fn format_merge_request_id(&self, mr_iid: Self::Id) -> String {
-        format!("#{mr_iid}")
-    }
-
-    fn mr_name(&self) -> &'static str {
-        "PR"
-    }
-
-    fn id_expands_title(&self) -> bool {
-        true
-    }
-}
-
-impl GitHubForge {
     async fn add_assignees(&self, pr_number: u64, assignees: Vec<u64>) -> Result<()> {
         self.request::<serde_json::Value>(
             Method::POST,
@@ -971,7 +530,7 @@ impl GitHubForge {
         Ok(())
     }
 
-    /// Get required approval count from branch protection rules
+    /// Get required approval count from branch protection rules.
     async fn get_required_approvals(&self, branch: &str) -> Result<u32> {
         let rules: Vec<BranchRule> = self
             .request(
@@ -1100,6 +659,463 @@ query GetDiscussions($owner: String!, $name: String!, $pr_number: Int!) {
     }
 }
 
+impl Forge for GitHubForge {
+    type User = GitHubUser;
+
+    type MergeRequest = PullRequest;
+
+    type UserId = UserId<u64>;
+
+    fn project_id(&self) -> &str {
+        &self.target_project_id
+    }
+
+    fn source_project_id(&self) -> &str {
+        &self.source_project_id
+    }
+
+    fn target_project_id(&self) -> &str {
+        &self.target_project_id
+    }
+
+    fn base_url(&self) -> &str {
+        &self.base_url
+    }
+
+    fn project_url(&self) -> String {
+        let base_url = if self.base_url.starts_with("https://api.github.com") {
+            "https://github.com"
+        } else if self.base_url.contains("/api/v3") {
+            self.base_url.trim_end_matches("/api/v3")
+        } else {
+            &self.base_url
+        };
+        format!("{}/{}", base_url, self.target_project_id)
+    }
+
+    async fn current_user(&self) -> Result<Self::User> {
+        let user: GitHubUser = self.request(Method::GET, "/user", None::<()>).await?;
+        Ok(user)
+    }
+
+    async fn user_by_username(&self, username: &str) -> Result<Option<Self::User>> {
+        match self
+            .request::<GitHubUser>(Method::GET, format!("/users/{username}"), None::<()>)
+            .await
+        {
+            Ok(user) => Ok(Some(user)),
+            Err(Error::GitHubApi { message, .. }) if message.contains("404") => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
+    async fn find_merge_request_by_source_branch(
+        &self,
+        branch: &str,
+    ) -> Result<Option<Self::MergeRequest>> {
+        let (target_owner, target_name) = split_project_id(&self.target_project_id)?;
+
+        debug!(
+            branch,
+            target_project = %self.target_project_id,
+            source_project = %self.source_project_id,
+            "Looking up PR by source branch via GraphQL"
+        );
+
+        let response: graphql::find_pr_by_head_ref::Response = self
+            .graphql(
+                graphql::find_pr_by_head_ref::query(),
+                serde_json::json!({
+                    "owner": target_owner,
+                    "repositoryName": target_name,
+                    "headRefName": branch,
+                }),
+            )
+            .await?;
+
+        let prs: Vec<_> = response
+            .repository
+            .into_iter()
+            .flat_map(|r| r.pull_requests.nodes)
+            .filter(|pr| {
+                pr.head_repository.as_ref().is_some_and(|r| {
+                    r.name_with_owner
+                        .eq_ignore_ascii_case(&self.source_project_id)
+                })
+            })
+            .collect();
+
+        debug!(
+            count = prs.len(),
+            source_project = %self.source_project_id,
+            "PR lookup result (filtered by head repository)"
+        );
+
+        Ok(prs.into_iter().next().map(PRNode::into_pull_request))
+    }
+
+    async fn create_merge_request(
+        &self,
+        CreateMergeRequestOptions {
+            assignees,
+            description,
+            reviewers,
+            source_branch,
+            target_branch,
+            title,
+            open_as_draft,
+
+            // In GitHub, removing the source branch is handled at *merge time*. Default is a
+            // project setting only.
+            remove_source_branch: _remove_source_branch,
+
+            // In GitHub, squashing is handled at *merge time*. Default is a project setting only.
+            squash: _squash,
+        }: CreateMergeRequestOptions<Self::UserId>,
+    ) -> Result<Self::MergeRequest> {
+        #[derive(Serialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Body {
+            title: String,
+            head: String,
+            head_repo: String,
+            base: String,
+            draft: bool,
+
+            #[serde(skip_serializing_if = "Option::is_none")]
+            #[expect(clippy::struct_field_names, reason = "serialized")]
+            body: Option<String>,
+        }
+
+        // head_repo in "owner/repo" format tells GitHub which repository the
+        // branch lives in, handling same-repo, same-org fork, and cross-org
+        // fork cases uniformly.
+        let head_repo = &self.source_project_id;
+
+        let payload = Body {
+            title,
+            head: source_branch,
+            head_repo: head_repo.clone(),
+            base: target_branch,
+            draft: open_as_draft,
+            body: description,
+        };
+
+        let pr: PullRequest = self
+            .request(
+                Method::POST,
+                format!("/repos/{}/pulls", self.target_project_id),
+                Some(payload),
+            )
+            .await?;
+
+        if !assignees.is_empty() {
+            self.add_assignees(
+                pr.number,
+                assignees.into_iter().map(|user| user.0).collect(),
+            )
+            .await?;
+        }
+
+        if !reviewers.is_empty() {
+            self.request_reviewers(
+                pr.number,
+                reviewers.into_iter().map(|user| user.0).collect(),
+            )
+            .await?;
+        }
+
+        Ok(pr)
+    }
+
+    async fn update_merge_request_base(
+        &self,
+        merge_request_iid: Self::Id,
+        new_base: &str,
+    ) -> Result<Self::MergeRequest> {
+        let pr: PullRequest = self
+            .request(
+                Method::PATCH,
+                format!(
+                    "/repos/{}/pulls/{}",
+                    self.target_project_id, merge_request_iid
+                ),
+                Some(serde_json::json!({
+                    "base": new_base,
+                })),
+            )
+            .await?;
+
+        Ok(pr)
+    }
+
+    async fn update_merge_request_info(
+        &self,
+        merge_request_iid: Self::Id,
+        UpdateMergeRequestInfoOptions {
+            title,
+            description,
+            draft,
+            current_title: _current_title,       // Unneeded for GitHub
+            current_is_draft: _current_is_draft, // Unneeded for GitHub
+        }: UpdateMergeRequestInfoOptions,
+    ) -> Result<Self::MergeRequest> {
+        #[derive(Serialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Body {
+            #[serde(skip_serializing_if = "Option::is_none")]
+            title: Option<String>,
+
+            #[serde(skip_serializing_if = "Option::is_none")]
+            body: Option<String>,
+        }
+
+        let body = Body {
+            title,
+            body: description,
+        };
+
+        let mut pr: PullRequest = self
+            .request(
+                Method::PATCH,
+                format!(
+                    "/repos/{}/pulls/{}",
+                    self.target_project_id, merge_request_iid
+                ),
+                Some(body),
+            )
+            .await?;
+
+        match draft {
+            Some(true) => {
+                let response: graphql::set_pr_is_draft::Response = self
+                    .graphql(
+                        graphql::set_pr_is_draft::query(),
+                        graphql::set_pr_is_draft::Variables {
+                            id: pr.id.to_string(),
+                        },
+                    )
+                    .await?;
+                pr.draft = response.convert_pull_request_to_draft.pull_request.is_draft;
+            }
+            Some(false) => {
+                let response: graphql::set_pr_not_draft::Response = self
+                    .graphql(
+                        graphql::set_pr_not_draft::query(),
+                        graphql::set_pr_not_draft::Variables {
+                            id: pr.id.to_string(),
+                        },
+                    )
+                    .await?;
+                pr.draft = response.convert_pull_request_to_draft.pull_request.is_draft;
+            }
+            None => {}
+        }
+
+        Ok(pr)
+    }
+
+    async fn get_merge_request(&self, merge_request_iid: Self::Id) -> Result<Self::MergeRequest> {
+        let pr: PullRequest = self
+            .request(
+                Method::GET,
+                format!(
+                    "/repos/{}/pulls/{}",
+                    self.target_project_id, merge_request_iid
+                ),
+                None::<()>,
+            )
+            .await?;
+
+        Ok(pr)
+    }
+
+    async fn get_approval_status(&self, merge_request_iid: Self::Id) -> Result<ApprovalStatus> {
+        let pr = self.get_merge_request(merge_request_iid).await?;
+        let base_branch = pr.base.ref_name;
+
+        let (reviews, required_count): (Result<Vec<Review>, _>, _) = join!(
+            self.request(
+                Method::GET,
+                format!(
+                    "/repos/{}/pulls/{}/reviews",
+                    self.target_project_id, merge_request_iid
+                ),
+                None::<()>,
+            ),
+            self.get_required_approvals(&base_branch),
+        );
+
+        let user_reviews: Result<HashMap<u64, ReviewState>, _> = reviews.map(|reviews| {
+            reviews
+                .iter()
+                .filter(|review| review.submitted_at.is_some())
+                .sorted_by_key(|review| review.submitted_at.as_ref().unwrap())
+                .map(|review| (review.user.id, review.state.clone()))
+                .collect()
+        });
+
+        let approved_count = user_reviews.as_ref().map(|reviews| {
+            reviews
+                .values()
+                .filter(|state| matches!(state, ReviewState::Approved))
+                .count()
+                .try_into()
+                .expect("too large")
+        });
+
+        let blocking_count = user_reviews.as_ref().map(|reviews| {
+            reviews
+                .values()
+                .filter(|state| matches!(state, ReviewState::ChangesRequested))
+                .count()
+                .try_into()
+                .expect("too large")
+        });
+
+        Ok(ApprovalStatus {
+            approved_count: approved_count.unwrap_or(0),
+            required_count: *required_count.as_ref().unwrap_or(&0),
+            blocking_count: blocking_count.unwrap_or(0),
+            satisfaction: match (required_count, approved_count) {
+                (Ok(count), Ok(approved_count)) => {
+                    if approved_count >= count {
+                        ApprovalSatisfaction::Satisfied
+                    } else {
+                        ApprovalSatisfaction::Unsatisfied
+                    }
+                }
+                (_, _) => ApprovalSatisfaction::Unknown,
+            },
+        })
+    }
+
+    async fn get_check_status(&self, merge_request_iid: Self::Id) -> Result<CheckStatus> {
+        let head_sha = self.get_merge_request(merge_request_iid).await?.head.sha;
+
+        let response: CheckRunsResponse = self
+            .request(
+                Method::GET,
+                format!(
+                    "/repos/{}/commits/{}/check-runs",
+                    self.target_project_id,
+                    urlencoding::encode(&head_sha)
+                ),
+                None::<()>,
+            )
+            .await?;
+
+        if response.total_count == 0 {
+            return Ok(CheckStatus::None);
+        }
+
+        let mut has_pending = false;
+        let mut has_failed = false;
+
+        for check_run in response.check_runs {
+            match (check_run.status, check_run.conclusion) {
+                (
+                    CheckRunStatus::Completed,
+                    Some(
+                        CheckRunConclusion::Failure
+                        | CheckRunConclusion::Cancelled
+                        | CheckRunConclusion::TimedOut
+                        | CheckRunConclusion::ActionRequired,
+                    ),
+                ) => {
+                    has_failed = true;
+                }
+                (CheckRunStatus::Completed, _) => {}
+                (
+                    CheckRunStatus::Queued
+                    | CheckRunStatus::InProgress
+                    | CheckRunStatus::Waiting
+                    | CheckRunStatus::Pending
+                    | CheckRunStatus::Requested,
+                    _,
+                ) => {
+                    has_pending = true;
+                }
+            }
+        }
+
+        // Return the aggregated status
+        if has_failed {
+            Ok(CheckStatus::Failed)
+        } else if has_pending {
+            Ok(CheckStatus::Pending)
+        } else {
+            Ok(CheckStatus::Success)
+        }
+    }
+
+    async fn get_merge_request_status(
+        &self,
+        merge_request_iid: Self::Id,
+    ) -> Result<MergeRequestStatus> {
+        let (approval_status, check_status) = try_join!(
+            self.get_approval_status(merge_request_iid),
+            self.get_check_status(merge_request_iid),
+        )?;
+
+        Ok(MergeRequestStatus {
+            iid: merge_request_iid.to_string(),
+            approval_status,
+            check_status,
+        })
+    }
+
+    async fn num_open_discussions(&self, merge_request_iid: Self::Id) -> Result<DiscussionCount> {
+        let discussions = self.get_discussions(merge_request_iid).await?;
+        Ok(discussions.iter().fold(
+            DiscussionCount {
+                all: 0,
+                unresolved: 0,
+                resolved: 0,
+            },
+            |mut acc, comment| {
+                acc.all = acc.all.strict_add(1);
+
+                if comment.is_minimized {
+                    acc.resolved = acc.resolved.strict_add(1);
+                    // Close enough?
+                } else if comment.viewer_can_minimize {
+                    acc.unresolved = acc.unresolved.strict_add(1);
+                } else {
+                    // Only increment all
+                }
+
+                acc
+            },
+        ))
+    }
+
+    async fn sync_dependent_merge_requests(
+        &self,
+        _merge_request_iid: Self::Id,
+        _dependent_merge_request_iids: &[Self::Id],
+    ) -> ResultWithWarnings<bool> {
+        // Only supported for GitLab
+        Ok(false).into()
+    }
+}
+
+impl FormatMergeRequest for GitHubForge {
+    type Id = u64;
+
+    fn format_merge_request_id(&self, mr_iid: Self::Id) -> String {
+        format!("#{mr_iid}")
+    }
+
+    fn mr_name(&self) -> &'static str {
+        "PR"
+    }
+
+    fn id_expands_title(&self) -> bool {
+        true
+    }
+}
+
 fn split_project_id(project_id: &str) -> Result<(&str, &str)> {
     project_id.split_once('/').ok_or_else(|| {
         ConfigSnafu {
@@ -1114,12 +1130,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_github_client_new() {
+    fn github_client_new() {
         let client = GitHubForge::new(
-            "https://api.github.com".to_string(),
-            "owner/repo".to_string(),
-            "owner/repo".to_string(),
-            "ghp_token123".to_string(),
+            "https://api.github.com".to_owned(),
+            "owner/repo".to_owned(),
+            "owner/repo".to_owned(),
+            "ghp_token123".to_owned(),
             None::<&str>,
             false,
         )
@@ -1132,12 +1148,12 @@ mod tests {
     }
 
     #[test]
-    fn test_project_url() {
+    fn project_url() {
         let client = GitHubForge::new(
-            "https://api.github.com".to_string(),
-            "owner/repo".to_string(),
-            "owner/repo".to_string(),
-            "token".to_string(),
+            "https://api.github.com".to_owned(),
+            "owner/repo".to_owned(),
+            "owner/repo".to_owned(),
+            "token".to_owned(),
             None::<&str>,
             false,
         )
@@ -1147,12 +1163,12 @@ mod tests {
     }
 
     #[test]
-    fn test_github_enterprise_url() {
+    fn github_enterprise_url() {
         let client = GitHubForge::new(
-            "https://github.example.com/api/v3".to_string(),
-            "owner/repo".to_string(),
-            "owner/repo".to_string(),
-            "token".to_string(),
+            "https://github.example.com/api/v3".to_owned(),
+            "owner/repo".to_owned(),
+            "owner/repo".to_owned(),
+            "token".to_owned(),
             None::<&str>,
             false,
         )

@@ -1,15 +1,16 @@
 use std::path::PathBuf;
 
 use dialoguer::{Input, Password};
-use owo_colors::OwoColorize;
+use owo_colors::OwoColorize as _;
 
 use crate::{
     commands::init::{Remotes, get_config, parse_forge_url, set_config},
     error::Result,
 };
 
-/// Initialize GitLab-specific configuration
-#[allow(clippy::too_many_lines, reason = "important")]
+/// Initialize GitLab-specific configuration.
+#[expect(clippy::single_call_fn, reason = "important")]
+#[expect(clippy::too_many_lines, reason = "important")]
 pub fn init(repo_path: impl Into<PathBuf>, remotes: Option<&Remotes>) -> Result<()> {
     let repo_path = repo_path.into();
     let existing_host = get_config(&repo_path, "jj-vine.gitlab.host");

@@ -1,6 +1,9 @@
-use std::{collections::HashSet, hash::BuildHasher};
+#![expect(clippy::module_name_repetitions, reason = "seems fine")]
 
-use itertools::Itertools;
+use core::hash::BuildHasher;
+use std::collections::HashSet;
+
+use itertools::Itertools as _;
 
 use crate::{
     bookmark::{BookmarkGraph, JJName},
@@ -18,10 +21,10 @@ pub mod plan;
 /// Find the changes that matter for a submission starting from `targets`:
 /// bookmarked changes authored by the current user that are reachable from
 /// the targets and are not already in the trunk ancestry.
-pub fn find_changes_to_submit<S: BuildHasher>(
+pub fn find_changes_to_submit(
     jj: &Jujutsu,
     targets: impl IntoIterator<Item = impl JJName>,
-    change_ids_pending_bookmarks: &HashSet<String, S>,
+    change_ids_pending_bookmarks: &HashSet<String, impl BuildHasher>,
 ) -> Result<Vec<Change>> {
     jj.log_with_pending_bookmarks(
         format!(
@@ -31,7 +34,7 @@ pub fn find_changes_to_submit<S: BuildHasher>(
                 .map(|t| format!("::{}", t.name_for_jj()))
                 .join(" | "),
             if change_ids_pending_bookmarks.is_empty() {
-                "none()".to_string()
+                "none()".to_owned()
             } else {
                 change_ids_pending_bookmarks.iter().join(" | ")
             }
@@ -90,7 +93,7 @@ pub struct RootExecuteContext<'a> {
 }
 
 impl<'a> RootExecuteContext<'a> {
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments, reason = "really need them all")]
     pub fn new(
         jj: &'a Jujutsu,
         forge: &'a ForgeImpl,

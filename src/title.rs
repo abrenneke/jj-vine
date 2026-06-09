@@ -8,6 +8,10 @@ use crate::{
     jj::{Change, Jujutsu},
 };
 
+#[expect(
+    clippy::module_name_repetitions,
+    reason = "it would be weird otherwise"
+)]
 pub fn get_mr_title(
     jj: &Jujutsu,
     config: &TitleConfig,
@@ -26,6 +30,7 @@ pub fn get_mr_title(
     ))
 }
 
+#[cfg_attr(not(test), expect(clippy::single_call_fn, reason = "tests"))]
 fn get_mr_title_from_revisions(
     config: &TitleConfig,
     bookmark: &BookmarkWithPointers<'_>,
@@ -34,15 +39,15 @@ fn get_mr_title_from_revisions(
     revisions: impl AsRef<[Change]>,
 ) -> String {
     match &revisions.as_ref() {
-        [] => bookmark.name().to_string(),
+        [] => bookmark.name().to_owned(),
         [revision] => match &config.single_revision {
             TitleFormat::FirstRevisionFirstLine | TitleFormat::HeadRevisionFirstLine => {
-                revision.description_first_line().to_string()
+                revision.description_first_line().to_owned()
             }
             TitleFormat::FirstRevisionFullMessage | TitleFormat::HeadRevisionFullMessage => {
                 revision.description.clone()
             }
-            TitleFormat::BookmarkName => bookmark.name().to_string(),
+            TitleFormat::BookmarkName => bookmark.name().to_owned(),
             TitleFormat::Other(template) => format_title_with_template(
                 revision,
                 revision,
@@ -53,11 +58,11 @@ fn get_mr_title_from_revisions(
             ),
         },
         [head, .., root] => match &config.multiple_revisions {
-            TitleFormat::FirstRevisionFirstLine => root.description_first_line().to_string(),
+            TitleFormat::FirstRevisionFirstLine => root.description_first_line().to_owned(),
             TitleFormat::FirstRevisionFullMessage => root.description.clone(),
-            TitleFormat::HeadRevisionFirstLine => head.description_first_line().to_string(),
+            TitleFormat::HeadRevisionFirstLine => head.description_first_line().to_owned(),
             TitleFormat::HeadRevisionFullMessage => head.description.clone(),
-            TitleFormat::BookmarkName => bookmark.name().to_string(),
+            TitleFormat::BookmarkName => bookmark.name().to_owned(),
             TitleFormat::Other(template) => format_title_with_template(
                 root,
                 head,
@@ -111,17 +116,17 @@ enum Replacement {
     ParentBookmarkName,
 
     /// The 1-based index of the change in the stack. For use with e.g.
-    /// `{stackIndex}/{stackCount}`
+    /// `{stackIndex}/{stackCount}`.
     StackIndex,
 
     /// The total number of changes in the stack.
     StackCount,
 }
 
-impl std::str::FromStr for Replacement {
+impl core::str::FromStr for Replacement {
     type Err = Error;
 
-    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+    fn from_str(s: &str) -> core::result::Result<Self, Self::Err> {
         match s {
             "first.id" => Ok(Replacement::FirstRevisionId),
             "first.change_id" => Ok(Replacement::FirstRevisionChangeId),
@@ -154,7 +159,7 @@ fn format_title_with_template(
     default_branch: &str,
     template: &str,
 ) -> String {
-    let mut title = template.to_string();
+    let mut title = template.to_owned();
 
     for needs_replacement in Regex::new(r"\{[\w.]+\}").unwrap().find_iter(template) {
         let enum_value: Result<Replacement, _> = needs_replacement
@@ -251,8 +256,8 @@ mod tests {
         let bookmark = component.leaves.first().unwrap().clone();
         let revisions: Vec<_> = toposort(
             changes.values().cloned(),
-            |c| c.commit_id.clone(),
-            |c| c.parent_commit_ids.clone(),
+            |change| change.commit_id.clone(),
+            |change| change.parent_commit_ids.clone(),
         )
         .into_iter()
         .rev() // head first like jj outputs
@@ -262,14 +267,14 @@ mod tests {
     }
 
     #[test]
-    fn test_single_revision_first_revision_first_line() {
+    fn single_revision_first_revision_first_line() {
         let title = get_mock_title(
             &TitleConfig {
                 single_revision: TitleFormat::FirstRevisionFirstLine,
                 ..Default::default()
             },
             [Change {
-                description: "Line 1\nLine 2".to_string(),
+                description: "Line 1\nLine 2".to_owned(),
                 ..Change::mock_from_bookmark("commit-a")
             }],
         );
@@ -278,14 +283,14 @@ mod tests {
     }
 
     #[test]
-    fn test_single_revision_first_revision_full_message() {
+    fn single_revision_first_revision_full_message() {
         let title = get_mock_title(
             &TitleConfig {
                 single_revision: TitleFormat::FirstRevisionFullMessage,
                 ..Default::default()
             },
             [Change {
-                description: "Line 1\nLine 2".to_string(),
+                description: "Line 1\nLine 2".to_owned(),
                 ..Change::mock_from_bookmark("commit-a")
             }],
         );
@@ -294,14 +299,14 @@ mod tests {
     }
 
     #[test]
-    fn test_single_revision_head_revision_first_line() {
+    fn single_revision_head_revision_first_line() {
         let title = get_mock_title(
             &TitleConfig {
                 single_revision: TitleFormat::HeadRevisionFirstLine,
                 ..Default::default()
             },
             [Change {
-                description: "Line 1\nLine 2".to_string(),
+                description: "Line 1\nLine 2".to_owned(),
                 ..Change::mock_from_bookmark("commit-a")
             }],
         );
@@ -310,14 +315,14 @@ mod tests {
     }
 
     #[test]
-    fn test_single_revision_head_revision_full_message() {
+    fn single_revision_head_revision_full_message() {
         let title = get_mock_title(
             &TitleConfig {
                 single_revision: TitleFormat::HeadRevisionFullMessage,
                 ..Default::default()
             },
             [Change {
-                description: "Line 1\nLine 2".to_string(),
+                description: "Line 1\nLine 2".to_owned(),
                 ..Change::mock_from_bookmark("commit-a")
             }],
         );
@@ -326,7 +331,7 @@ mod tests {
     }
 
     #[test]
-    fn test_single_revision_bookmark_name() {
+    fn single_revision_bookmark_name() {
         let title = get_mock_title(
             &TitleConfig {
                 single_revision: TitleFormat::BookmarkName,
@@ -339,14 +344,14 @@ mod tests {
     }
 
     #[test]
-    fn test_single_revision_custom_template_first_description_first_line() {
+    fn single_revision_custom_template_first_description_first_line() {
         let title = get_mock_title(
             &TitleConfig {
-                single_revision: TitleFormat::Other("{first.description_first_line}".to_string()),
+                single_revision: TitleFormat::Other("{first.description_first_line}".to_owned()),
                 ..Default::default()
             },
             [Change {
-                description: "Line 1\nLine 2".to_string(),
+                description: "Line 1\nLine 2".to_owned(),
                 ..Change::mock_from_bookmark("commit-a")
             }],
         );
@@ -355,14 +360,14 @@ mod tests {
     }
 
     #[test]
-    fn test_single_revision_custom_template_first_description() {
+    fn single_revision_custom_template_first_description() {
         let title = get_mock_title(
             &TitleConfig {
-                single_revision: TitleFormat::Other("{first.description}".to_string()),
+                single_revision: TitleFormat::Other("{first.description}".to_owned()),
                 ..Default::default()
             },
             [Change {
-                description: "Line 1\nLine 2".to_string(),
+                description: "Line 1\nLine 2".to_owned(),
                 ..Change::mock_from_bookmark("commit-a")
             }],
         );
@@ -371,16 +376,16 @@ mod tests {
     }
 
     #[test]
-    fn test_single_revision_custom_template_first_description_not_first_line() {
+    fn single_revision_custom_template_first_description_not_first_line() {
         let title = get_mock_title(
             &TitleConfig {
                 single_revision: TitleFormat::Other(
-                    "{first.description_not_first_line}".to_string(),
+                    "{first.description_not_first_line}".to_owned(),
                 ),
                 ..Default::default()
             },
             [Change {
-                description: "Line 1\nLine 2\nLine 3".to_string(),
+                description: "Line 1\nLine 2\nLine 3".to_owned(),
                 ..Change::mock_from_bookmark("commit-a")
             }],
         );
@@ -389,11 +394,11 @@ mod tests {
     }
 
     #[test]
-    fn test_single_revision_custom_template_ids() {
+    fn single_revision_custom_template_ids() {
         let title = get_mock_title(
             &TitleConfig {
                 single_revision: TitleFormat::Other(
-                    "{first.id} {first.change_id} {head.id} {head.change_id}".to_string(),
+                    "{first.id} {first.change_id} {head.id} {head.change_id}".to_owned(),
                 ),
                 ..Default::default()
             },
@@ -407,16 +412,16 @@ mod tests {
     }
 
     #[test]
-    fn test_single_revision_custom_template_with_literal_text() {
+    fn single_revision_custom_template_with_literal_text() {
         let title = get_mock_title(
             &TitleConfig {
                 single_revision: TitleFormat::Other(
-                    "MR: {first.description_first_line} (rev {first.id})".to_string(),
+                    "MR: {first.description_first_line} (rev {first.id})".to_owned(),
                 ),
                 ..Default::default()
             },
             [Change {
-                description: "Add feature".to_string(),
+                description: "Add feature".to_owned(),
                 ..Change::mock_from_bookmark("commit-a")
             }],
         );
@@ -425,7 +430,7 @@ mod tests {
     }
 
     #[test]
-    fn test_single_revisions_custom_template_stack_index_and_count() {
+    fn single_revisions_custom_template_stack_index_and_count() {
         let changes = Change::mock_stack_map([
             Change::mock_from_bookmark("commit-a"),
             Change::mock_from_bookmark("commit-b"),
@@ -442,7 +447,7 @@ mod tests {
         let revisions_b = vec![changes.get("commit_commit-b").unwrap().clone()];
 
         let config = &TitleConfig {
-            single_revision: TitleFormat::Other("{stack_index}/{stack_count}".to_string()),
+            single_revision: TitleFormat::Other("{stack_index}/{stack_count}".to_owned()),
             ..Default::default()
         };
 
@@ -454,7 +459,7 @@ mod tests {
     }
 
     #[test]
-    fn test_multiple_revisions_first_revision_first_line() {
+    fn multiple_revisions_first_revision_first_line() {
         let title = get_mock_title(
             &TitleConfig {
                 multiple_revisions: TitleFormat::FirstRevisionFirstLine,
@@ -462,12 +467,12 @@ mod tests {
             },
             [
                 Change {
-                    description: "Root desc\nRoot body".to_string(),
+                    description: "Root desc\nRoot body".to_owned(),
                     ..Change::mock_from_change_id("commit-a")
                 },
                 Change::mock_from_change_id("commit-b"),
                 Change {
-                    description: "Head desc\nHead body".to_string(),
+                    description: "Head desc\nHead body".to_owned(),
                     ..Change::mock_from_bookmark("commit-c")
                 },
             ],
@@ -477,7 +482,7 @@ mod tests {
     }
 
     #[test]
-    fn test_multiple_revisions_first_revision_full_message() {
+    fn multiple_revisions_first_revision_full_message() {
         let title = get_mock_title(
             &TitleConfig {
                 multiple_revisions: TitleFormat::FirstRevisionFullMessage,
@@ -485,11 +490,11 @@ mod tests {
             },
             [
                 Change {
-                    description: "Root desc\nRoot body".to_string(),
+                    description: "Root desc\nRoot body".to_owned(),
                     ..Change::mock_from_change_id("commit-a")
                 },
                 Change {
-                    description: "Head desc\nHead body".to_string(),
+                    description: "Head desc\nHead body".to_owned(),
                     ..Change::mock_from_bookmark("commit-b")
                 },
             ],
@@ -499,7 +504,7 @@ mod tests {
     }
 
     #[test]
-    fn test_multiple_revisions_head_revision_first_line() {
+    fn multiple_revisions_head_revision_first_line() {
         let title = get_mock_title(
             &TitleConfig {
                 multiple_revisions: TitleFormat::HeadRevisionFirstLine,
@@ -507,11 +512,11 @@ mod tests {
             },
             [
                 Change {
-                    description: "Root desc\nRoot body".to_string(),
+                    description: "Root desc\nRoot body".to_owned(),
                     ..Change::mock_from_change_id("commit-a")
                 },
                 Change {
-                    description: "Head desc\nHead body".to_string(),
+                    description: "Head desc\nHead body".to_owned(),
                     ..Change::mock_from_bookmark("commit-b")
                 },
             ],
@@ -521,7 +526,7 @@ mod tests {
     }
 
     #[test]
-    fn test_multiple_revisions_head_revision_full_message() {
+    fn multiple_revisions_head_revision_full_message() {
         let title = get_mock_title(
             &TitleConfig {
                 multiple_revisions: TitleFormat::HeadRevisionFullMessage,
@@ -529,11 +534,11 @@ mod tests {
             },
             [
                 Change {
-                    description: "Root desc\nRoot body".to_string(),
+                    description: "Root desc\nRoot body".to_owned(),
                     ..Change::mock_from_change_id("commit-a")
                 },
                 Change {
-                    description: "Head desc\nHead body".to_string(),
+                    description: "Head desc\nHead body".to_owned(),
                     ..Change::mock_from_bookmark("commit-b")
                 },
             ],
@@ -543,7 +548,7 @@ mod tests {
     }
 
     #[test]
-    fn test_multiple_revisions_bookmark_name() {
+    fn multiple_revisions_bookmark_name() {
         let title = get_mock_title(
             &TitleConfig {
                 multiple_revisions: TitleFormat::BookmarkName,
@@ -551,11 +556,11 @@ mod tests {
             },
             [
                 Change {
-                    description: "Root desc".to_string(),
+                    description: "Root desc".to_owned(),
                     ..Change::mock_from_change_id("commit-a")
                 },
                 Change {
-                    description: "Head desc".to_string(),
+                    description: "Head desc".to_owned(),
                     ..Change::mock_from_bookmark("commit-b")
                 },
             ],
@@ -565,21 +570,21 @@ mod tests {
     }
 
     #[test]
-    fn test_multiple_revisions_custom_template_first_and_head() {
+    fn multiple_revisions_custom_template_first_and_head() {
         let title = get_mock_title(
             &TitleConfig {
                 multiple_revisions: TitleFormat::Other(
-                    "{first.description_first_line} -> {head.description_first_line}".to_string(),
+                    "{first.description_first_line} -> {head.description_first_line}".to_owned(),
                 ),
                 ..Default::default()
             },
             [
                 Change {
-                    description: "Root desc\nRoot body".to_string(),
+                    description: "Root desc\nRoot body".to_owned(),
                     ..Change::mock_from_change_id("commit-a")
                 },
                 Change {
-                    description: "Head desc\nHead body".to_string(),
+                    description: "Head desc\nHead body".to_owned(),
                     ..Change::mock_from_bookmark("commit-b")
                 },
             ],
@@ -589,11 +594,11 @@ mod tests {
     }
 
     #[test]
-    fn test_multiple_revisions_custom_template_ids() {
+    fn multiple_revisions_custom_template_ids() {
         let title = get_mock_title(
             &TitleConfig {
                 multiple_revisions: TitleFormat::Other(
-                    "{first.id} {first.change_id} | {head.id} {head.change_id}".to_string(),
+                    "{first.id} {first.change_id} | {head.id} {head.change_id}".to_owned(),
                 ),
                 ..Default::default()
             },
@@ -610,22 +615,22 @@ mod tests {
     }
 
     #[test]
-    fn test_multiple_revisions_custom_template_description_not_first_line() {
+    fn multiple_revisions_custom_template_description_not_first_line() {
         let title = get_mock_title(
             &TitleConfig {
                 multiple_revisions: TitleFormat::Other(
                     "{first.description_not_first_line} | {head.description_not_first_line}"
-                        .to_string(),
+                        .to_owned(),
                 ),
                 ..Default::default()
             },
             [
                 Change {
-                    description: "Root title\nRoot body".to_string(),
+                    description: "Root title\nRoot body".to_owned(),
                     ..Change::mock_from_change_id("commit-a")
                 },
                 Change {
-                    description: "Head title\nHead body".to_string(),
+                    description: "Head title\nHead body".to_owned(),
                     ..Change::mock_from_bookmark("commit-b")
                 },
             ],
@@ -635,7 +640,7 @@ mod tests {
     }
 
     #[test]
-    fn test_multiple_revisions_custom_template_stack_index_and_count() {
+    fn multiple_revisions_custom_template_stack_index_and_count() {
         let changes = Change::mock_stack_map([
             Change::mock_from_change_id("commit-a"),
             Change::mock_from_bookmark("commit-b"),
@@ -659,7 +664,7 @@ mod tests {
         ];
 
         let config = TitleConfig {
-            multiple_revisions: TitleFormat::Other("{stack_index}/{stack_count}".to_string()),
+            multiple_revisions: TitleFormat::Other("{stack_index}/{stack_count}".to_owned()),
             ..Default::default()
         };
 
@@ -673,7 +678,7 @@ mod tests {
     }
 
     #[test]
-    fn test_empty_revisions_returns_bookmark_name() {
+    fn empty_revisions_returns_bookmark_name() {
         let changes = Change::mock_stack_map([Change::mock_from_bookmark("commit-a")]);
         let bookmark_map = changes.create_bookmark_map();
         let graph =
@@ -693,11 +698,11 @@ mod tests {
     }
 
     #[test]
-    fn test_template_unknown_replacement_left_as_is() {
+    fn template_unknown_replacement_left_as_is() {
         let title = get_mock_title(
             &TitleConfig {
                 single_revision: TitleFormat::Other(
-                    "{first.description_first_line} {unknown_token}".to_string(),
+                    "{first.description_first_line} {unknown_token}".to_owned(),
                 ),
                 ..Default::default()
             },
@@ -708,10 +713,10 @@ mod tests {
     }
 
     #[test]
-    fn test_template_no_replacements() {
+    fn template_no_replacements() {
         let title = get_mock_title(
             &TitleConfig {
-                single_revision: TitleFormat::Other("Static title".to_string()),
+                single_revision: TitleFormat::Other("Static title".to_owned()),
                 ..Default::default()
             },
             [Change::mock_from_bookmark("commit-a")],
@@ -721,16 +726,16 @@ mod tests {
     }
 
     #[test]
-    fn test_template_multiple_same_replacement() {
+    fn template_multiple_same_replacement() {
         let title = get_mock_title(
             &TitleConfig {
                 single_revision: TitleFormat::Other(
-                    "{first.description_first_line} - {first.description_first_line}".to_string(),
+                    "{first.description_first_line} - {first.description_first_line}".to_owned(),
                 ),
                 ..Default::default()
             },
             [Change {
-                description: "Title".to_string(),
+                description: "Title".to_owned(),
                 ..Change::mock_from_bookmark("commit-a")
             }],
         );
@@ -739,14 +744,14 @@ mod tests {
     }
 
     #[test]
-    fn test_single_revision_description_only_one_line() {
+    fn single_revision_description_only_one_line() {
         let title = get_mock_title(
             &TitleConfig {
                 single_revision: TitleFormat::FirstRevisionFirstLine,
                 ..Default::default()
             },
             [Change {
-                description: "Only one line".to_string(),
+                description: "Only one line".to_owned(),
                 ..Change::mock_from_bookmark("commit-a")
             }],
         );
@@ -755,7 +760,7 @@ mod tests {
     }
 
     #[test]
-    fn test_single_revision_empty_description() {
+    fn single_revision_empty_description() {
         let title = get_mock_title(
             &TitleConfig {
                 single_revision: TitleFormat::FirstRevisionFirstLine,

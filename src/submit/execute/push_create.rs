@@ -1,6 +1,6 @@
 use bon::Builder;
-use itertools::Itertools;
-use owo_colors::OwoColorize;
+use itertools::Itertools as _;
+use owo_colors::OwoColorize as _;
 use tracing::error;
 
 use crate::{
@@ -9,7 +9,7 @@ use crate::{
     submit::execute::{ActionInfo, ActionResultData, ExecuteAction, ExecuteActionContext},
 };
 
-/// Push changes to a remote using -c
+/// Push changes to a remote using -c.
 #[derive(Debug, Clone, PartialEq, Eq, Builder)]
 pub struct PushCreateAction {
     pub change_ids: Vec<String>,
@@ -23,9 +23,10 @@ impl ActionInfo for PushCreateAction {
     }
 
     fn group_text(&self) -> String {
-        "Creating and pushing bookmarks".to_string()
+        "Creating and pushing bookmarks".to_owned()
     }
 
+    #[expect(clippy::string_slice, reason = "change_ids are ASCII")]
     fn text(&self) -> String {
         format!(
             "Creating and pushing {}",
@@ -36,6 +37,7 @@ impl ActionInfo for PushCreateAction {
         )
     }
 
+    #[expect(clippy::string_slice, reason = "change_ids are ASCII")]
     fn substep_text(&self) -> String {
         self.change_ids
             .iter()
@@ -43,6 +45,7 @@ impl ActionInfo for PushCreateAction {
             .join(", ")
     }
 
+    #[expect(clippy::string_slice, reason = "change_ids are ASCII")]
     fn plan_text(&self) -> String {
         format!(
             "Create and push bookmarks to remote {} for changes: {}",
@@ -57,6 +60,7 @@ impl ActionInfo for PushCreateAction {
 
 impl ExecuteAction for PushCreateAction {
     async fn execute(&self, ctx: ExecuteActionContext<'_>) -> Result<ActionResultData> {
+        #[expect(clippy::string_slice, reason = "change_ids are ASCII")]
         let change_ids_string = self
             .change_ids
             .iter()
@@ -102,10 +106,10 @@ impl ExecuteAction for PushCreateAction {
                     ));
 
                     Ok(ActionResultData::Pushed {
-                        bookmarks: bookmarks.iter().map(|b| b.name().to_string()).collect(),
+                        bookmarks: bookmarks.iter().map(|b| b.name().to_owned()).collect(),
                         created_bookmarks: bookmarks
                             .iter()
-                            .map(|b| (b.change.change_id.clone(), b.name().to_string()))
+                            .map(|b| (b.change.change_id.clone(), b.name().to_owned()))
                             .collect(),
                         pushed: true,
                     })

@@ -1,12 +1,12 @@
 use bon::Builder;
-use owo_colors::OwoColorize;
+use owo_colors::OwoColorize as _;
 use tracing::error;
 
 use crate::{
     bookmark::change_id_to_temp_bookmark_name,
-    description::FormatMergeRequest,
+    description::FormatMergeRequest as _,
     error::{Error, Result},
-    forge::{Forge, ForgeCreateMergeRequestOptions},
+    forge::{CreateMergeRequestOptions, Forge as _},
     submit::execute::{
         ActionInfo,
         ActionResultData,
@@ -18,19 +18,19 @@ use crate::{
     },
 };
 
-/// Create a new merge request
+/// Create a new merge request.
 #[derive(Debug, Clone, PartialEq, Eq, Builder)]
 pub struct CreateMRAction {
-    /// The bookmark of the merge request
+    /// The bookmark of the merge request.
     pub bookmark: BookmarkNameOrPendingChangeId,
 
-    /// The target branch of the merge request
+    /// The target branch of the merge request.
     pub target_branch: String,
 
-    /// The title of the merge request
+    /// The title of the merge request.
     pub title: String,
 
-    /// The description of the merge request
+    /// The description of the merge request.
     pub description: String,
 
     pub dependencies: Option<Vec<String>>,
@@ -42,7 +42,7 @@ impl ActionInfo for CreateMRAction {
     }
 
     fn group_text(&self) -> String {
-        "Creating MRs".to_string()
+        "Creating MRs".to_owned()
     }
 
     fn text(&self) -> String {
@@ -149,13 +149,13 @@ impl ExecuteAction for CreateMRAction {
             .execute
             .forge
             .create_merge_request(
-                ForgeCreateMergeRequestOptions::builder()
+                CreateMergeRequestOptions::builder()
                     .source_branch(bookmark.clone())
                     .target_branch(self.target_branch.clone())
                     .title(title)
                     .remove_source_branch(ctx.execute.config.delete_source_branch)
                     .squash(ctx.execute.config.squash_commits)
-                    .description(desc.map(ToString::to_string))
+                    .description(desc.map(str::to_owned))
                     .assignees(assignees.unwrap_or_default())
                     .reviewers(reviewers)
                     .open_as_draft(ctx.execute.config.open_as_draft)

@@ -17,7 +17,7 @@ use crate::{
 };
 
 #[test]
-fn test_deleted_middle_bookmark() -> Result<()> {
+fn deleted_middle_bookmark() -> Result<()> {
     let repo = TestRepo::new();
 
     // a -> b -> c
@@ -47,7 +47,7 @@ fn test_deleted_middle_bookmark() -> Result<()> {
 }
 
 #[test]
-fn test_base_branch_not_included_in_submission() -> Result<()> {
+fn base_branch_not_included_in_submission() -> Result<()> {
     let repo = TestRepo::with_local_remote();
 
     repo.create_change("f1.txt", "feature1", "Feature 1")
@@ -73,7 +73,7 @@ fn test_base_branch_not_included_in_submission() -> Result<()> {
 }
 
 #[test]
-fn test_submit_base_branch_errors() -> Result<()> {
+fn submit_base_branch_errors() -> Result<()> {
     let repo = TestRepo::with_local_remote();
 
     repo.create_change("feature.txt", "feature", "Feature commit")
@@ -91,10 +91,10 @@ fn test_submit_base_branch_errors() -> Result<()> {
 }
 
 #[test]
-fn test_graph_skips_default_branch_history() -> Result<()> {
+fn graph_skips_default_branch_history() -> Result<()> {
     let repo = TestRepo::with_local_remote();
 
-    for i in 1..=50 {
+    for i in 1_u32..=50_u32 {
         repo.create_change(
             &format!("file{i}.txt"),
             &format!("content {i}"),
@@ -124,7 +124,7 @@ fn test_graph_skips_default_branch_history() -> Result<()> {
 }
 
 #[test]
-fn test_find_changes_to_submit_with_advanced_main() -> Result<()> {
+fn find_changes_to_submit_with_advanced_main() -> Result<()> {
     let repo = TestRepo::with_local_remote();
     repo.create_change("f1.txt", "f1", "Feature 1")
         .create_bookmark("feature");
@@ -150,22 +150,19 @@ fn test_find_changes_to_submit_with_advanced_main() -> Result<()> {
     let changes = find_changes_to_submit(&repo.jj, ["feature-3"], &HashSet::new())?;
     let mut names: Vec<_> = Bookmark::from_changes(&changes)
         .into_iter()
-        .map(|b| b.name().to_string())
+        .map(|b| b.name().to_owned())
         .collect();
     names.sort();
-    assert_eq!(
-        names,
-        vec!["feature-2".to_string(), "feature-3".to_string()]
-    );
+    assert_eq!(names, vec!["feature-2".to_owned(), "feature-3".to_owned()]);
 
     // From feature, we expect just feature: it branched off old main but is
     // not in the ancestry of the new trunk, so it should not be filtered out.
     let changes = find_changes_to_submit(&repo.jj, ["feature"], &HashSet::new())?;
     let names: Vec<_> = Bookmark::from_changes(&changes)
         .into_iter()
-        .map(|b| b.name().to_string())
+        .map(|b| b.name().to_owned())
         .collect();
-    assert_eq!(names, vec!["feature".to_string()]);
+    assert_eq!(names, vec!["feature".to_owned()]);
 
     Ok(())
 }
@@ -177,7 +174,7 @@ mod e2e {
     use crate::{error::Result, tests::TestRepo};
 
     #[tokio::test]
-    async fn test_multiple_independent_stacks_dont_incorrectly_retarget() -> Result<()> {
+    async fn multiple_independent_stacks_dont_incorrectly_retarget() -> Result<()> {
         let repo = TestRepo::with_forgejo_remote();
 
         // main -> a -> b
@@ -208,7 +205,7 @@ mod e2e {
     }
 
     #[tokio::test]
-    async fn test_complex_bookmark_name() -> Result<()> {
+    async fn complex_bookmark_name() -> Result<()> {
         let repo = TestRepo::with_forgejo_remote();
 
         let name = repo.bookmark_name("complex-bookmark--parent/complex--name");
@@ -225,7 +222,7 @@ mod e2e {
     }
 
     #[tokio::test]
-    async fn test_complex_bookmark_name_tracked() -> Result<()> {
+    async fn complex_bookmark_name_tracked() -> Result<()> {
         let repo = TestRepo::with_forgejo_remote();
 
         let name = repo.bookmark_name("complex-bookmark--parent/complex--name");

@@ -1,18 +1,18 @@
+use core::{fmt::Write as _, hash::BuildHasher};
 use std::{
     borrow::Cow,
     collections::{HashMap, HashSet},
-    fmt::Write,
-    hash::{BuildHasher, RandomState},
+    hash::RandomState,
     path::Path,
 };
 
 use enum_dispatch::enum_dispatch;
-use itertools::Itertools;
+use itertools::Itertools as _;
 
 use crate::{
     bookmark::{BookmarkRef, ChangeComponent},
     config::{DescriptionConfig, DescriptionDiagramFormat, DescriptionMode},
-    forge::{AnyForgeMergeRequest, BorrowId, ForgeImpl, ForgeMergeRequest},
+    forge::{AnyForgeMergeRequest, BorrowId, ForgeImpl, MergeRequestLike as _},
     jj::Change,
     utils::toposort,
 };
@@ -34,46 +34,46 @@ pub trait FormatMergeRequest {
     }
 }
 
-pub enum DescriptionFormatter {
+pub enum Formatter {
     None,
     LinearList(LinearListFormatter),
     Tree(TreeFormatter),
 }
 
-impl DescriptionFormatter {
+impl Formatter {
     #[must_use]
-    pub fn format_single<S: BuildHasher>(&self, context: &FormatContext<S>) -> String {
+    pub fn format_single(&self, context: &FormatContext<impl BuildHasher>) -> String {
         match self {
-            DescriptionFormatter::None => String::new(),
-            DescriptionFormatter::LinearList(formatter) => formatter.format_single(context),
-            DescriptionFormatter::Tree(formatter) => formatter.format_single(context),
+            Formatter::None => String::new(),
+            Formatter::LinearList(formatter) => formatter.format_single(context),
+            Formatter::Tree(formatter) => formatter.format_single(context),
         }
     }
 
     #[must_use]
-    pub fn format_linear<S: BuildHasher>(&self, context: &FormatContext<S>) -> String {
+    pub fn format_linear(&self, context: &FormatContext<impl BuildHasher>) -> String {
         match self {
-            DescriptionFormatter::None => String::new(),
-            DescriptionFormatter::LinearList(formatter) => formatter.format_linear(context),
-            DescriptionFormatter::Tree(formatter) => formatter.format_linear(context),
+            Formatter::None => String::new(),
+            Formatter::LinearList(formatter) => formatter.format_linear(context),
+            Formatter::Tree(formatter) => formatter.format_linear(context),
         }
     }
 
     #[must_use]
-    pub fn format_tree<S: BuildHasher>(&self, context: &FormatContext<S>) -> String {
+    pub fn format_tree(&self, context: &FormatContext<impl BuildHasher>) -> String {
         match self {
-            DescriptionFormatter::None => String::new(),
-            DescriptionFormatter::LinearList(formatter) => formatter.format_tree(context),
-            DescriptionFormatter::Tree(formatter) => formatter.format_tree(context),
+            Formatter::None => String::new(),
+            Formatter::LinearList(formatter) => formatter.format_tree(context),
+            Formatter::Tree(formatter) => formatter.format_tree(context),
         }
     }
 
     #[must_use]
-    pub fn format_graph<S: BuildHasher>(&self, context: &FormatContext<S>) -> String {
+    pub fn format_graph(&self, context: &FormatContext<impl BuildHasher>) -> String {
         match self {
-            DescriptionFormatter::None => String::new(),
-            DescriptionFormatter::LinearList(formatter) => formatter.format_graph(context),
-            DescriptionFormatter::Tree(formatter) => formatter.format_graph(context),
+            Formatter::None => String::new(),
+            Formatter::LinearList(formatter) => formatter.format_graph(context),
+            Formatter::Tree(formatter) => formatter.format_graph(context),
         }
     }
 }
@@ -85,7 +85,7 @@ impl LinearListFormatter {
     ///
     /// Panics if the context is malformed.
     #[must_use]
-    pub fn format_single<S: BuildHasher>(&self, context: &FormatContext<S>) -> String {
+    pub fn format_single(&self, context: &FormatContext<impl BuildHasher>) -> String {
         let mut lines = Vec::new();
         let mr_name = context.format_merge_request.mr_name();
 
@@ -124,7 +124,7 @@ impl LinearListFormatter {
     ///
     /// Panics if the context is malformed.
     #[must_use]
-    pub fn format_linear<S: BuildHasher>(&self, context: &FormatContext<S>) -> String {
+    pub fn format_linear(&self, context: &FormatContext<impl BuildHasher>) -> String {
         let mut lines = Vec::new();
         let mr_name = context.format_merge_request.mr_name();
 
@@ -164,7 +164,7 @@ impl LinearListFormatter {
     ///
     /// Panics if the context is malformed.
     #[must_use]
-    pub fn format_tree<S: BuildHasher>(&self, context: &FormatContext<S>) -> String {
+    pub fn format_tree(&self, context: &FormatContext<impl BuildHasher>) -> String {
         let mut lines = Vec::new();
         let mr_name = context.format_merge_request.mr_name();
 
@@ -231,7 +231,7 @@ impl LinearListFormatter {
     ///
     /// Panics if the context is malformed.
     #[must_use]
-    pub fn format_graph<S: BuildHasher>(&self, context: &FormatContext<S>) -> String {
+    pub fn format_graph(&self, context: &FormatContext<impl BuildHasher>) -> String {
         let mut lines = Vec::new();
         let mr_name = context.format_merge_request.mr_name();
 
@@ -298,10 +298,10 @@ impl LinearListFormatter {
         lines.join("\n")
     }
 
-    fn format_bookmark<S: BuildHasher>(
+    fn format_bookmark(
         bookmark: &BookmarkRef<'_>,
         idx: usize,
-        context: &FormatContext<S>,
+        context: &FormatContext<impl BuildHasher>,
         parents: Option<&[BookmarkRef<'_>]>,
         _num_siblings: usize,
     ) -> String {
@@ -333,7 +333,7 @@ impl LinearListFormatter {
             String::new()
         };
 
-        let list_indicator = format!("{}.", idx + 1);
+        let list_indicator = format!("{}.", idx.saturating_add(1));
 
         format_bookmark_entry(bookmark, "", &list_indicator, &into, context)
     }
@@ -346,7 +346,7 @@ impl TreeFormatter {
     ///
     /// Panics if the context is malformed.
     #[must_use]
-    pub fn format_single<S: BuildHasher>(&self, context: &FormatContext<S>) -> String {
+    pub fn format_single(&self, context: &FormatContext<impl BuildHasher>) -> String {
         let mut lines = Vec::new();
         let mr_name = context.format_merge_request.mr_name();
 
@@ -363,7 +363,7 @@ impl TreeFormatter {
     ///
     /// Panics if the context is malformed.
     #[must_use]
-    pub fn format_linear<S: BuildHasher>(&self, context: &FormatContext<S>) -> String {
+    pub fn format_linear(&self, context: &FormatContext<impl BuildHasher>) -> String {
         let mut lines = Vec::new();
         let mr_name = context.format_merge_request.mr_name();
 
@@ -381,7 +381,7 @@ impl TreeFormatter {
     ///
     /// Panics if the context is malformed.
     #[must_use]
-    pub fn format_tree<S: BuildHasher>(&self, context: &FormatContext<S>) -> String {
+    pub fn format_tree(&self, context: &FormatContext<impl BuildHasher>) -> String {
         let mut lines = Vec::new();
         let mr_name = context.format_merge_request.mr_name();
 
@@ -399,7 +399,7 @@ impl TreeFormatter {
     ///
     /// Panics if the context is malformed.
     #[must_use]
-    pub fn format_graph<S: BuildHasher>(&self, context: &FormatContext<S>) -> String {
+    pub fn format_graph(&self, context: &FormatContext<impl BuildHasher>) -> String {
         let mut lines = Vec::new();
         let mr_name = context.format_merge_request.mr_name();
 
@@ -413,12 +413,11 @@ impl TreeFormatter {
         lines.join("\n")
     }
 
-    #[allow(clippy::too_many_arguments)] // It's fine
-    fn format_tree_recursive<S: BuildHasher>(
+    fn format_tree_recursive(
         item: &BookmarkRef,
         parent: Option<&BookmarkRef>,
         depth: usize,
-        context: &FormatContext<S>,
+        context: &FormatContext<impl BuildHasher>,
         lines: &mut Vec<String>,
         num_siblings: usize,
         idx: usize,
@@ -452,7 +451,7 @@ impl TreeFormatter {
             Self::format_tree_recursive(
                 &BookmarkRef::Bookmark((*child).clone()),
                 Some(item),
-                depth + 1,
+                depth.strict_add(1),
                 context,
                 lines,
                 children.len(),
@@ -461,12 +460,13 @@ impl TreeFormatter {
         }
     }
 
-    fn format_bookmark_tree<S: BuildHasher>(
+    #[expect(clippy::single_call_fn, reason = "breaking things up")]
+    fn format_bookmark_tree(
         bookmark: &BookmarkRef<'_>,
         parent: Option<&BookmarkRef>,
         idx: usize,
         depth: usize,
-        context: &FormatContext<S>,
+        context: &FormatContext<impl BuildHasher>,
         num_siblings: usize,
     ) -> String {
         let parents = match bookmark {
@@ -501,21 +501,21 @@ impl TreeFormatter {
         };
 
         let list_indicator = if num_siblings > 1 {
-            format!("{}.", idx + 1)
+            format!("{}.", idx.strict_add(1))
         } else {
-            "-".to_string()
+            "-".to_owned()
         };
 
         format_bookmark_entry(bookmark, &indent, &list_indicator, &also, context)
     }
 }
 
-fn format_bookmark_entry<S: BuildHasher>(
+fn format_bookmark_entry(
     bookmark: &BookmarkRef<'_>,
     prefix: &str,
     list_indicator: &str,
     suffix: &str,
-    context: &FormatContext<S>,
+    context: &FormatContext<impl BuildHasher>,
 ) -> String {
     match bookmark {
         BookmarkRef::Bookmark(bookmark) => {
@@ -551,7 +551,7 @@ fn format_bookmark_entry<S: BuildHasher>(
 pub const START_MARKER: &str = "<!-- start jj-vine stack -->";
 pub const END_MARKER: &str = "<!-- end jj-vine stack -->";
 
-/// Context for building stack visualizations
+/// Context for building stack visualizations.
 pub struct FormatContext<'a, 'forge, 'lookup, S: BuildHasher = RandomState> {
     /// The component to format.
     pub component: ChangeComponent<'a>,
@@ -559,18 +559,19 @@ pub struct FormatContext<'a, 'forge, 'lookup, S: BuildHasher = RandomState> {
     /// The name of the bookmark of the current MR.
     pub this_bookmark: String,
 
-    /// Lookup of merge requests by bookmark name
+    /// Lookup of merge requests by bookmark name.
     pub merge_request_lookup: &'lookup HashMap<String, AnyForgeMergeRequest, S>,
 
-    /// Base branch name (e.g., "main", "master")
+    /// Base branch name (e.g., "main", "master").
     pub base_branch: String,
 
-    /// Forge implementation to use for formatting merge request IDs
+    /// Forge implementation to use for formatting merge request IDs.
     pub format_merge_request: &'forge ForgeImpl,
 }
 
-/// Generate a new description with stack visualization and user content
+/// Generate a new description with stack visualization and user content.
 #[must_use]
+#[expect(clippy::module_name_repetitions, reason = "is sentence")]
 pub fn insert_stack_into_description<'a>(
     stack_description: &str,
     existing_description: &'a str,
@@ -581,50 +582,52 @@ pub fn insert_stack_into_description<'a>(
 
     let mut result = String::new();
 
+    #[expect(clippy::string_slice, reason = "index found via find()")]
     let (before, after) = match (
         existing_description.find(START_MARKER),
         existing_description.find(END_MARKER),
     ) {
         (Some(start), Some(end)) if start < end => (
             existing_description[..start].trim(),
-            existing_description[end + END_MARKER.len()..].trim(),
+            existing_description[end.strict_add(END_MARKER.len())..].trim(),
         ),
         _ => (existing_description.trim(), ""),
     };
 
     if !before.is_empty() {
-        let _ = writeln!(result, "{before}\n");
+        writeln!(result, "{before}\n").unwrap();
     }
 
-    let _ = write!(result, "{START_MARKER}\n{stack_description}\n{END_MARKER}");
+    write!(result, "{START_MARKER}\n{stack_description}\n{END_MARKER}").unwrap();
 
     if !after.is_empty() {
-        let _ = write!(result, "\n\n{after}");
+        write!(result, "\n\n{after}").unwrap();
     }
 
     Cow::Owned(result)
 }
 
 /// Generates a description for a bookmark in a stack.
-pub fn generate_stack_description<S: std::hash::BuildHasher>(
+#[expect(clippy::module_name_repetitions, reason = "is sentence")]
+pub fn generate_stack_description(
     bookmark: &str,
     component: &ChangeComponent,
-    existing_mrs: &HashMap<String, AnyForgeMergeRequest, S>,
+    existing_mrs: &HashMap<String, AnyForgeMergeRequest, impl BuildHasher>,
     config: &DescriptionConfig,
     base_branch: &str,
     format_merge_request: &ForgeImpl,
 ) -> String {
     let formatter = |format: DescriptionDiagramFormat| match format {
-        DescriptionDiagramFormat::None => DescriptionFormatter::None,
-        DescriptionDiagramFormat::Linear => DescriptionFormatter::LinearList(LinearListFormatter),
-        DescriptionDiagramFormat::Tree => DescriptionFormatter::Tree(TreeFormatter),
+        DescriptionDiagramFormat::None => Formatter::None,
+        DescriptionDiagramFormat::Linear => Formatter::LinearList(LinearListFormatter),
+        DescriptionDiagramFormat::Tree => Formatter::Tree(TreeFormatter),
     };
 
     let context = FormatContext {
         component: (*component).clone(),
-        this_bookmark: bookmark.to_string(),
+        this_bookmark: bookmark.to_owned(),
         merge_request_lookup: existing_mrs,
-        base_branch: base_branch.to_string(),
+        base_branch: base_branch.to_owned(),
         format_merge_request,
     };
 
@@ -641,20 +644,23 @@ pub fn generate_stack_description<S: std::hash::BuildHasher>(
 }
 
 #[must_use]
+#[expect(clippy::module_name_repetitions, reason = "is sentence")]
 pub fn remove_jj_vine_stack_from_description(description: &str) -> String {
+    #[expect(clippy::string_slice, reason = "index found via find()")]
     let (before, after) = match (description.find(START_MARKER), description.find(END_MARKER)) {
         (Some(start), Some(end)) if start < end => (
             description[..start].trim(),
-            description[end + END_MARKER.len()..].trim(),
+            description[end.strict_add(END_MARKER.len())..].trim(),
         ),
         _ => (description.trim(), ""),
     };
 
-    format!("{before}\n\n{after}").trim().to_string()
+    format!("{before}\n\n{after}").trim().to_owned()
 }
 
 /// Generates the description for a branch based on the commits in the
 /// branch and the configuration.
+#[expect(clippy::module_name_repetitions, reason = "is sentence")]
 pub fn generate_description(
     config: &DescriptionConfig,
     branch_commits: impl AsRef<[Change]>,
@@ -683,7 +689,7 @@ pub fn generate_description(
                 .skip(1)
                 .join("\n")
                 .trim()
-                .to_string(),
+                .to_owned(),
             DescriptionMode::FullMessage => single_commit.description.clone(),
             DescriptionMode::CommitListFirstLine => format!(
                 "- `{}` {}",
@@ -716,7 +722,7 @@ pub fn generate_description(
                 .skip(1)
                 .join("\n")
                 .trim()
-                .to_string(),
+                .to_owned(),
             DescriptionMode::FullMessage => head_commit.description.clone(),
             DescriptionMode::CommitListFirstLine => branch_commits
                 .iter()
@@ -753,7 +759,7 @@ fn read_file(repository_root: &Path, path: &Path) -> String {
 }
 
 #[cfg(test)]
-#[allow(clippy::too_many_lines, reason = "it's fine")]
+#[expect(clippy::too_many_lines, reason = "they're fine")]
 mod tests {
     use pretty_assertions::assert_str_eq;
 
@@ -765,12 +771,12 @@ mod tests {
     };
 
     #[test]
-    fn test_parse_empty_description() {
+    fn parse_empty_description() {
         assert_str_eq!(insert_stack_into_description("", ""), "");
     }
 
     #[test]
-    fn test_parse_user_content_only() {
+    fn parse_user_content_only() {
         assert_str_eq!(
             insert_stack_into_description("", "User's description here"),
             "User's description here"
@@ -778,7 +784,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_preserves_user_content_after_markers() {
+    fn parse_preserves_user_content_after_markers() {
         assert_str_eq!(
             insert_stack_into_description("Stack info", "User content"),
             format!("User content\n\n{START_MARKER}\nStack info\n{END_MARKER}")
@@ -786,7 +792,7 @@ mod tests {
     }
 
     #[test]
-    fn test_linear_generate_linear_component() {
+    fn linear_generate_linear_component() {
         let changes = Change::mock_stack_map([
             Change::mock_from_bookmark("feature-a"),
             Change::mock_from_bookmark("feature-b"),
@@ -799,35 +805,35 @@ mod tests {
         );
 
         let component = &graph.components()[0];
-        let formatter = DescriptionFormatter::LinearList(LinearListFormatter);
+        let formatter = Formatter::LinearList(LinearListFormatter);
 
         let forge = TestForge::builder()
             .merge_requests(HashMap::from([
                 (
-                    "feature-a".to_string(),
+                    "feature-a".to_owned(),
                     MergeRequest::builder()
-                        .id("1".to_string())
-                        .title("Feature A".to_string())
-                        .source_branch("feature-a".to_string())
-                        .target_branch("main".to_string())
+                        .id("1".to_owned())
+                        .title("Feature A".to_owned())
+                        .source_branch("feature-a".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
                 (
-                    "feature-b".to_string(),
+                    "feature-b".to_owned(),
                     MergeRequest::builder()
-                        .id("2".to_string())
-                        .title("Feature B".to_string())
-                        .source_branch("feature-b".to_string())
-                        .target_branch("main".to_string())
+                        .id("2".to_owned())
+                        .title("Feature B".to_owned())
+                        .source_branch("feature-b".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
                 (
-                    "feature-c".to_string(),
+                    "feature-c".to_owned(),
                     MergeRequest::builder()
-                        .id("3".to_string())
-                        .title("Feature C".to_string())
-                        .source_branch("feature-c".to_string())
-                        .target_branch("main".to_string())
+                        .id("3".to_owned())
+                        .title("Feature C".to_owned())
+                        .source_branch("feature-c".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
             ]))
@@ -835,9 +841,9 @@ mod tests {
 
         let context = FormatContext {
             component: component.clone(),
-            this_bookmark: "feature-b".to_string(),
+            this_bookmark: "feature-b".to_owned(),
             merge_request_lookup: &forge.merge_request_lookup(),
-            base_branch: "main".to_string(),
+            base_branch: "main".to_owned(),
             format_merge_request: &ForgeImpl::Test(forge),
         };
         let description = formatter.format_linear(&context);
@@ -854,7 +860,7 @@ mod tests {
     }
 
     #[test]
-    fn test_linear_generate_tree_component() {
+    fn linear_generate_tree_component() {
         let mut changes = Change::mock_stack_map([
             Change::mock_from_bookmark("feature-a"),
             Change::mock_from_bookmark("feature-b"),
@@ -884,80 +890,80 @@ mod tests {
         );
 
         let component = &graph.components()[0];
-        let formatter = DescriptionFormatter::LinearList(LinearListFormatter);
+        let formatter = Formatter::LinearList(LinearListFormatter);
 
         let forge = TestForge::builder()
             .merge_requests(HashMap::from([
                 (
-                    "feature-a".to_string(),
+                    "feature-a".to_owned(),
                     MergeRequest::builder()
-                        .id("1".to_string())
-                        .title("Feature A".to_string())
-                        .source_branch("feature-a".to_string())
-                        .target_branch("main".to_string())
+                        .id("1".to_owned())
+                        .title("Feature A".to_owned())
+                        .source_branch("feature-a".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
                 (
-                    "feature-b".to_string(),
+                    "feature-b".to_owned(),
                     MergeRequest::builder()
-                        .id("2".to_string())
-                        .title("Feature B".to_string())
-                        .source_branch("feature-b".to_string())
-                        .target_branch("main".to_string())
+                        .id("2".to_owned())
+                        .title("Feature B".to_owned())
+                        .source_branch("feature-b".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
                 (
-                    "feature-c".to_string(),
+                    "feature-c".to_owned(),
                     MergeRequest::builder()
-                        .id("3".to_string())
-                        .title("Feature C".to_string())
-                        .source_branch("feature-c".to_string())
-                        .target_branch("main".to_string())
+                        .id("3".to_owned())
+                        .title("Feature C".to_owned())
+                        .source_branch("feature-c".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
                 (
-                    "feature-d".to_string(),
+                    "feature-d".to_owned(),
                     MergeRequest::builder()
-                        .id("4".to_string())
-                        .title("Feature D".to_string())
-                        .source_branch("feature-d".to_string())
-                        .target_branch("main".to_string())
+                        .id("4".to_owned())
+                        .title("Feature D".to_owned())
+                        .source_branch("feature-d".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
                 (
-                    "feature-e".to_string(),
+                    "feature-e".to_owned(),
                     MergeRequest::builder()
-                        .id("5".to_string())
-                        .title("Feature E".to_string())
-                        .source_branch("feature-e".to_string())
-                        .target_branch("main".to_string())
+                        .id("5".to_owned())
+                        .title("Feature E".to_owned())
+                        .source_branch("feature-e".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
                 (
-                    "feature-f".to_string(),
+                    "feature-f".to_owned(),
                     MergeRequest::builder()
-                        .id("6".to_string())
-                        .title("Feature F".to_string())
-                        .source_branch("feature-f".to_string())
-                        .target_branch("main".to_string())
+                        .id("6".to_owned())
+                        .title("Feature F".to_owned())
+                        .source_branch("feature-f".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
                 (
-                    "feature-g".to_string(),
+                    "feature-g".to_owned(),
                     MergeRequest::builder()
-                        .id("7".to_string())
-                        .title("Feature G".to_string())
-                        .source_branch("feature-g".to_string())
-                        .target_branch("main".to_string())
+                        .id("7".to_owned())
+                        .title("Feature G".to_owned())
+                        .source_branch("feature-g".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
                 (
-                    "feature-h".to_string(),
+                    "feature-h".to_owned(),
                     MergeRequest::builder()
-                        .id("8".to_string())
-                        .title("Feature H".to_string())
-                        .source_branch("feature-h".to_string())
-                        .target_branch("main".to_string())
+                        .id("8".to_owned())
+                        .title("Feature H".to_owned())
+                        .source_branch("feature-h".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
             ]))
@@ -965,9 +971,9 @@ mod tests {
 
         let context = FormatContext {
             component: component.clone(),
-            this_bookmark: "feature-e".to_string(),
+            this_bookmark: "feature-e".to_owned(),
             merge_request_lookup: &forge.merge_request_lookup(),
-            base_branch: "main".to_string(),
+            base_branch: "main".to_owned(),
             format_merge_request: &ForgeImpl::Test(forge),
         };
         let description = formatter.format_tree(&context);
@@ -989,7 +995,7 @@ mod tests {
     }
 
     #[test]
-    fn test_linear_generate_complex_component() {
+    fn linear_generate_complex_component() {
         let mut changes = Change::mock_stack_map([
             Change::mock_from_bookmark("feature-a"),
             Change::mock_from_bookmark("feature-b"),
@@ -1031,98 +1037,98 @@ mod tests {
         );
 
         let component = &graph.components()[0];
-        let formatter = DescriptionFormatter::LinearList(LinearListFormatter);
+        let formatter = Formatter::LinearList(LinearListFormatter);
 
         let forge = TestForge::builder()
             .merge_requests(HashMap::from([
                 (
-                    "feature-a".to_string(),
+                    "feature-a".to_owned(),
                     MergeRequest::builder()
-                        .id("1".to_string())
-                        .title("Feature A".to_string())
-                        .source_branch("feature-a".to_string())
-                        .target_branch("main".to_string())
+                        .id("1".to_owned())
+                        .title("Feature A".to_owned())
+                        .source_branch("feature-a".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
                 (
-                    "feature-b".to_string(),
+                    "feature-b".to_owned(),
                     MergeRequest::builder()
-                        .id("2".to_string())
-                        .title("Feature B".to_string())
-                        .source_branch("feature-b".to_string())
-                        .target_branch("main".to_string())
+                        .id("2".to_owned())
+                        .title("Feature B".to_owned())
+                        .source_branch("feature-b".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
                 (
-                    "feature-c".to_string(),
+                    "feature-c".to_owned(),
                     MergeRequest::builder()
-                        .id("3".to_string())
-                        .title("Feature C".to_string())
-                        .source_branch("feature-c".to_string())
-                        .target_branch("main".to_string())
+                        .id("3".to_owned())
+                        .title("Feature C".to_owned())
+                        .source_branch("feature-c".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
                 (
-                    "feature-d".to_string(),
+                    "feature-d".to_owned(),
                     MergeRequest::builder()
-                        .id("4".to_string())
-                        .title("Feature D".to_string())
-                        .source_branch("feature-d".to_string())
-                        .target_branch("main".to_string())
+                        .id("4".to_owned())
+                        .title("Feature D".to_owned())
+                        .source_branch("feature-d".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
                 (
-                    "feature-e".to_string(),
+                    "feature-e".to_owned(),
                     MergeRequest::builder()
-                        .id("5".to_string())
-                        .title("Feature E".to_string())
-                        .source_branch("feature-e".to_string())
-                        .target_branch("main".to_string())
+                        .id("5".to_owned())
+                        .title("Feature E".to_owned())
+                        .source_branch("feature-e".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
                 (
-                    "feature-f".to_string(),
+                    "feature-f".to_owned(),
                     MergeRequest::builder()
-                        .id("6".to_string())
-                        .title("Feature F".to_string())
-                        .source_branch("feature-f".to_string())
-                        .target_branch("main".to_string())
+                        .id("6".to_owned())
+                        .title("Feature F".to_owned())
+                        .source_branch("feature-f".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
                 (
-                    "feature-g".to_string(),
+                    "feature-g".to_owned(),
                     MergeRequest::builder()
-                        .id("7".to_string())
-                        .title("Feature G".to_string())
-                        .source_branch("feature-g".to_string())
-                        .target_branch("main".to_string())
+                        .id("7".to_owned())
+                        .title("Feature G".to_owned())
+                        .source_branch("feature-g".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
                 (
-                    "feature-h".to_string(),
+                    "feature-h".to_owned(),
                     MergeRequest::builder()
-                        .id("8".to_string())
-                        .title("Feature H".to_string())
-                        .source_branch("feature-h".to_string())
-                        .target_branch("main".to_string())
+                        .id("8".to_owned())
+                        .title("Feature H".to_owned())
+                        .source_branch("feature-h".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
                 (
-                    "feature-i".to_string(),
+                    "feature-i".to_owned(),
                     MergeRequest::builder()
-                        .id("9".to_string())
-                        .title("Feature I".to_string())
-                        .source_branch("feature-i".to_string())
-                        .target_branch("main".to_string())
+                        .id("9".to_owned())
+                        .title("Feature I".to_owned())
+                        .source_branch("feature-i".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
                 (
-                    "feature-j".to_string(),
+                    "feature-j".to_owned(),
                     MergeRequest::builder()
-                        .id("10".to_string())
-                        .title("Feature J".to_string())
-                        .source_branch("feature-j".to_string())
-                        .target_branch("main".to_string())
+                        .id("10".to_owned())
+                        .title("Feature J".to_owned())
+                        .source_branch("feature-j".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
             ]))
@@ -1130,9 +1136,9 @@ mod tests {
 
         let context = FormatContext {
             component: component.clone(),
-            this_bookmark: "feature-e".to_string(),
+            this_bookmark: "feature-e".to_owned(),
             merge_request_lookup: &forge.merge_request_lookup(),
-            base_branch: "main".to_string(),
+            base_branch: "main".to_owned(),
             format_merge_request: &ForgeImpl::Test(forge),
         };
         let description = formatter.format_graph(&context);
@@ -1156,7 +1162,7 @@ mod tests {
     }
 
     #[test]
-    fn test_tree_generate_linear_component() {
+    fn tree_generate_linear_component() {
         let changes = Change::mock_stack_map([
             Change::mock_from_bookmark("feature-a"),
             Change::mock_from_bookmark("feature-b"),
@@ -1169,35 +1175,35 @@ mod tests {
         );
 
         let component = &graph.components()[0];
-        let formatter = DescriptionFormatter::Tree(TreeFormatter);
+        let formatter = Formatter::Tree(TreeFormatter);
 
         let forge = TestForge::builder()
             .merge_requests(HashMap::from([
                 (
-                    "feature-a".to_string(),
+                    "feature-a".to_owned(),
                     MergeRequest::builder()
-                        .id("1".to_string())
-                        .title("Feature A".to_string())
-                        .source_branch("feature-a".to_string())
-                        .target_branch("main".to_string())
+                        .id("1".to_owned())
+                        .title("Feature A".to_owned())
+                        .source_branch("feature-a".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
                 (
-                    "feature-b".to_string(),
+                    "feature-b".to_owned(),
                     MergeRequest::builder()
-                        .id("2".to_string())
-                        .title("Feature B".to_string())
-                        .source_branch("feature-b".to_string())
-                        .target_branch("main".to_string())
+                        .id("2".to_owned())
+                        .title("Feature B".to_owned())
+                        .source_branch("feature-b".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
                 (
-                    "feature-c".to_string(),
+                    "feature-c".to_owned(),
                     MergeRequest::builder()
-                        .id("3".to_string())
-                        .title("Feature C".to_string())
-                        .source_branch("feature-c".to_string())
-                        .target_branch("main".to_string())
+                        .id("3".to_owned())
+                        .title("Feature C".to_owned())
+                        .source_branch("feature-c".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
             ]))
@@ -1205,9 +1211,9 @@ mod tests {
 
         let context = FormatContext {
             component: component.clone(),
-            this_bookmark: "feature-b".to_string(),
+            this_bookmark: "feature-b".to_owned(),
             merge_request_lookup: &forge.merge_request_lookup(),
-            base_branch: "main".to_string(),
+            base_branch: "main".to_owned(),
             format_merge_request: &ForgeImpl::Test(forge),
         };
         let description = formatter.format_linear(&context);
@@ -1224,7 +1230,7 @@ mod tests {
     }
 
     #[test]
-    fn test_tree_generate_tree_component() {
+    fn tree_generate_tree_component() {
         let mut changes = Change::mock_stack_map([
             Change::mock_from_bookmark("feature-a"),
             Change::mock_from_bookmark("feature-b"),
@@ -1254,80 +1260,80 @@ mod tests {
         );
 
         let component = &graph.components()[0];
-        let formatter = DescriptionFormatter::Tree(TreeFormatter);
+        let formatter = Formatter::Tree(TreeFormatter);
 
         let forge = TestForge::builder()
             .merge_requests(HashMap::from([
                 (
-                    "feature-a".to_string(),
+                    "feature-a".to_owned(),
                     MergeRequest::builder()
-                        .id("1".to_string())
-                        .title("Feature A".to_string())
-                        .source_branch("feature-a".to_string())
-                        .target_branch("main".to_string())
+                        .id("1".to_owned())
+                        .title("Feature A".to_owned())
+                        .source_branch("feature-a".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
                 (
-                    "feature-b".to_string(),
+                    "feature-b".to_owned(),
                     MergeRequest::builder()
-                        .id("2".to_string())
-                        .title("Feature B".to_string())
-                        .source_branch("feature-b".to_string())
-                        .target_branch("main".to_string())
+                        .id("2".to_owned())
+                        .title("Feature B".to_owned())
+                        .source_branch("feature-b".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
                 (
-                    "feature-c".to_string(),
+                    "feature-c".to_owned(),
                     MergeRequest::builder()
-                        .id("3".to_string())
-                        .title("Feature C".to_string())
-                        .source_branch("feature-c".to_string())
-                        .target_branch("main".to_string())
+                        .id("3".to_owned())
+                        .title("Feature C".to_owned())
+                        .source_branch("feature-c".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
                 (
-                    "feature-d".to_string(),
+                    "feature-d".to_owned(),
                     MergeRequest::builder()
-                        .id("4".to_string())
-                        .title("Feature D".to_string())
-                        .source_branch("feature-d".to_string())
-                        .target_branch("main".to_string())
+                        .id("4".to_owned())
+                        .title("Feature D".to_owned())
+                        .source_branch("feature-d".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
                 (
-                    "feature-e".to_string(),
+                    "feature-e".to_owned(),
                     MergeRequest::builder()
-                        .id("5".to_string())
-                        .title("Feature E".to_string())
-                        .source_branch("feature-e".to_string())
-                        .target_branch("main".to_string())
+                        .id("5".to_owned())
+                        .title("Feature E".to_owned())
+                        .source_branch("feature-e".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
                 (
-                    "feature-f".to_string(),
+                    "feature-f".to_owned(),
                     MergeRequest::builder()
-                        .id("6".to_string())
-                        .title("Feature F".to_string())
-                        .source_branch("feature-f".to_string())
-                        .target_branch("main".to_string())
+                        .id("6".to_owned())
+                        .title("Feature F".to_owned())
+                        .source_branch("feature-f".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
                 (
-                    "feature-g".to_string(),
+                    "feature-g".to_owned(),
                     MergeRequest::builder()
-                        .id("7".to_string())
-                        .title("Feature G".to_string())
-                        .source_branch("feature-g".to_string())
-                        .target_branch("main".to_string())
+                        .id("7".to_owned())
+                        .title("Feature G".to_owned())
+                        .source_branch("feature-g".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
                 (
-                    "feature-h".to_string(),
+                    "feature-h".to_owned(),
                     MergeRequest::builder()
-                        .id("8".to_string())
-                        .title("Feature H".to_string())
-                        .source_branch("feature-h".to_string())
-                        .target_branch("main".to_string())
+                        .id("8".to_owned())
+                        .title("Feature H".to_owned())
+                        .source_branch("feature-h".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
             ]))
@@ -1335,9 +1341,9 @@ mod tests {
 
         let context = FormatContext {
             component: component.clone(),
-            this_bookmark: "feature-e".to_string(),
+            this_bookmark: "feature-e".to_owned(),
             merge_request_lookup: &forge.merge_request_lookup(),
-            base_branch: "main".to_string(),
+            base_branch: "main".to_owned(),
             format_merge_request: &ForgeImpl::Test(forge),
         };
         let description = formatter.format_tree(&context);
@@ -1359,7 +1365,7 @@ mod tests {
     }
 
     #[test]
-    fn test_tree_generate_complex_component() {
+    fn tree_generate_complex_component() {
         let mut changes = Change::mock_stack_map([
             Change::mock_from_bookmark("feature-a"),
             Change::mock_from_bookmark("feature-b"),
@@ -1401,98 +1407,98 @@ mod tests {
         );
 
         let component = &graph.components()[0];
-        let formatter = DescriptionFormatter::Tree(TreeFormatter);
+        let formatter = Formatter::Tree(TreeFormatter);
 
         let forge = TestForge::builder()
             .merge_requests(HashMap::from([
                 (
-                    "feature-a".to_string(),
+                    "feature-a".to_owned(),
                     MergeRequest::builder()
-                        .id("1".to_string())
-                        .title("Feature A".to_string())
-                        .source_branch("feature-a".to_string())
-                        .target_branch("main".to_string())
+                        .id("1".to_owned())
+                        .title("Feature A".to_owned())
+                        .source_branch("feature-a".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
                 (
-                    "feature-b".to_string(),
+                    "feature-b".to_owned(),
                     MergeRequest::builder()
-                        .id("2".to_string())
-                        .title("Feature B".to_string())
-                        .source_branch("feature-b".to_string())
-                        .target_branch("main".to_string())
+                        .id("2".to_owned())
+                        .title("Feature B".to_owned())
+                        .source_branch("feature-b".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
                 (
-                    "feature-c".to_string(),
+                    "feature-c".to_owned(),
                     MergeRequest::builder()
-                        .id("3".to_string())
-                        .title("Feature C".to_string())
-                        .source_branch("feature-c".to_string())
-                        .target_branch("main".to_string())
+                        .id("3".to_owned())
+                        .title("Feature C".to_owned())
+                        .source_branch("feature-c".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
                 (
-                    "feature-d".to_string(),
+                    "feature-d".to_owned(),
                     MergeRequest::builder()
-                        .id("4".to_string())
-                        .title("Feature D".to_string())
-                        .source_branch("feature-d".to_string())
-                        .target_branch("main".to_string())
+                        .id("4".to_owned())
+                        .title("Feature D".to_owned())
+                        .source_branch("feature-d".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
                 (
-                    "feature-e".to_string(),
+                    "feature-e".to_owned(),
                     MergeRequest::builder()
-                        .id("5".to_string())
-                        .title("Feature E".to_string())
-                        .source_branch("feature-e".to_string())
-                        .target_branch("main".to_string())
+                        .id("5".to_owned())
+                        .title("Feature E".to_owned())
+                        .source_branch("feature-e".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
                 (
-                    "feature-f".to_string(),
+                    "feature-f".to_owned(),
                     MergeRequest::builder()
-                        .id("6".to_string())
-                        .title("Feature F".to_string())
-                        .source_branch("feature-f".to_string())
-                        .target_branch("main".to_string())
+                        .id("6".to_owned())
+                        .title("Feature F".to_owned())
+                        .source_branch("feature-f".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
                 (
-                    "feature-g".to_string(),
+                    "feature-g".to_owned(),
                     MergeRequest::builder()
-                        .id("7".to_string())
-                        .title("Feature G".to_string())
-                        .source_branch("feature-g".to_string())
-                        .target_branch("main".to_string())
+                        .id("7".to_owned())
+                        .title("Feature G".to_owned())
+                        .source_branch("feature-g".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
                 (
-                    "feature-h".to_string(),
+                    "feature-h".to_owned(),
                     MergeRequest::builder()
-                        .id("8".to_string())
-                        .title("Feature H".to_string())
-                        .source_branch("feature-h".to_string())
-                        .target_branch("main".to_string())
+                        .id("8".to_owned())
+                        .title("Feature H".to_owned())
+                        .source_branch("feature-h".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
                 (
-                    "feature-i".to_string(),
+                    "feature-i".to_owned(),
                     MergeRequest::builder()
-                        .id("9".to_string())
-                        .title("Feature I".to_string())
-                        .source_branch("feature-i".to_string())
-                        .target_branch("main".to_string())
+                        .id("9".to_owned())
+                        .title("Feature I".to_owned())
+                        .source_branch("feature-i".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
                 (
-                    "feature-j".to_string(),
+                    "feature-j".to_owned(),
                     MergeRequest::builder()
-                        .id("10".to_string())
-                        .title("Feature J".to_string())
-                        .source_branch("feature-j".to_string())
-                        .target_branch("main".to_string())
+                        .id("10".to_owned())
+                        .title("Feature J".to_owned())
+                        .source_branch("feature-j".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
             ]))
@@ -1500,9 +1506,9 @@ mod tests {
 
         let context = FormatContext {
             component: component.clone(),
-            this_bookmark: "feature-e".to_string(),
+            this_bookmark: "feature-e".to_owned(),
             merge_request_lookup: &forge.merge_request_lookup(),
-            base_branch: "main".to_string(),
+            base_branch: "main".to_owned(),
             format_merge_request: &ForgeImpl::Test(forge),
         };
         let description = formatter.format_graph(&context);
@@ -1535,7 +1541,7 @@ mod tests {
     }
 
     #[test]
-    fn test_round_trip_preserves_user_content() {
+    fn round_trip_preserves_user_content() {
         assert_str_eq!(
             insert_stack_into_description(
                 "New stack",
@@ -1548,7 +1554,7 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_no_trailing_whitespace_when_no_user_content() {
+    fn generate_no_trailing_whitespace_when_no_user_content() {
         assert_str_eq!(
             insert_stack_into_description("New stack", ""),
             format!("{START_MARKER}\nNew stack\n{END_MARKER}")
@@ -1556,7 +1562,7 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_initial_description_none() {
+    fn generate_initial_description_none() {
         assert_str_eq!(
             generate_description(&DescriptionConfig::default(), &[], Path::new("")),
             ""
@@ -1565,17 +1571,17 @@ mod tests {
 
     fn mock_commit(commit_id: &str, parents: impl AsRef<[&'static str]>) -> Change {
         Change {
-            commit_id: commit_id.to_string(),
+            commit_id: commit_id.to_owned(),
             parent_commit_ids: parents.as_ref().iter().map(ToString::to_string).collect(),
             change_id: format!("change_{commit_id}"),
-            description: "Message\n\nBody".to_string(),
+            description: "Message\n\nBody".to_owned(),
             bookmarks: vec![],
             pending_bookmark: false,
         }
     }
 
     #[test]
-    fn test_generate_initial_description_single_revision_none() {
+    fn generate_initial_description_single_revision_none() {
         assert_str_eq!(
             generate_description(
                 &DescriptionConfig {
@@ -1590,7 +1596,7 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_initial_description_single_revision_not_first_line() {
+    fn generate_initial_description_single_revision_not_first_line() {
         assert_str_eq!(
             generate_description(
                 &DescriptionConfig {
@@ -1605,7 +1611,7 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_initial_description_single_revision_full_message() {
+    fn generate_initial_description_single_revision_full_message() {
         assert_str_eq!(
             generate_description(
                 &DescriptionConfig {
@@ -1620,7 +1626,7 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_initial_description_single_revision_commit_list_first_line() {
+    fn generate_initial_description_single_revision_commit_list_first_line() {
         assert_str_eq!(
             generate_description(
                 &DescriptionConfig {
@@ -1635,7 +1641,7 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_initial_description_single_revision_commit_list_full() {
+    fn generate_initial_description_single_revision_commit_list_full() {
         assert_str_eq!(
             generate_description(
                 &DescriptionConfig {
@@ -1650,7 +1656,7 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_initial_description_multiple_revisions_none() {
+    fn generate_initial_description_multiple_revisions_none() {
         assert_str_eq!(
             generate_description(
                 &DescriptionConfig {
@@ -1668,7 +1674,7 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_initial_description_multiple_revisions_not_first_line() {
+    fn generate_initial_description_multiple_revisions_not_first_line() {
         assert_str_eq!(
             generate_description(
                 &DescriptionConfig {
@@ -1686,7 +1692,7 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_initial_description_multiple_revisions_full_message() {
+    fn generate_initial_description_multiple_revisions_full_message() {
         assert_str_eq!(
             generate_description(
                 &DescriptionConfig {
@@ -1704,7 +1710,7 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_initial_description_multiple_revisions_commit_list_first_line() {
+    fn generate_initial_description_multiple_revisions_commit_list_first_line() {
         assert_str_eq!(
             generate_description(
                 &DescriptionConfig {
@@ -1722,7 +1728,7 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_initial_description_multiple_revisions_commit_list_full() {
+    fn generate_initial_description_multiple_revisions_commit_list_full() {
         assert_str_eq!(
             generate_description(
                 &DescriptionConfig {
@@ -1740,7 +1746,7 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_initial_description_disabled() {
+    fn generate_initial_description_disabled() {
         assert_str_eq!(
             generate_description(
                 &DescriptionConfig {
@@ -1755,7 +1761,7 @@ mod tests {
     }
 
     #[test]
-    fn test_linear_generate_linear_component_github_style() {
+    fn linear_generate_linear_component_github_style() {
         let changes = Change::mock_stack_map([
             Change::mock_from_bookmark("feature-a"),
             Change::mock_from_bookmark("feature-b"),
@@ -1768,35 +1774,35 @@ mod tests {
         );
 
         let component = &graph.components()[0];
-        let formatter = DescriptionFormatter::LinearList(LinearListFormatter);
+        let formatter = Formatter::LinearList(LinearListFormatter);
 
         let forge = TestForge::builder()
             .merge_requests(HashMap::from([
                 (
-                    "feature-a".to_string(),
+                    "feature-a".to_owned(),
                     MergeRequest::builder()
-                        .id("1".to_string())
-                        .title("Feature A".to_string())
-                        .source_branch("feature-a".to_string())
-                        .target_branch("main".to_string())
+                        .id("1".to_owned())
+                        .title("Feature A".to_owned())
+                        .source_branch("feature-a".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
                 (
-                    "feature-b".to_string(),
+                    "feature-b".to_owned(),
                     MergeRequest::builder()
-                        .id("2".to_string())
-                        .title("Feature B".to_string())
-                        .source_branch("feature-b".to_string())
-                        .target_branch("main".to_string())
+                        .id("2".to_owned())
+                        .title("Feature B".to_owned())
+                        .source_branch("feature-b".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
                 (
-                    "feature-c".to_string(),
+                    "feature-c".to_owned(),
                     MergeRequest::builder()
-                        .id("3".to_string())
-                        .title("Feature C".to_string())
-                        .source_branch("feature-c".to_string())
-                        .target_branch("main".to_string())
+                        .id("3".to_owned())
+                        .title("Feature C".to_owned())
+                        .source_branch("feature-c".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
             ]))
@@ -1805,9 +1811,9 @@ mod tests {
 
         let context = FormatContext {
             component: component.clone(),
-            this_bookmark: "feature-b".to_string(),
+            this_bookmark: "feature-b".to_owned(),
             merge_request_lookup: &forge.merge_request_lookup(),
-            base_branch: "main".to_string(),
+            base_branch: "main".to_owned(),
             format_merge_request: &ForgeImpl::Test(forge),
         };
         let description = formatter.format_linear(&context);
@@ -1824,7 +1830,7 @@ mod tests {
     }
 
     #[test]
-    fn test_linear_generate_tree_component_github_style() {
+    fn linear_generate_tree_component_github_style() {
         let mut changes = Change::mock_stack_map([
             Change::mock_from_bookmark("feature-a"),
             Change::mock_from_bookmark("feature-b"),
@@ -1854,80 +1860,80 @@ mod tests {
         );
 
         let component = &graph.components()[0];
-        let formatter = DescriptionFormatter::LinearList(LinearListFormatter);
+        let formatter = Formatter::LinearList(LinearListFormatter);
 
         let forge = TestForge::builder()
             .merge_requests(HashMap::from([
                 (
-                    "feature-a".to_string(),
+                    "feature-a".to_owned(),
                     MergeRequest::builder()
-                        .id("1".to_string())
-                        .title("Feature A".to_string())
-                        .source_branch("feature-a".to_string())
-                        .target_branch("main".to_string())
+                        .id("1".to_owned())
+                        .title("Feature A".to_owned())
+                        .source_branch("feature-a".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
                 (
-                    "feature-b".to_string(),
+                    "feature-b".to_owned(),
                     MergeRequest::builder()
-                        .id("2".to_string())
-                        .title("Feature B".to_string())
-                        .source_branch("feature-b".to_string())
-                        .target_branch("main".to_string())
+                        .id("2".to_owned())
+                        .title("Feature B".to_owned())
+                        .source_branch("feature-b".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
                 (
-                    "feature-c".to_string(),
+                    "feature-c".to_owned(),
                     MergeRequest::builder()
-                        .id("3".to_string())
-                        .title("Feature C".to_string())
-                        .source_branch("feature-c".to_string())
-                        .target_branch("main".to_string())
+                        .id("3".to_owned())
+                        .title("Feature C".to_owned())
+                        .source_branch("feature-c".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
                 (
-                    "feature-d".to_string(),
+                    "feature-d".to_owned(),
                     MergeRequest::builder()
-                        .id("4".to_string())
-                        .title("Feature D".to_string())
-                        .source_branch("feature-d".to_string())
-                        .target_branch("main".to_string())
+                        .id("4".to_owned())
+                        .title("Feature D".to_owned())
+                        .source_branch("feature-d".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
                 (
-                    "feature-e".to_string(),
+                    "feature-e".to_owned(),
                     MergeRequest::builder()
-                        .id("5".to_string())
-                        .title("Feature E".to_string())
-                        .source_branch("feature-e".to_string())
-                        .target_branch("main".to_string())
+                        .id("5".to_owned())
+                        .title("Feature E".to_owned())
+                        .source_branch("feature-e".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
                 (
-                    "feature-f".to_string(),
+                    "feature-f".to_owned(),
                     MergeRequest::builder()
-                        .id("6".to_string())
-                        .title("Feature F".to_string())
-                        .source_branch("feature-f".to_string())
-                        .target_branch("main".to_string())
+                        .id("6".to_owned())
+                        .title("Feature F".to_owned())
+                        .source_branch("feature-f".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
                 (
-                    "feature-g".to_string(),
+                    "feature-g".to_owned(),
                     MergeRequest::builder()
-                        .id("7".to_string())
-                        .title("Feature G".to_string())
-                        .source_branch("feature-g".to_string())
-                        .target_branch("main".to_string())
+                        .id("7".to_owned())
+                        .title("Feature G".to_owned())
+                        .source_branch("feature-g".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
                 (
-                    "feature-h".to_string(),
+                    "feature-h".to_owned(),
                     MergeRequest::builder()
-                        .id("8".to_string())
-                        .title("Feature H".to_string())
-                        .source_branch("feature-h".to_string())
-                        .target_branch("main".to_string())
+                        .id("8".to_owned())
+                        .title("Feature H".to_owned())
+                        .source_branch("feature-h".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
             ]))
@@ -1936,9 +1942,9 @@ mod tests {
 
         let context = FormatContext {
             component: component.clone(),
-            this_bookmark: "feature-e".to_string(),
+            this_bookmark: "feature-e".to_owned(),
             merge_request_lookup: &forge.merge_request_lookup(),
-            base_branch: "main".to_string(),
+            base_branch: "main".to_owned(),
             format_merge_request: &ForgeImpl::Test(forge),
         };
         let description = formatter.format_tree(&context);
@@ -1960,7 +1966,7 @@ mod tests {
     }
 
     #[test]
-    fn test_tree_generate_linear_component_github_style() {
+    fn tree_generate_linear_component_github_style() {
         let changes = Change::mock_stack_map([
             Change::mock_from_bookmark("feature-a"),
             Change::mock_from_bookmark("feature-b"),
@@ -1973,35 +1979,35 @@ mod tests {
         );
 
         let component = &graph.components()[0];
-        let formatter = DescriptionFormatter::Tree(TreeFormatter);
+        let formatter = Formatter::Tree(TreeFormatter);
 
         let forge = TestForge::builder()
             .merge_requests(HashMap::from([
                 (
-                    "feature-a".to_string(),
+                    "feature-a".to_owned(),
                     MergeRequest::builder()
-                        .id("1".to_string())
-                        .title("Feature A".to_string())
-                        .source_branch("feature-a".to_string())
-                        .target_branch("main".to_string())
+                        .id("1".to_owned())
+                        .title("Feature A".to_owned())
+                        .source_branch("feature-a".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
                 (
-                    "feature-b".to_string(),
+                    "feature-b".to_owned(),
                     MergeRequest::builder()
-                        .id("2".to_string())
-                        .title("Feature B".to_string())
-                        .source_branch("feature-b".to_string())
-                        .target_branch("main".to_string())
+                        .id("2".to_owned())
+                        .title("Feature B".to_owned())
+                        .source_branch("feature-b".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
                 (
-                    "feature-c".to_string(),
+                    "feature-c".to_owned(),
                     MergeRequest::builder()
-                        .id("3".to_string())
-                        .title("Feature C".to_string())
-                        .source_branch("feature-c".to_string())
-                        .target_branch("main".to_string())
+                        .id("3".to_owned())
+                        .title("Feature C".to_owned())
+                        .source_branch("feature-c".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
             ]))
@@ -2010,9 +2016,9 @@ mod tests {
 
         let context = FormatContext {
             component: component.clone(),
-            this_bookmark: "feature-b".to_string(),
+            this_bookmark: "feature-b".to_owned(),
             merge_request_lookup: &forge.merge_request_lookup(),
-            base_branch: "main".to_string(),
+            base_branch: "main".to_owned(),
             format_merge_request: &ForgeImpl::Test(forge),
         };
         let description = formatter.format_linear(&context);
@@ -2029,7 +2035,7 @@ mod tests {
     }
 
     #[test]
-    fn test_tree_generate_tree_component_github_style() {
+    fn tree_generate_tree_component_github_style() {
         let mut changes = Change::mock_stack_map([
             Change::mock_from_bookmark("feature-a"),
             Change::mock_from_bookmark("feature-b"),
@@ -2059,80 +2065,80 @@ mod tests {
         );
 
         let component = &graph.components()[0];
-        let formatter = DescriptionFormatter::Tree(TreeFormatter);
+        let formatter = Formatter::Tree(TreeFormatter);
 
         let forge = TestForge::builder()
             .merge_requests(HashMap::from([
                 (
-                    "feature-a".to_string(),
+                    "feature-a".to_owned(),
                     MergeRequest::builder()
-                        .id("1".to_string())
-                        .title("Feature A".to_string())
-                        .source_branch("feature-a".to_string())
-                        .target_branch("main".to_string())
+                        .id("1".to_owned())
+                        .title("Feature A".to_owned())
+                        .source_branch("feature-a".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
                 (
-                    "feature-b".to_string(),
+                    "feature-b".to_owned(),
                     MergeRequest::builder()
-                        .id("2".to_string())
-                        .title("Feature B".to_string())
-                        .source_branch("feature-b".to_string())
-                        .target_branch("main".to_string())
+                        .id("2".to_owned())
+                        .title("Feature B".to_owned())
+                        .source_branch("feature-b".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
                 (
-                    "feature-c".to_string(),
+                    "feature-c".to_owned(),
                     MergeRequest::builder()
-                        .id("3".to_string())
-                        .title("Feature C".to_string())
-                        .source_branch("feature-c".to_string())
-                        .target_branch("main".to_string())
+                        .id("3".to_owned())
+                        .title("Feature C".to_owned())
+                        .source_branch("feature-c".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
                 (
-                    "feature-d".to_string(),
+                    "feature-d".to_owned(),
                     MergeRequest::builder()
-                        .id("4".to_string())
-                        .title("Feature D".to_string())
-                        .source_branch("feature-d".to_string())
-                        .target_branch("main".to_string())
+                        .id("4".to_owned())
+                        .title("Feature D".to_owned())
+                        .source_branch("feature-d".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
                 (
-                    "feature-e".to_string(),
+                    "feature-e".to_owned(),
                     MergeRequest::builder()
-                        .id("5".to_string())
-                        .title("Feature E".to_string())
-                        .source_branch("feature-e".to_string())
-                        .target_branch("main".to_string())
+                        .id("5".to_owned())
+                        .title("Feature E".to_owned())
+                        .source_branch("feature-e".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
                 (
-                    "feature-f".to_string(),
+                    "feature-f".to_owned(),
                     MergeRequest::builder()
-                        .id("6".to_string())
-                        .title("Feature F".to_string())
-                        .source_branch("feature-f".to_string())
-                        .target_branch("main".to_string())
+                        .id("6".to_owned())
+                        .title("Feature F".to_owned())
+                        .source_branch("feature-f".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
                 (
-                    "feature-g".to_string(),
+                    "feature-g".to_owned(),
                     MergeRequest::builder()
-                        .id("7".to_string())
-                        .title("Feature G".to_string())
-                        .source_branch("feature-g".to_string())
-                        .target_branch("main".to_string())
+                        .id("7".to_owned())
+                        .title("Feature G".to_owned())
+                        .source_branch("feature-g".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
                 (
-                    "feature-h".to_string(),
+                    "feature-h".to_owned(),
                     MergeRequest::builder()
-                        .id("8".to_string())
-                        .title("Feature H".to_string())
-                        .source_branch("feature-h".to_string())
-                        .target_branch("main".to_string())
+                        .id("8".to_owned())
+                        .title("Feature H".to_owned())
+                        .source_branch("feature-h".to_owned())
+                        .target_branch("main".to_owned())
                         .build(),
                 ),
             ]))
@@ -2141,9 +2147,9 @@ mod tests {
 
         let context = FormatContext {
             component: component.clone(),
-            this_bookmark: "feature-e".to_string(),
+            this_bookmark: "feature-e".to_owned(),
             merge_request_lookup: &forge.merge_request_lookup(),
-            base_branch: "main".to_string(),
+            base_branch: "main".to_owned(),
             format_merge_request: &ForgeImpl::Test(forge),
         };
         let description = formatter.format_tree(&context);

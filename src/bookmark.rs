@@ -1,7 +1,8 @@
+#![expect(clippy::module_name_repetitions, reason = "Bookmark is important word")]
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
-use itertools::Itertools;
-use owo_colors::OwoColorize;
+use itertools::Itertools as _;
+use owo_colors::OwoColorize as _;
 
 use crate::{
     error::{BookmarkNotFoundSnafu, Error, Result},
@@ -75,7 +76,9 @@ impl PartialEq<String> for &Bookmark<'_> {
 
 #[must_use]
 pub fn change_id_to_temp_bookmark_name(change_id: &str) -> String {
-    format!("(new bookmark for {})", &change_id[..8])
+    #[expect(clippy::string_slice, reason = "change_id is ASCII")]
+    let short = &change_id[..8];
+    format!("(new bookmark for {short})")
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -180,8 +183,8 @@ impl<'a> BookmarkOrPending<'a> {
     }
 }
 
-impl std::fmt::Display for BookmarkOrPending<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for BookmarkOrPending<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::Bookmark(bookmark) => write!(f, "{}", bookmark.name().magenta()),
             Self::Pending {
@@ -221,7 +224,7 @@ pub trait JJName {
 
 impl JJName for Bookmark<'_> {
     fn raw_name(&self) -> String {
-        self.name().to_string()
+        self.name().to_owned()
     }
 
     fn name_for_jj(&self) -> String {
@@ -284,11 +287,11 @@ impl ChangeComponent<'_> {
         self.find(name).is_some()
     }
 
-    /// Get the downstack of a bookmark in the component
+    /// Get the downstack of a bookmark in the component.
     pub fn downstack_of(&self, name: &str) -> Result<Vec<BookmarkOrPending<'_>>> {
         let bookmark = self.find(name).ok_or_else(|| {
             BookmarkNotFoundSnafu {
-                name: name.to_string(),
+                name: name.to_owned(),
             }
             .build()
         })?;
@@ -351,7 +354,7 @@ impl ChangeComponent<'_> {
     pub fn is_linear_from(&self, bookmark: &str) -> Result<bool> {
         let bookmark = self.find(bookmark).ok_or_else(|| {
             BookmarkNotFoundSnafu {
-                name: bookmark.to_string(),
+                name: bookmark.to_owned(),
             }
             .build()
         })?;
@@ -394,23 +397,19 @@ impl ChangeComponent<'_> {
 
         let mut queue: Vec<_> = in_degree
             .iter()
-            .filter_map(
-                |(name, degree)| {
-                    if *degree == 0 { Some(*name) } else { None }
-                },
-            )
+            .filter_map(|(name, degree)| (*degree == 0).then_some(*name))
             .collect();
 
         let mut result = Vec::new();
 
         while let Some(current) = queue.pop() {
-            result.push(current.to_string());
+            result.push(current.to_owned());
 
             // Reduce in-degree for all children
             if let Some(children) = reverse_adjacency.get(&current) {
                 for child in children {
                     if let Some(degree) = in_degree.get_mut(child) {
-                        *degree -= 1;
+                        *degree = degree.strict_sub(1);
                         if *degree == 0 {
                             queue.push(child);
                         }
@@ -477,7 +476,7 @@ impl JJName for BookmarkRef<'_> {
     fn raw_name(&self) -> String {
         match self {
             BookmarkRef::Bookmark(b) => b.raw_name(),
-            BookmarkRef::Trunk => "trunk".to_string(),
+            BookmarkRef::Trunk => "trunk".to_owned(),
         }
     }
 
@@ -486,7 +485,7 @@ impl JJName for BookmarkRef<'_> {
     fn name_for_jj(&self) -> String {
         match self {
             BookmarkRef::Bookmark(b) => b.name_for_jj(),
-            BookmarkRef::Trunk => "trunk()".to_string(),
+            BookmarkRef::Trunk => "trunk()".to_owned(),
         }
     }
 }
@@ -517,8 +516,8 @@ impl BookmarkWithPointers<'_> {
     pub fn parent_name(&self, default_branch: &str) -> String {
         // TODO let user pick target branch
         match self.parents.first() {
-            Some(BookmarkRef::Bookmark(b)) => b.name().to_string(),
-            Some(BookmarkRef::Trunk) | None => default_branch.to_string(),
+            Some(BookmarkRef::Bookmark(b)) => b.name().to_owned(),
+            Some(BookmarkRef::Trunk) | None => default_branch.to_owned(),
         }
     }
 
@@ -622,10 +621,10 @@ impl JJName for BookmarkWithPointers<'_> {
 /// which are not connected to any other component except for the trunk.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BookmarkGraph<'a> {
-    /// All bookmarks in the revset (keyed by name)
+    /// All bookmarks in the revset (keyed by name).
     bookmarks: BTreeMap<String, BookmarkOrPending<'a>>,
 
-    /// Independent components of the bookmark graph
+    /// Independent components of the bookmark graph.
     components: Vec<ChangeComponent<'a>>,
 }
 
@@ -654,7 +653,7 @@ impl<'a> BookmarkGraph<'a> {
 
         let mut bookmark_lookup: BTreeMap<_, _> = local_bookmarks
             .iter()
-            .map(|b| (b.name().to_string(), b.clone()))
+            .map(|b| (b.name().to_owned(), b.clone()))
             .collect();
 
         let pending_bookmarks: HashSet<String> = local_bookmarks
@@ -678,7 +677,7 @@ impl<'a> BookmarkGraph<'a> {
             )?;
 
             adjacency_list
-                .entry(bookmark.name().to_string())
+                .entry(bookmark.name().to_owned())
                 .or_insert(BTreeSet::new())
                 .extend(
                     parent_bookmarks
@@ -690,7 +689,7 @@ impl<'a> BookmarkGraph<'a> {
         Ok(Self::from_lookups(bookmark_lookup, &adjacency_list))
     }
 
-    /// Build independent components from the bookmark graph
+    /// Build independent components from the bookmark graph.
     #[must_use]
     pub fn from_lookups(
         bookmark_lookup: BTreeMap<String, BookmarkOrPending<'a>>,
@@ -705,7 +704,7 @@ impl<'a> BookmarkGraph<'a> {
             let parents = adjacency_list.get(name).unwrap_or(&empty_set);
 
             if parents.is_empty() {
-                return BTreeSet::from([name.to_string()]);
+                return BTreeSet::from([name.to_owned()]);
             }
 
             roots.extend(
@@ -827,7 +826,7 @@ impl<'a> BookmarkGraph<'a> {
         component.find(bookmark_name)
     }
 
-    /// Find the component containing a specific bookmark
+    /// Find the component containing a specific bookmark.
     #[must_use]
     pub fn component_containing(&self, bookmark_name: &str) -> Option<&ChangeComponent<'_>> {
         self.components
@@ -842,7 +841,7 @@ impl<'a> BookmarkGraph<'a> {
     pub fn downstack_of(&self, bookmark_name: &str) -> Result<Vec<BookmarkOrPending<'_>>> {
         let component = self.component_containing(bookmark_name).ok_or_else(|| {
             BookmarkNotFoundSnafu {
-                name: bookmark_name.to_string(),
+                name: bookmark_name.to_owned(),
             }
             .build()
         })?;
@@ -850,7 +849,7 @@ impl<'a> BookmarkGraph<'a> {
         component.downstack_of(bookmark_name)
     }
 
-    /// Find the nearest bookmarked ancestors starting from a given commit
+    /// Find the nearest bookmarked ancestors starting from a given commit.
     fn find_nearest_bookmarked_ancestors(
         jj: &Jujutsu,
         from: &Change,
@@ -892,7 +891,7 @@ mod tests {
     use crate::jj::ChangeMap;
 
     #[test]
-    fn test_build_components_simple_linear() {
+    fn build_components_simple_linear() {
         let changes = Change::mock_stack_map([
             Change::mock_from_bookmark("root"),
             Change::mock_from_bookmark("feature-a"),
@@ -911,7 +910,7 @@ mod tests {
     }
 
     #[test]
-    fn test_build_components_multiple() {
+    fn build_components_multiple() {
         let mut changes = ChangeMap::new();
 
         changes.extend(Change::mock_stack_map([
@@ -939,7 +938,7 @@ mod tests {
     }
 
     #[test]
-    fn test_find_bookmark_in_components() {
+    fn find_bookmark_in_components() {
         let changes = Change::mock_stack_map([
             Change::mock_from_bookmark("feature-a"),
             Change::mock_from_bookmark("feature-b"),
@@ -958,7 +957,7 @@ mod tests {
     }
 
     #[test]
-    fn test_get_downstack() {
+    fn get_downstack() {
         let changes = Change::mock_stack_map([
             Change::mock_from_bookmark("feature-a"),
             Change::mock_from_bookmark("feature-b"),
@@ -991,7 +990,7 @@ mod tests {
     }
 
     #[test]
-    fn test_get_parent() {
+    fn get_parent() {
         let changes = Change::mock_stack_map([
             Change::mock_from_bookmark("feature-a"),
             Change::mock_from_bookmark("feature-b"),
@@ -1039,7 +1038,7 @@ mod tests {
     }
 
     #[test]
-    fn test_build_components_with_branching() {
+    fn build_components_with_branching() {
         let mut changes = Change::mock_stack_map([
             Change::mock_from_bookmark("feature-a"),
             Change::mock_from_bookmark("feature-b"),
@@ -1067,7 +1066,7 @@ mod tests {
     }
 
     #[test]
-    fn test_tree_components() {
+    fn tree_components() {
         let changes = Change::mock_stack_map([
             Change::mock_from_bookmark("feature-a"),
             Change::mock_from_bookmark("feature-b"),
@@ -1125,7 +1124,7 @@ mod tests {
     }
 
     #[test]
-    fn test_tree_components_false() {
+    fn tree_components_false() {
         let changes = Change::mock_stack_map([
             Change::mock_from_bookmark("feature-a"),
             Change::mock_from_bookmark("feature-b"),
@@ -1187,7 +1186,7 @@ mod tests {
     }
 
     #[test]
-    fn test_linear_components() {
+    fn linear_components() {
         let changes = Change::mock_stack_map([
             Change::mock_from_bookmark("feature-a"),
             Change::mock_from_bookmark("feature-b"),
@@ -1222,7 +1221,7 @@ mod tests {
     }
 
     #[test]
-    fn test_linear_components_false() {
+    fn linear_components_false() {
         let mut changes = Change::mock_stack_map([
             Change::mock_from_bookmark("feature-a"),
             Change::mock_from_bookmark("feature-b"),
@@ -1267,7 +1266,7 @@ mod tests {
     }
 
     #[test]
-    fn test_is_linear_from() {
+    fn is_linear_from() {
         let mut changes = Change::mock_stack_map([
             Change::mock_from_bookmark("feature-a"),
             Change::mock_from_bookmark("feature-b"),

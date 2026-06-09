@@ -1,10 +1,10 @@
 #![cfg(test)]
-#![allow(dead_code)]
+#![expect(dead_code, reason = "tests")]
 
 use std::{ffi::OsStr, path::PathBuf};
 
-use clap::Parser;
-use snafu::ResultExt;
+use clap::Parser as _;
+use snafu::ResultExt as _;
 use tempfile::TempDir;
 
 #[cfg(not(feature = "no-e2e-tests"))]
@@ -22,15 +22,16 @@ use crate::{
     jj::Jujutsu,
 };
 
-/// A test repository with jj initialized
+/// A test repository with jj initialized.
+#[expect(clippy::partial_pub_fields, reason = "want to not allow this directly")]
 pub struct TestRepo<T> {
-    /// Temporary directory containing the repository
+    /// Temporary directory containing the repository.
     pub dir: TempDir,
 
-    /// Path to the repository
+    /// Path to the repository.
     pub path: PathBuf,
 
-    /// Forge API client
+    /// Forge API client.
     forge: T,
 
     pub jj: Jujutsu,
@@ -39,7 +40,7 @@ pub struct TestRepo<T> {
 }
 
 impl TestRepo<()> {
-    /// Create a new test repository with jj initialized, but no forge client
+    /// Create a new test repository with jj initialized, but no forge client.
     pub fn new() -> Self {
         let RepoInfo { dir, path, .. } = Self::make_repo();
         Self {
@@ -66,7 +67,7 @@ impl TestRepo<()> {
 #[cfg(not(feature = "no-e2e-tests"))]
 impl TestRepo<GitLabForge> {
     pub fn with_gitlab_remote() -> Self {
-        dotenv::dotenv().ok();
+        dotenv::dotenv().unwrap();
 
         let host = std::env::var("GITLAB_HOST").expect("GITLAB_HOST required");
         let project = std::env::var("GITLAB_PROJECT").expect("GITLAB_PROJECT required");
@@ -155,10 +156,10 @@ impl TestRepo<GitLabForge> {
 #[cfg(not(feature = "no-e2e-tests"))]
 impl TestRepo<GitHubForge> {
     pub fn with_github_remote() -> Self {
-        dotenv::dotenv().ok();
+        dotenv::dotenv().unwrap();
 
         let host =
-            std::env::var("GITHUB_HOST").unwrap_or_else(|_| "https://api.github.com".to_string());
+            std::env::var("GITHUB_HOST").unwrap_or_else(|_| "https://api.github.com".to_owned());
         let project = std::env::var("GITHUB_PROJECT").expect("GITHUB_PROJECT required");
         let token = std::env::var("GITHUB_TOKEN").expect("GITHUB_TOKEN required");
         let ca_bundle = std::env::var("GITHUB_CA_BUNDLE").ok();
@@ -230,7 +231,7 @@ impl TestRepo<GitHubForge> {
             .trim_start_matches("http://")
             .replace("api.github.com", "github.com")
             .trim_end_matches("/api/v3")
-            .to_string();
+            .to_owned();
         let remote_url = format!("git@{hostname}:{project}.git");
 
         repo.jj
@@ -253,7 +254,7 @@ impl TestRepo<ForgejoForge> {
             forge::ForgeImpl,
         };
 
-        dotenv::dotenv().ok();
+        dotenv::dotenv().unwrap();
 
         let host = std::env::var("FORGEJO_HOST").expect("FORGEJO_HOST required");
         let project = std::env::var("FORGEJO_PROJECT").expect("FORGEJO_PROJECT required");
@@ -337,7 +338,11 @@ impl TestRepo<ForgejoForge> {
 
         let hostname_no_port = hostname.split(':').next().unwrap_or(hostname);
 
-        let port = if host.contains("localhost") { 222 } else { 22 };
+        let port = if host.contains("localhost") {
+            222_i32
+        } else {
+            22_i32
+        };
 
         let remote_url = format!("ssh://git@{hostname_no_port}:{port}/{project}.git");
 
@@ -356,7 +361,7 @@ impl TestRepo<ForgejoForge> {
 #[cfg(not(feature = "no-e2e-tests"))]
 impl TestRepo<AzureDevOpsForge> {
     pub fn with_azure_remote() -> Self {
-        dotenv::dotenv().ok();
+        dotenv::dotenv().unwrap();
 
         let host = std::env::var("AZURE_HOST").expect("AZURE_HOST required");
         let vssps_host = std::env::var("AZURE_VSSPS_HOST").expect("AZURE_VSSPS_HOST required");
@@ -543,14 +548,14 @@ impl<T> TestRepo<T> {
         format!("{}-{}", self.id(), bookmark)
     }
 
-    /// Create a file and describe the current change
+    /// Create a file and describe the current change.
     pub fn create_change(&self, file: &str, content: &str, msg: &str) -> &Self {
         std::fs::write(self.path.join(file), content).unwrap();
         self.jj.exec(["describe", "-m", msg]).unwrap();
         self
     }
 
-    #[allow(clippy::needless_pass_by_value, reason = "ergonomics")]
+    #[expect(clippy::needless_pass_by_value, reason = "ergonomics")]
     pub fn create_bookmark(&self, bookmark: impl JJName) -> &Self {
         self.jj
             .exec(["bookmark", "create", &bookmark.name_for_jj()])
@@ -558,7 +563,7 @@ impl<T> TestRepo<T> {
         self
     }
 
-    /// Create a commit with a bookmark, then start new working copy
+    /// Create a commit with a bookmark, then start new working copy.
     pub fn create_change_and_bookmark(&self, bookmark: impl JJName) -> &Self {
         self.create_change(
             &format!("{}.txt", bookmark.raw_name().replace('/', "--")),
@@ -570,8 +575,8 @@ impl<T> TestRepo<T> {
         .unwrap()
     }
 
-    /// Push a bookmark to origin
-    #[allow(clippy::needless_pass_by_value, reason = "ergonomics")]
+    /// Push a bookmark to origin.
+    #[expect(clippy::needless_pass_by_value, reason = "ergonomics")]
     pub fn push_bookmark(&self, bookmark: impl JJName) -> &Self {
         self.jj
             .exec(["git", "push", "--bookmark", &bookmark.name_for_jj()])
@@ -579,18 +584,19 @@ impl<T> TestRepo<T> {
         self
     }
 
-    /// Run a jj command
+    /// Run a jj command.
     pub fn jj(&self, args: impl IntoIterator<Item = impl AsRef<OsStr>>) -> Result<&Self> {
         self.jj.exec(args)?;
         Ok(self)
     }
 
-    /// Run the CLI with the given arguments
+    /// Run the CLI with the given arguments.
     pub async fn run<'a>(&self, args: impl AsRef<[&'a str]>) -> String {
         self.try_run(args).await.unwrap()
     }
 
-    /// Run the CLI with the given arguments, returning Result for error testing
+    /// Run the CLI with the given arguments, returning Result for error
+    /// testing.
     pub async fn try_run<'a>(&self, args: impl AsRef<[&'a str]>) -> Result<String> {
         let args = args.as_ref();
         let mut cli = Cli::try_parse_from(["jj-vine"].iter().chain(args)).context(ClapSnafu {
@@ -609,7 +615,7 @@ impl<T> TestRepo<T> {
         self
     }
 
-    /// Creates a bookmark and tracks it
+    /// Creates a bookmark and tracks it.
     pub fn create_tracked_bookmark(&self, bookmark: impl JJName) -> &Self {
         self.jj
             .exec(["bookmark", "create", &bookmark.name_for_jj()])
@@ -618,7 +624,7 @@ impl<T> TestRepo<T> {
         self
     }
 
-    #[allow(clippy::needless_pass_by_value, reason = "ergonomics")]
+    #[expect(clippy::needless_pass_by_value, reason = "ergonomics")]
     pub fn track_bookmark(&self, bookmark: impl JJName) -> &Self {
         let output = self
             .jj
@@ -640,13 +646,13 @@ impl<T> TestRepo<T> {
         self
     }
 
-    /// Creates a bookmark, tracks it, and pushes it to origin
+    /// Creates a bookmark, tracks it, and pushes it to origin.
     pub fn create_and_push_bookmark(&self, bookmark: impl JJName + Copy) -> &Self {
         self.create_tracked_bookmark(bookmark);
         self.push_bookmark(bookmark)
     }
 
-    /// Creates a change, creates a bookmark, and tracks it
+    /// Creates a change, creates a bookmark, and tracks it.
     pub fn create_change_and_tracked_bookmark(&self, bookmark: impl JJName) -> &Self {
         self.create_change(
             &format!("{}.txt", bookmark.raw_name().replace('/', "--")),
@@ -661,7 +667,7 @@ impl<T> TestRepo<T> {
     }
 
     /// Creates a stack of changes, each with a tracked bookmark, and submits
-    /// the stack
+    /// the stack.
     pub async fn submit_stack<I>(&self, bookmarks: I) -> &Self
     where
         I: IntoIterator,
@@ -682,7 +688,7 @@ impl<T> TestRepo<T> {
     }
 
     /// Creates a change, creates a bookmark, tracks it, and starts a new
-    /// working copy
+    /// working copy.
     pub fn commit_with_bookmark(
         &self,
         file: &str,
@@ -721,7 +727,7 @@ impl<T> TestRepo<T> {
         }
     }
 
-    /// Sets a jj configuration value for the repo
+    /// Sets a jj configuration value for the repo.
     pub fn set_config(&self, key: &str, value: &str) -> &Self {
         self.jj
             .exec(["config", "set", "--repo", key, value])

@@ -1,11 +1,11 @@
 use crate::{
     error::Result,
-    forge::{Forge, ForgeCreateMergeRequestOptions, forgejo::ForgejoForge},
+    forge::{CreateMergeRequestOptions, Forge as _, forgejo::ForgejoForge},
     tests::TestRepo,
 };
 
 #[tokio::test]
-async fn test_submit_creates_pr() -> Result<()> {
+async fn submit_creates_pr() -> Result<()> {
     let repo = TestRepo::with_forgejo_remote();
 
     let branch = repo.bookmark_name("create-pr");
@@ -29,7 +29,7 @@ async fn test_submit_creates_pr() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_submit_creates_stacked_prs() -> Result<()> {
+async fn submit_creates_stacked_prs() -> Result<()> {
     let repo = TestRepo::with_forgejo_remote();
 
     let branch_a = repo.bookmark_name("stack-a");
@@ -56,7 +56,7 @@ async fn test_submit_creates_stacked_prs() -> Result<()> {
             .find_merge_request_by_source_branch(&branch_a)
             .await?
             .map(|pr| pr.pull_request.base.ref_name.clone()),
-        Some("main".to_string())
+        Some("main".to_owned())
     );
 
     assert_eq!(
@@ -79,7 +79,7 @@ async fn test_submit_creates_stacked_prs() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_submit_is_idempotent() -> Result<()> {
+async fn submit_is_idempotent() -> Result<()> {
     let repo = TestRepo::with_forgejo_remote();
 
     let branch = repo.bookmark_name("idempotent");
@@ -109,7 +109,7 @@ async fn test_submit_is_idempotent() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_submit_retargets_after_middle_bookmark_deleted() -> Result<()> {
+async fn submit_retargets_after_middle_bookmark_deleted() -> Result<()> {
     let repo = TestRepo::with_forgejo_remote();
 
     let branch_a = repo.bookmark_name("retarget-a");
@@ -155,8 +155,8 @@ async fn test_submit_retargets_after_middle_bookmark_deleted() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_invalid_token_errors_clearly() -> Result<()> {
-    dotenv::dotenv().ok();
+async fn invalid_token_errors_clearly() -> Result<()> {
+    dotenv::dotenv().unwrap();
 
     let host = std::env::var("FORGEJO_HOST").expect("FORGEJO_HOST required");
     let project = std::env::var("FORGEJO_PROJECT").expect("FORGEJO_PROJECT required");
@@ -170,18 +170,18 @@ async fn test_invalid_token_errors_clearly() -> Result<()> {
         host,
         project.clone(),
         project,
-        "invalid-token-12345".to_string(),
+        "invalid-token-12345".to_owned(),
         ca_bundle,
         accept_non_compliant,
-        "WIP: ".to_string(),
+        "WIP: ".to_owned(),
     )?;
 
     let result = client
-        .create_merge_request(ForgeCreateMergeRequestOptions {
+        .create_merge_request(CreateMergeRequestOptions {
             source_branch: TestRepo::new().bookmark_name("invalid-token"),
-            target_branch: "main".to_string(),
-            title: "This should fail".to_string(),
-            description: Some("Testing invalid token".to_string()),
+            target_branch: "main".to_owned(),
+            title: "This should fail".to_owned(),
+            description: Some("Testing invalid token".to_owned()),
             ..Default::default()
         })
         .await;
@@ -192,8 +192,8 @@ async fn test_invalid_token_errors_clearly() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_nonexistent_project_errors_clearly() -> Result<()> {
-    dotenv::dotenv().ok();
+async fn nonexistent_project_errors_clearly() -> Result<()> {
+    dotenv::dotenv().unwrap();
 
     let host = std::env::var("FORGEJO_HOST").expect("FORGEJO_HOST required");
     let token = std::env::var("FORGEJO_TOKEN").expect("FORGEJO_TOKEN required");
@@ -210,15 +210,15 @@ async fn test_nonexistent_project_errors_clearly() -> Result<()> {
         token,
         ca_bundle,
         accept_non_compliant,
-        "WIP: ".to_string(),
+        "WIP: ".to_owned(),
     )?;
 
     let result = client
-        .create_merge_request(ForgeCreateMergeRequestOptions {
+        .create_merge_request(CreateMergeRequestOptions {
             source_branch: TestRepo::new().bookmark_name("nonexistent-project"),
-            target_branch: "main".to_string(),
-            title: "This should fail".to_string(),
-            description: Some("Testing nonexistent project".to_string()),
+            target_branch: "main".to_owned(),
+            title: "This should fail".to_owned(),
+            description: Some("Testing nonexistent project".to_owned()),
             ..Default::default()
         })
         .await;

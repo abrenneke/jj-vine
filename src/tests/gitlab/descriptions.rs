@@ -3,12 +3,12 @@ use assertables::assert_contains;
 use crate::{
     description::{END_MARKER, START_MARKER},
     error::Result,
-    forge::{Forge, ForgeMergeRequest, ForgeUpdateMergeRequestInfoOptions},
+    forge::{Forge as _, MergeRequestLike as _, UpdateMergeRequestInfoOptions},
     tests::TestRepo,
 };
 
 #[tokio::test]
-async fn test_mr_description_includes_stack_info() -> Result<()> {
+async fn mr_description_includes_stack_info() -> Result<()> {
     let repo = TestRepo::with_gitlab_remote();
 
     let branch_a = repo.bookmark_name("desc-a");
@@ -40,7 +40,7 @@ async fn test_mr_description_includes_stack_info() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_mr_description_links_to_dependent_mrs() -> Result<()> {
+async fn mr_description_links_to_dependent_mrs() -> Result<()> {
     let repo = TestRepo::with_gitlab_remote();
 
     let branch_a = repo.bookmark_name("link-a");
@@ -80,7 +80,7 @@ async fn test_mr_description_links_to_dependent_mrs() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_user_content_preserved_on_resubmit() -> Result<()> {
+async fn user_content_preserved_on_resubmit() -> Result<()> {
     let repo = TestRepo::with_gitlab_remote();
 
     let branch_a = repo.bookmark_name("preserve-a");
@@ -105,8 +105,8 @@ async fn test_user_content_preserved_on_resubmit() -> Result<()> {
     repo.forge()
         .update_merge_request_info(
             mr.iid,
-            ForgeUpdateMergeRequestInfoOptions::builder()
-                .description(user_content.to_string())
+            UpdateMergeRequestInfoOptions::builder()
+                .description(user_content.to_owned())
                 .current_is_draft(mr.is_draft())
                 .current_title(mr.title.clone())
                 .build(),
@@ -131,7 +131,7 @@ async fn test_user_content_preserved_on_resubmit() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_add_markers_to_description_without_markers() -> Result<()> {
+async fn add_markers_to_description_without_markers() -> Result<()> {
     let repo = TestRepo::with_gitlab_remote();
 
     let branch_a = repo.bookmark_name("markers-a");
@@ -156,8 +156,8 @@ async fn test_add_markers_to_description_without_markers() -> Result<()> {
     repo.forge()
         .update_merge_request_info(
             mr.iid,
-            ForgeUpdateMergeRequestInfoOptions::builder()
-                .description(user_description.to_string())
+            UpdateMergeRequestInfoOptions::builder()
+                .description(user_description.to_owned())
                 .current_is_draft(mr.is_draft())
                 .current_title(mr.title.clone())
                 .build(),
@@ -183,7 +183,7 @@ async fn test_add_markers_to_description_without_markers() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_skip_update_when_description_unchanged() -> Result<()> {
+async fn skip_update_when_description_unchanged() -> Result<()> {
     let repo = TestRepo::with_gitlab_remote();
 
     let branch_a = repo.bookmark_name("unchanged-a");

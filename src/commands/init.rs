@@ -1,10 +1,12 @@
+#![expect(clippy::print_stdout, reason = "allowed for init")]
+
 use std::{collections::HashMap, path::PathBuf};
 
 use dialoguer::{Input, Select};
-use itertools::Itertools;
-use owo_colors::OwoColorize;
+use itertools::Itertools as _;
+use owo_colors::OwoColorize as _;
 use serde::Deserialize;
-use strum::VariantArray;
+use strum::VariantArray as _;
 
 use crate::{
     cli::CliConfig,
@@ -35,8 +37,8 @@ struct Remotes {
     target_forge: Option<DetectedForge>,
 }
 
-/// Initialize jj-vine configuration for this repository
-#[allow(clippy::too_many_lines, reason = "important")]
+/// Initialize jj-vine configuration for this repository.
+#[expect(clippy::too_many_lines, reason = "important")]
 pub fn init(cli_config: &CliConfig<'_>) -> Result<()> {
     println!("This will configure jj-vine for your repository.");
     println!(
@@ -87,7 +89,7 @@ pub fn init(cli_config: &CliConfig<'_>) -> Result<()> {
             "Remote name".bold(),
             "jj-vine.remoteName".dimmed()
         ))
-        .default(existing_remote_name.unwrap_or_else(|| "origin".to_string()))
+        .default(existing_remote_name.unwrap_or_else(|| "origin".to_owned()))
         .interact_text()?;
 
     let existing_default_branch = get_config(&cli_config.repository, "jj-vine.defaultBranch");
@@ -97,7 +99,7 @@ pub fn init(cli_config: &CliConfig<'_>) -> Result<()> {
             "Default branch".bold(),
             "jj-vine.defaultBranch".dimmed()
         ))
-        .default(existing_default_branch.unwrap_or_else(|| "main".to_string()))
+        .default(existing_default_branch.unwrap_or_else(|| "main".to_owned()))
         .interact_text()?;
 
     set_config(&cli_config.repository, "jj-vine.remoteName", &remote_name)?;
@@ -139,7 +141,6 @@ pub fn init(cli_config: &CliConfig<'_>) -> Result<()> {
     {
         Ok(JJConfig {
             aliases: Some(aliases),
-            ..
         }) => {
             let alias = aliases
                 .iter()
@@ -183,7 +184,7 @@ struct JJConfig {
     aliases: Option<HashMap<String, Vec<String>>>,
 }
 
-/// Get a configuration value using jj config get
+/// Get a configuration value using jj config get.
 fn get_config(repo_path: impl Into<PathBuf>, key: &str) -> Option<String> {
     match Jujutsu::new(repo_path).ok()?.exec(["config", "get", key]) {
         Ok(output) => {
@@ -191,19 +192,20 @@ fn get_config(repo_path: impl Into<PathBuf>, key: &str) -> Option<String> {
             if value.is_empty() {
                 None
             } else {
-                Some(value.to_string())
+                Some(value.to_owned())
             }
         }
         Err(_) => None,
     }
 }
 
-/// Set a configuration value using jj config set
+/// Set a configuration value using jj config set.
 fn set_config(repo_path: impl Into<PathBuf>, key: &str, value: impl AsRef<str>) -> Result<()> {
     Jujutsu::new(repo_path)?.exec(["config", "set", "--repo", key, value.as_ref()])?;
     Ok(())
 }
 
+#[expect(clippy::single_call_fn, reason = "seems fine")]
 fn detect_remotes(jj: &Jujutsu) -> Result<Option<Remotes>> {
     let output = jj.exec(["git", "remote", "list"])?;
     let remotes: HashMap<_, _> = output
@@ -249,7 +251,7 @@ fn detect_remotes(jj: &Jujutsu) -> Result<Option<Remotes>> {
     Ok(None)
 }
 
-/// Parse a forge remote URL to detect forge type, host, and project
+/// Parse a forge remote URL to detect forge type, host, and project.
 fn parse_forge_url(url: &str) -> Option<DetectedForge> {
     // SSH format: ssh://git@host:owner/repo.git
     // or ssh://git@host/owner/repo.git
@@ -270,16 +272,16 @@ fn parse_forge_url(url: &str) -> Option<DetectedForge> {
                 if let Some((_, org, project, repo)) =
                     rest.trim_end_matches(".git").split('/').collect_tuple()
                 {
-                    (format!("{org}/{project}"), Some(repo.to_string()))
+                    (format!("{org}/{project}"), Some(repo.to_owned()))
                 } else {
-                    (rest.trim_end_matches(".git").to_string(), None)
+                    (rest.trim_end_matches(".git").to_owned(), None)
                 }
             }
-            _ => (rest.trim_end_matches(".git").to_string(), None),
+            _ => (rest.trim_end_matches(".git").to_owned(), None),
         };
 
         let api_host = match forge_type {
-            ForgeType::GitHub if host == "github.com" => "https://api.github.com".to_string(),
+            ForgeType::GitHub if host == "github.com" => "https://api.github.com".to_owned(),
             ForgeType::GitHub => format!("https://{host}/api/v3"),
             ForgeType::GitLab | ForgeType::Forgejo | ForgeType::AzureDevOps => {
                 format!("https://{host}")
@@ -315,16 +317,16 @@ fn parse_forge_url(url: &str) -> Option<DetectedForge> {
                 if let Some((_, org, project, repo)) =
                     path.trim_end_matches(".git").split('/').collect_tuple()
                 {
-                    (format!("{org}/{project}"), Some(repo.to_string()))
+                    (format!("{org}/{project}"), Some(repo.to_owned()))
                 } else {
-                    (path.trim_end_matches(".git").to_string(), None)
+                    (path.trim_end_matches(".git").to_owned(), None)
                 }
             }
-            _ => (path.trim_end_matches(".git").to_string(), None),
+            _ => (path.trim_end_matches(".git").to_owned(), None),
         };
 
         let api_host = match forge_type {
-            ForgeType::GitHub if host == "github.com" => "https://api.github.com".to_string(),
+            ForgeType::GitHub if host == "github.com" => "https://api.github.com".to_owned(),
             ForgeType::GitHub => format!("{protocol}://{host}/api/v3"),
             ForgeType::GitLab | ForgeType::Forgejo | ForgeType::AzureDevOps => {
                 format!("{protocol}://{host}")
@@ -347,7 +349,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_gitlab_url_ssh() {
+    fn parse_gitlab_url_ssh() {
         let url = "git@gitlab.example.com:group/project.git";
         let result = parse_forge_url(url);
         assert!(result.is_some());
@@ -358,7 +360,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_gitlab_url_https() {
+    fn parse_gitlab_url_https() {
         let url = "https://gitlab.example.com/group/project.git";
         let result = parse_forge_url(url);
         assert!(result.is_some());
@@ -369,7 +371,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_gitlab_url_nested_groups() {
+    fn parse_gitlab_url_nested_groups() {
         let url = "git@gitlab.example.com:group/subgroup/project.git";
         let result = parse_forge_url(url);
         assert!(result.is_some());
@@ -379,7 +381,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_github_url_ssh() {
+    fn parse_github_url_ssh() {
         let url = "git@github.com:owner/repo.git";
         let result = parse_forge_url(url);
         assert!(result.is_some());
@@ -390,7 +392,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_github_url_https() {
+    fn parse_github_url_https() {
         let url = "https://github.com/owner/repo.git";
         let result = parse_forge_url(url);
         assert!(result.is_some());
@@ -401,7 +403,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_github_enterprise_ssh() {
+    fn parse_github_enterprise_ssh() {
         let url = "git@github.example.com:owner/repo.git";
         let result = parse_forge_url(url);
         assert!(result.is_some());
@@ -412,7 +414,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_github_enterprise_https() {
+    fn parse_github_enterprise_https() {
         let url = "https://github.example.com/owner/repo.git";
         let result = parse_forge_url(url);
         assert!(result.is_some());
@@ -423,7 +425,7 @@ mod tests {
     }
 
     #[test]
-    fn test_detect_forge_from_host_github() {
+    fn detect_forge_from_host_github() {
         assert_eq!(
             ForgeType::detect_from_host("github.com"),
             Some(ForgeType::GitHub)
@@ -435,7 +437,7 @@ mod tests {
     }
 
     #[test]
-    fn test_detect_forge_from_host_gitlab() {
+    fn detect_forge_from_host_gitlab() {
         assert_eq!(
             ForgeType::detect_from_host("gitlab.com"),
             Some(ForgeType::GitLab)
@@ -447,7 +449,7 @@ mod tests {
     }
 
     #[test]
-    fn test_detect_forge_from_host_unknown() {
+    fn detect_forge_from_host_unknown() {
         assert_eq!(ForgeType::detect_from_host("git.example.com"), None);
         assert_eq!(ForgeType::detect_from_host("code.example.com"), None);
     }

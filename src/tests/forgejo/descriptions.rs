@@ -3,12 +3,12 @@ use assertables::assert_contains;
 use crate::{
     description::{END_MARKER, START_MARKER},
     error::Result,
-    forge::{Forge, ForgeMergeRequest, ForgeUpdateMergeRequestInfoOptions},
+    forge::{Forge as _, MergeRequestLike as _, UpdateMergeRequestInfoOptions},
     tests::TestRepo,
 };
 
 #[tokio::test]
-async fn test_pr_description_includes_stack_info() -> Result<()> {
+async fn pr_description_includes_stack_info() -> Result<()> {
     let repo = TestRepo::with_forgejo_remote();
 
     let branch_a = repo.bookmark_name("desc-a");
@@ -38,7 +38,7 @@ async fn test_pr_description_includes_stack_info() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_pr_description_links_to_dependent_prs() -> Result<()> {
+async fn pr_description_links_to_dependent_prs() -> Result<()> {
     let repo = TestRepo::with_forgejo_remote();
 
     let branch_a = repo.bookmark_name("link-a");
@@ -80,7 +80,7 @@ async fn test_pr_description_links_to_dependent_prs() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_user_content_preserved_on_resubmit() -> Result<()> {
+async fn user_content_preserved_on_resubmit() -> Result<()> {
     let repo = TestRepo::with_forgejo_remote();
 
     let branch_a = repo.bookmark_name("preserve-a");
@@ -108,10 +108,10 @@ async fn test_user_content_preserved_on_resubmit() -> Result<()> {
     repo.forge()
         .update_merge_request_info(
             pr.pull_request.number,
-            ForgeUpdateMergeRequestInfoOptions::builder()
+            UpdateMergeRequestInfoOptions::builder()
                 .description(new_desc)
                 .current_is_draft(pr.is_draft())
-                .current_title(pr.title().to_string())
+                .current_title(pr.title().to_owned())
                 .build(),
         )
         .await?;
@@ -138,7 +138,7 @@ async fn test_user_content_preserved_on_resubmit() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_add_markers_to_description_without_markers() -> Result<()> {
+async fn add_markers_to_description_without_markers() -> Result<()> {
     let repo = TestRepo::with_forgejo_remote();
 
     let branch_a = repo.bookmark_name("markers-a");
@@ -161,10 +161,10 @@ async fn test_add_markers_to_description_without_markers() -> Result<()> {
     repo.forge()
         .update_merge_request_info(
             pr.pull_request.number,
-            ForgeUpdateMergeRequestInfoOptions::builder()
-                .description(user_description.to_string())
+            UpdateMergeRequestInfoOptions::builder()
+                .description(user_description.to_owned())
                 .current_is_draft(pr.is_draft())
-                .current_title(pr.title().to_string())
+                .current_title(pr.title().to_owned())
                 .build(),
         )
         .await?;
@@ -189,7 +189,7 @@ async fn test_add_markers_to_description_without_markers() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_skip_update_when_description_unchanged() -> Result<()> {
+async fn skip_update_when_description_unchanged() -> Result<()> {
     let repo = TestRepo::with_forgejo_remote();
 
     let branch_a = repo.bookmark_name("unchanged-a");
@@ -234,7 +234,7 @@ async fn test_skip_update_when_description_unchanged() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_sync_description() -> Result<()> {
+async fn sync_description() -> Result<()> {
     let repo = TestRepo::with_forgejo_remote();
 
     repo.set_config("jj-vine.description.sync", "true");
@@ -308,7 +308,7 @@ async fn test_sync_description() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_sync_description_disabled() -> Result<()> {
+async fn sync_description_disabled() -> Result<()> {
     let repo = TestRepo::with_forgejo_remote();
 
     repo.set_config("jj-vine.description.sync", "false");

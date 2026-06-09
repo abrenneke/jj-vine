@@ -1,7 +1,10 @@
-use std::{fmt::Write, sync::RwLock};
+#![expect(clippy::module_name_repetitions, reason = "output is a good word")]
+
+use core::fmt::Write as _;
+use std::sync::RwLock;
 
 use indicatif::{ProgressBar, ProgressStyle};
-use owo_colors::OwoColorize;
+use owo_colors::OwoColorize as _;
 use tracing::info;
 
 pub trait Output: Send + Sync {
@@ -50,7 +53,7 @@ where
     }
 }
 
-/// Interactive spinner mode implementation
+/// Interactive spinner mode implementation.
 pub struct InteractiveOutput {
     spinner: ProgressBar,
     current_text: RwLock<String>,
@@ -68,7 +71,7 @@ impl InteractiveOutput {
                 .template("{spinner:.green} {msg}")
                 .unwrap(),
         );
-        pb.enable_steady_tick(std::time::Duration::from_millis(80));
+        pb.enable_steady_tick(core::time::Duration::from_millis(80));
         Self {
             spinner: pb,
             current_text: RwLock::new(String::new()),
@@ -116,7 +119,7 @@ impl Drop for Substep<'_> {
 impl Output for InteractiveOutput {
     fn log_current(&self, message: &str) {
         let mut current_text = self.current_text.write().unwrap();
-        *current_text = message.to_string();
+        message.clone_into(&mut current_text);
         self.spinner.set_message(format!("{current_text}..."));
     }
 
@@ -136,7 +139,7 @@ impl Output for InteractiveOutput {
     fn start_substep(&self, message: &str) -> Substep<'_> {
         let mut substeps = self.substeps.write().unwrap();
 
-        let message = message.to_string();
+        let message = message.to_owned();
         substeps.push(message.clone());
         self.set_substep(&substeps.join(", "));
 
@@ -167,7 +170,7 @@ impl Drop for InteractiveOutput {
     }
 }
 
-/// Flat logging mode implementation
+/// Flat logging mode implementation.
 pub struct FlatOutput {
     current_text: RwLock<String>,
     substeps: RwLock<Vec<String>>,
@@ -192,7 +195,7 @@ impl Default for FlatOutput {
 impl Output for FlatOutput {
     fn log_current(&self, message: &str) {
         let mut current_text = self.current_text.write().unwrap();
-        *current_text = message.to_string();
+        message.clone_into(&mut current_text);
         info!("{}", message);
     }
 
@@ -207,7 +210,7 @@ impl Output for FlatOutput {
     fn start_substep(&self, message: &str) -> Substep<'_> {
         let mut substeps = self.substeps.write().unwrap();
 
-        let message = message.to_string();
+        let message = message.to_owned();
         substeps.push(message.clone());
         self.set_substep(&substeps.join(", "));
 
@@ -247,7 +250,7 @@ impl BufferedOutput {
     /// Consumes the buffer and returns the data.
     ///
     /// # Panics
-    /// Probably never
+    /// Probably never.
     pub fn get_buffer(&self) -> String {
         self.buffer.read().unwrap().clone()
     }
@@ -262,23 +265,24 @@ impl Default for BufferedOutput {
 impl Output for BufferedOutput {
     fn log_current(&self, message: &str) {
         let mut current_text = self.current_text.write().unwrap();
-        *current_text = message.to_string();
+        message.clone_into(&mut current_text);
         let mut buffer = self.buffer.write().unwrap();
-        let _ = writeln!(buffer, "{message}...");
+        writeln!(buffer, "{message}...").unwrap();
     }
 
     fn start_substep(&self, message: &str) -> Substep<'_> {
         let mut substeps = self.substeps.write().unwrap();
 
-        let message = message.to_string();
+        let message = message.to_owned();
         substeps.push(message.clone());
         let mut buffer = self.buffer.write().unwrap();
-        let _ = writeln!(
+        writeln!(
             buffer,
             "{} {}...",
             self.current_text.read().unwrap(),
             format!("({message})").dimmed()
-        );
+        )
+        .unwrap();
 
         Substep::new(Box::new(move || {
             let mut substeps = self.substeps.write().unwrap();
@@ -286,14 +290,15 @@ impl Output for BufferedOutput {
             let mut buffer = self.buffer.write().unwrap();
 
             if substeps.is_empty() {
-                let _ = writeln!(buffer, "{}...", self.current_text.read().unwrap());
+                writeln!(buffer, "{}...", self.current_text.read().unwrap()).unwrap();
             } else {
-                let _ = writeln!(
+                writeln!(
                     buffer,
                     "{} {}...",
                     self.current_text.read().unwrap(),
                     format!("({})", substeps.join(", ")).dimmed()
-                );
+                )
+                .unwrap();
             }
         }))
     }
@@ -303,24 +308,25 @@ impl Output for BufferedOutput {
         let mut buffer = self.buffer.write().unwrap();
 
         if message.is_empty() {
-            let _ = writeln!(buffer, "{current_text}...");
+            writeln!(buffer, "{current_text}...").unwrap();
         } else {
-            let _ = writeln!(
+            writeln!(
                 buffer,
                 "{} {}...",
                 current_text,
                 format!("({message})").dimmed()
-            );
+            )
+            .unwrap();
         }
     }
 
     fn log_message(&self, message: &str) {
         let mut buffer = self.buffer.write().unwrap();
-        let _ = writeln!(buffer, "{message}...");
+        writeln!(buffer, "{message}...").unwrap();
     }
 
     fn log_completed(&self, message: &str) {
         let mut buffer = self.buffer.write().unwrap();
-        let _ = writeln!(buffer, "{message}...");
+        writeln!(buffer, "{message}...").unwrap();
     }
 }

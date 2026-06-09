@@ -1,11 +1,11 @@
 use bon::Builder;
-use futures::{StreamExt, stream::FuturesUnordered};
-use owo_colors::OwoColorize;
+use futures::{StreamExt as _, stream::FuturesUnordered};
+use owo_colors::OwoColorize as _;
 
 use crate::{
     bookmark::BookmarkRef,
     error::{Error, Result, make_whatever},
-    forge::Forge,
+    forge::Forge as _,
     submit::execute::{
         ActionInfo,
         ActionResultData,
@@ -17,7 +17,7 @@ use crate::{
     },
 };
 
-/// Sync dependent merge requests for a bookmark (after all MRs created)
+/// Sync dependent merge requests for a bookmark (after all MRs created).
 #[derive(Debug, Clone, PartialEq, Eq, Builder)]
 pub struct SyncDependentMergeRequestsAction {
     pub bookmark: BookmarkNameOrPendingChangeId,
@@ -30,7 +30,7 @@ impl ActionInfo for SyncDependentMergeRequestsAction {
     }
 
     fn group_text(&self) -> String {
-        "Syncing dependent merge requests".to_string()
+        "Syncing dependent merge requests".to_owned()
     }
     fn text(&self) -> String {
         format!(

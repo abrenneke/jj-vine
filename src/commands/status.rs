@@ -1,33 +1,34 @@
-use std::cmp::Ordering;
+#![expect(clippy::module_name_repetitions, reason = "seems fine here")]
+use core::{cmp::Ordering, ops::Sub as _};
 
 use clap::{Args, ValueEnum};
 use enum_dispatch::enum_dispatch;
 use futures::{
-    StreamExt,
+    StreamExt as _,
     stream::{FuturesOrdered, FuturesUnordered},
     try_join,
 };
-use itertools::Itertools;
+use itertools::Itertools as _;
 use jiff::SpanRound;
-use owo_colors::OwoColorize;
+use owo_colors::OwoColorize as _;
 use pluralizer::pluralize;
 use tracing::info;
 
 use crate::{
     bookmark::Bookmark,
     cli::CliConfig,
-    commands::{GetBookmarksOptions, StrVisualWidth},
+    commands::{GetBookmarksOptions, StrVisualWidth as _},
     config::Config,
-    description::FormatMergeRequest,
+    description::FormatMergeRequest as _,
     error::{ConfigSnafu, Error, Result},
     forge::{
         AnyForgeMergeRequest,
         ApprovalSatisfaction,
         ApprovalStatus,
         CheckStatus,
-        Forge,
+        Forge as _,
         ForgeImpl,
-        ForgeMergeRequest,
+        MergeRequestLike as _,
         MergeRequestStatus,
     },
     jj::Jujutsu,
@@ -42,7 +43,7 @@ pub struct StatusCommandConfig {
     #[arg(short = 'f', long, default_value = "two-line-compact")]
     pub format: StatusFormat,
 
-    /// Options for the revset
+    /// Options for the revset.
     #[command(flatten)]
     pub revset_options: StatusCommandRevsetOptions,
 
@@ -50,7 +51,7 @@ pub struct StatusCommandConfig {
     #[arg(long, overrides_with = "no_drafts", num_args = 0..=1)]
     pub drafts: Option<bool>,
 
-    /// Exclude draft pull/merge requests
+    /// Exclude draft pull/merge requests.
     #[arg(long)]
     pub no_drafts: bool,
 
@@ -81,7 +82,7 @@ Show the status of a specific revset:
 ",
             match ForgeImpl::from_cwd() {
                 Ok(forge) => format!("{}s", forge.mr_name()),
-                Err(_) => "MRs/PRs".to_string(),
+                Err(_) => "MRs/PRs".to_owned(),
             },
             "Examples:".yellow().bold(),
             "jj vine status".green().bold(),
@@ -94,11 +95,11 @@ Show the status of a specific revset:
 #[derive(Args, Default)]
 #[group(required = false, multiple = false)]
 pub struct StatusCommandRevsetOptions {
-    /// Use a manual revset
+    /// Use a manual revset.
     #[arg(short = 'r', long)]
     pub revset: Option<String>,
 
-    /// Include only `(mine() & tracked_remote_bookmarks()) ~ trunk()`
+    /// Include only `(mine() & tracked_remote_bookmarks()) ~ trunk()`.
     #[arg(long)]
     pub tracked: bool,
 }
@@ -106,7 +107,7 @@ pub struct StatusCommandRevsetOptions {
 impl StatusCommandRevsetOptions {
     fn to_get_bookmarks_options(&self) -> GetBookmarksOptions {
         match (self.revset.as_deref(), self.tracked) {
-            (Some(revset), false) => GetBookmarksOptions::Revset(revset.to_string()),
+            (Some(revset), false) => GetBookmarksOptions::Revset(revset.to_owned()),
             (None, true) => GetBookmarksOptions::Tracked,
             (None, false) => GetBookmarksOptions::Mine,
             _ => unreachable!(),
@@ -130,6 +131,7 @@ struct BookmarkStatusError {
     error: Error,
 }
 
+#[expect(clippy::single_call_fn, reason = "reusable")]
 fn resolve_bool(yes: Option<bool>, no: bool, default: bool) -> bool {
     // wheeeeeeeee
     match (yes, no) {
@@ -179,7 +181,7 @@ pub async fn status(
                 .find_merge_request_by_source_branch(bookmark.name())
                 .await
                 .map_err(|error| BookmarkStatusError {
-                    bookmark: bookmark.name().to_string(),
+                    bookmark: bookmark.name().to_owned(),
                     error,
                 })?;
 
@@ -196,7 +198,7 @@ pub async fn status(
                         .get_merge_request_status(merge_request.iid())
                         .await
                         .map_err(|error| BookmarkStatusError {
-                            bookmark: bookmark.name().to_string(),
+                            bookmark: bookmark.name().to_owned(),
                             error,
                         })?;
 
@@ -209,13 +211,13 @@ pub async fn status(
                     }
 
                     BookmarkStatus::HasMergeRequest {
-                        bookmark: bookmark.name().to_string(),
+                        bookmark: bookmark.name().to_owned(),
                         merge_request,
                         status,
                     }
                 }
                 None => BookmarkStatus::NoMergeRequest {
-                    bookmark: bookmark.name().to_string(),
+                    bookmark: bookmark.name().to_owned(),
                 },
             };
 
@@ -252,7 +254,7 @@ pub enum StatusFormat {
     Slack,
 }
 
-impl std::str::FromStr for StatusFormat {
+impl core::str::FromStr for StatusFormat {
     type Err = Error;
 
     fn from_str(s: &str) -> Result<Self> {
@@ -314,7 +316,8 @@ fn sorted_statuses(
 /// Renders the status of merge requests in a two-line compact format.
 /// Example:
 /// !123 MR Title Here
-///      my-bookmark • [READY] • ✓ Checks OK • Approved (3/3)
+///      my-bookmark • [READY] • ✓ Checks OK • Approved (3/3).
+#[expect(clippy::single_call_fn, reason = "breaking things up")]
 async fn print_two_line_compact(
     statuses: Vec<Result<BookmarkStatus, BookmarkStatusError>>,
     forge: &ForgeImpl,
@@ -332,6 +335,7 @@ async fn print_two_line_compact(
         .join("\n\n")
 }
 
+#[expect(clippy::single_call_fn, reason = "breaking things up")]
 async fn two_line_compact_status(
     status: &Result<BookmarkStatus, BookmarkStatusError>,
     forge: &ForgeImpl,
@@ -366,8 +370,13 @@ async fn two_line_compact_status(
                 Err(err) => return Some(err.to_string()),
             };
 
-            let second_line_padding =
-                " ".repeat(first_line.first().unwrap_or(&String::new()).visual_width() + 1);
+            let second_line_padding = " ".repeat(
+                first_line
+                    .first()
+                    .unwrap_or(&String::new())
+                    .visual_width()
+                    .strict_add(1),
+            );
 
             Some(format!(
                 "{}\n{}{}",
@@ -390,6 +399,7 @@ async fn two_line_compact_status(
 }
 
 // TODO bad, dedupe
+#[expect(clippy::single_call_fn, reason = "breaking things up")]
 async fn print_slack_status(
     statuses: Vec<Result<BookmarkStatus, BookmarkStatusError>>,
     forge: &ForgeImpl,
@@ -407,6 +417,7 @@ async fn print_slack_status(
         .join("\n\n")
 }
 
+#[expect(clippy::single_call_fn, reason = "breaking things up")]
 async fn slack_status(
     status: &Result<BookmarkStatus, BookmarkStatusError>,
     forge: &ForgeImpl,
@@ -441,7 +452,7 @@ async fn slack_status(
             let line = line.join(" ");
 
             // Just remove duplicates for now, need to improve this whole system
-            let line = regex::Regex::new(r"(• )+")
+            let line = regex::Regex::new("(• )+")
                 .unwrap()
                 .replace_all(&line, "• ")
                 .to_string();
@@ -484,6 +495,7 @@ async fn render_components(
         .collect())
 }
 
+#[expect(clippy::single_call_fn, reason = "breaking things up")]
 fn get_component(name: &str) -> StatusComponentImpl {
     match name {
         "bookmark" => BookmarkNameComponent {}.into(),
@@ -497,7 +509,7 @@ fn get_component(name: &str) -> StatusComponentImpl {
         "url" => MergeRequestURLComponent {}.into(),
         "num_discussions" => NumOpenDiscussionsComponent {}.into(),
         literal => LiteralComponent {
-            literal: literal.to_string(),
+            literal: literal.to_owned(),
         }
         .into(),
     }
@@ -611,13 +623,14 @@ component!(ApprovalStatusComponent, async |data: &StatusData<'_>| {
         blocking_count,
     } = data.status.approval_status.clone();
 
-    #[allow(clippy::cast_possible_wrap, reason = "values will never be that high")]
     Ok(Some(match satisfaction {
-        ApprovalSatisfaction::Satisfied if required_count == 0 => {
-            pluralize("approval", approved_count as isize, true)
-                .white()
-                .to_string()
-        }
+        ApprovalSatisfaction::Satisfied if required_count == 0 => pluralize(
+            "approval",
+            approved_count.try_into().expect("too large"),
+            true,
+        )
+        .white()
+        .to_string(),
         ApprovalSatisfaction::Satisfied if required_count == 1 => "Approved".green().to_string(),
         ApprovalSatisfaction::Satisfied => format!("Approved ({approved_count}/{required_count})")
             .green()
@@ -627,32 +640,48 @@ component!(ApprovalStatusComponent, async |data: &StatusData<'_>| {
         }
         ApprovalSatisfaction::Unsatisfied if blocking_count == 0 => format!(
             "Needs {} ({approved_count}/{required_count})",
-            pluralize("approval", required_count as isize, false),
+            pluralize(
+                "approval",
+                required_count.try_into().expect("too large"),
+                false
+            ),
         )
         .red()
         .to_string(),
         ApprovalSatisfaction::Unsatisfied => format!(
             "Needs {} ({approved_count}/{required_count}) ({blocking_count} blocking {})",
-            pluralize("approval", required_count as isize, false),
-            pluralize("review", blocking_count as isize, false),
+            pluralize(
+                "approval",
+                required_count.try_into().expect("too large"),
+                false
+            ),
+            pluralize(
+                "review",
+                blocking_count.try_into().expect("too large"),
+                false
+            ),
         )
         .red()
         .to_string(),
-        ApprovalSatisfaction::Unknown => pluralize("approval", approved_count as isize, true)
-            .white()
-            .to_string(),
+        ApprovalSatisfaction::Unknown => pluralize(
+            "approval",
+            approved_count.try_into().expect("too large"),
+            true,
+        )
+        .white()
+        .to_string(),
     }))
 });
 
 component!(CreatedAtComponent, async |data: &StatusData<'_>| {
     let now = jiff::Zoned::now();
-    let duration = (data.merge_request.created_at() - now.timestamp()).abs();
+    let duration = (data.merge_request.created_at().sub(now.timestamp())).abs();
 
     let mut round = SpanRound::new().largest(jiff::Unit::Year).relative(&now);
 
-    if duration.total((jiff::Unit::Hour, &now)).unwrap() > 24.0 {
+    if duration.total((jiff::Unit::Hour, &now)).unwrap() > 24.0_f64 {
         round = round.smallest(jiff::Unit::Hour);
-    } else if duration.total((jiff::Unit::Minute, &now)).unwrap() > 0.0 {
+    } else if duration.total((jiff::Unit::Minute, &now)).unwrap() > 0.0_f64 {
         round = round.smallest(jiff::Unit::Minute);
     } else {
         round = round.smallest(jiff::Unit::Second);
@@ -688,14 +717,17 @@ component!(NumOpenDiscussionsComponent, async |data: &StatusData<
         .num_open_discussions(data.merge_request.iid())
         .await?;
 
-    #[allow(clippy::cast_possible_wrap, reason = "values will never be that high")]
     match num_open_discussions.unresolved {
         0 => Ok(None),
         unresolved => Ok(Some(
             format!(
                 "{} open {}",
                 unresolved,
-                pluralize("discussion", unresolved as isize, false)
+                pluralize(
+                    "discussion",
+                    unresolved.try_into().expect("too large"),
+                    false
+                )
             )
             .yellow()
             .to_string(),
@@ -713,6 +745,7 @@ impl StatusComponent for LiteralComponent {
     }
 }
 
+#[expect(clippy::single_call_fn, reason = "reusable")]
 fn linked_markdownish(part: impl AsRef<str>, to: impl AsRef<str>) -> String {
     format!("[{}]({})", part.as_ref(), to.as_ref())
 }

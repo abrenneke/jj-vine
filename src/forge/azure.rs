@@ -13,20 +13,20 @@ use crate::{
         ApprovalSatisfaction,
         ApprovalStatus,
         CheckStatus,
+        CreateMergeRequestOptions,
         DiscussionCount,
         Forge,
-        ForgeCreateMergeRequestOptions,
-        ForgeMergeRequest,
-        ForgeMergeRequestState,
-        ForgeUpdateMergeRequestInfoOptions,
-        ForgeUser,
+        MergeRequestLike,
+        MergeRequestState,
         MergeRequestStatus,
+        UpdateMergeRequestInfoOptions,
+        UserLike,
         UserName,
     },
     utils::ResultWithWarnings,
 };
 
-#[allow(dead_code)]
+#[expect(clippy::module_name_repetitions, reason = "important")]
 pub struct AzureDevOpsForge {
     /// The base URL of the Azure DevOps instance, e.g. <https://dev.azure.com>.
     base_url: String,
@@ -49,12 +49,15 @@ pub struct AzureDevOpsForge {
     source_org: String,
 
     /// The name of the project in the source organization.
+    #[expect(dead_code, reason = "keep around for now")]
     source_project: String,
 
     /// The name of the organization in the target project.
+    #[expect(dead_code, reason = "keep around for now")]
     target_org: String,
 
     /// The name of the project in the target organization.
+    #[expect(dead_code, reason = "keep around for now")]
     target_project: String,
 
     /// The name of the repository where branches are pushed (source/fork
@@ -77,6 +80,7 @@ pub struct AzureDevOpsForge {
 #[bon]
 impl AzureDevOpsForge {
     #[builder]
+    #[expect(clippy::single_call_fn, reason = "necessary")]
     pub fn new(
         base_url: impl Into<String>,
         vssps_base_url: Option<impl Into<String>>,
@@ -127,8 +131,8 @@ impl AzureDevOpsForge {
             .build()
         })?;
 
-        let base_url = base_url.into().trim_end_matches('/').to_string();
-        let vssps_base_url = vssps_base_url.map(|url| url.into().trim_end_matches('/').to_string());
+        let base_url = base_url.into().trim_end_matches('/').to_owned();
+        let vssps_base_url = vssps_base_url.map(|url| url.into().trim_end_matches('/').to_owned());
 
         let source_project_id = source_project_id.into();
         let target_project_id = target_project_id.into();
@@ -167,13 +171,16 @@ impl AzureDevOpsForge {
         })
     }
 
-    async fn request_git<T: DeserializeOwned>(
+    async fn request_git<T>(
         &self,
         method: Method,
         project_id: impl AsRef<str>,
         path: impl AsRef<str>,
         payload: Option<impl Serialize>,
-    ) -> Result<T> {
+    ) -> Result<T>
+    where
+        T: DeserializeOwned,
+    {
         self.request(
             method,
             &self.base_url,
@@ -183,13 +190,16 @@ impl AzureDevOpsForge {
         .await
     }
 
-    async fn request<T: DeserializeOwned>(
+    async fn request<T>(
         &self,
         method: Method,
         base_url: impl AsRef<str>,
         path: impl AsRef<str>,
         payload: Option<impl Serialize>,
-    ) -> Result<T> {
+    ) -> Result<T>
+    where
+        T: DeserializeOwned,
+    {
         let url = format!("{}{}", base_url.as_ref(), path.as_ref());
 
         let mut req = self
@@ -235,7 +245,7 @@ impl AzureDevOpsForge {
                     return ConfigSnafu {
                         message:
                             "Must provide either source repository name or source repository ID"
-                                .to_string(),
+                                .to_owned(),
                     }
                     .fail();
                 }
@@ -281,7 +291,7 @@ impl AzureDevOpsForge {
                     return ConfigSnafu {
                         message:
                             "Must provide either target repository name or target repository ID"
-                                .to_string(),
+                                .to_owned(),
                     }
                     .fail();
                 }
@@ -319,9 +329,9 @@ impl AzureDevOpsForge {
             .await
     }
 
-    fn to_merge_request(&self, pull_request: GitPullRequest) -> AzureDevOpsMergeRequest {
-        AzureDevOpsMergeRequest {
-            target_project_id: self.target_project_id().to_string(),
+    fn to_merge_request(&self, pull_request: GitPullRequest) -> MergeRequest {
+        MergeRequest {
+            target_project_id: self.target_project_id().to_owned(),
             base_url: self.base_url.clone(),
             pull_request,
         }
@@ -331,7 +341,7 @@ impl AzureDevOpsForge {
 impl Forge for AzureDevOpsForge {
     type User = IdentityRef;
 
-    type MergeRequest = AzureDevOpsMergeRequest;
+    type MergeRequest = MergeRequest;
 
     type UserId = UserName<String>;
 
@@ -359,7 +369,8 @@ impl Forge for AzureDevOpsForge {
         Ok(user)
     }
 
-    async fn user_by_username(&self, user_descriptor: &str) -> Result<Option<Self::User>> {
+    async fn user_by_username(&self, username: &str) -> Result<Option<Self::User>> {
+        let user_descriptor = username;
         if let Some(vssps_base_url) = &self.vssps_base_url {
             let user: IdentityRef = self
                 .request(
@@ -404,7 +415,7 @@ impl Forge for AzureDevOpsForge {
 
     async fn create_merge_request(
         &self,
-        ForgeCreateMergeRequestOptions {
+        CreateMergeRequestOptions {
             description,
             open_as_draft,
             remove_source_branch,
@@ -415,20 +426,12 @@ impl Forge for AzureDevOpsForge {
             title,
             // Azure DevOps has no concept of "assignees", only "reviewers".
             assignees: _assignees,
-        }: ForgeCreateMergeRequestOptions<Self::UserId>,
+        }: CreateMergeRequestOptions<Self::UserId>,
     ) -> Result<Self::MergeRequest> {
         let body = CreatePullRequestBody {
             completion_options: RequestGitPullRequestCompletionOptions {
-                delete_source_branch: if remove_source_branch {
-                    Some(true)
-                } else {
-                    None
-                },
-                merge_strategy: if squash {
-                    Some(GitPullRequestMergeStrategy::Squash)
-                } else {
-                    None
-                },
+                delete_source_branch: remove_source_branch.then_some(true),
+                merge_strategy: squash.then_some(GitPullRequestMergeStrategy::Squash),
             },
             description: description.unwrap_or_default(),
             fork_source: if self.source_project_id == self.target_project_id {
@@ -497,13 +500,13 @@ impl Forge for AzureDevOpsForge {
     async fn update_merge_request_info(
         &self,
         merge_request_iid: i32,
-        ForgeUpdateMergeRequestInfoOptions {
+        UpdateMergeRequestInfoOptions {
             title,
             description,
             draft,
             current_title: _current_title,       // Unneeded for azure
             current_is_draft: _current_is_draft, // Unneeded for azure
-        }: ForgeUpdateMergeRequestInfoOptions,
+        }: UpdateMergeRequestInfoOptions,
     ) -> Result<Self::MergeRequest> {
         let body = UpdatePullRequestBody {
             title,
@@ -559,25 +562,30 @@ impl Forge for AzureDevOpsForge {
             )
             .await?;
 
-        #[allow(clippy::cast_possible_truncation, reason = "will never get that high")]
         Ok(ApprovalStatus {
             approved_count: pr
                 .reviewers
                 .iter()
                 .filter(|reviewer| reviewer.vote == Vote::Approved)
-                .count() as u32,
+                .count()
+                .try_into()
+                .expect("too large"),
             required_count: pr
                 .reviewers
                 .iter()
                 .filter(|reviewer| reviewer.is_required)
-                .count() as u32,
+                .count()
+                .try_into()
+                .expect("too large"),
             blocking_count: pr
                 .reviewers
                 .iter()
                 .filter(|reviewer| {
                     reviewer.vote == Vote::Rejected || reviewer.vote == Vote::WaitingForAuthor
                 })
-                .count() as u32,
+                .count()
+                .try_into()
+                .expect("too large"),
             satisfaction: if pr.merge_status == PullRequestAsyncStatus::RejectedByPolicy {
                 ApprovalSatisfaction::Unsatisfied
             } else {
@@ -637,23 +645,23 @@ impl Forge for AzureDevOpsForge {
             )
             .await?;
 
-        let mut unresolved = 0;
-        let mut resolved = 0;
+        let mut unresolved: u32 = 0;
+        let mut resolved: u32 = 0;
         for thread in threads.value {
             match thread.status {
                 CommentThreadStatus::Active
                 | CommentThreadStatus::Pending
-                | CommentThreadStatus::Unknown => unresolved += 1,
+                | CommentThreadStatus::Unknown => unresolved = unresolved.strict_add(1),
 
                 CommentThreadStatus::Fixed
                 | CommentThreadStatus::Closed
                 | CommentThreadStatus::ByDesign
-                | CommentThreadStatus::WontFix => resolved += 1,
+                | CommentThreadStatus::WontFix => resolved = resolved.strict_add(1),
             }
         }
 
         Ok(DiscussionCount {
-            all: unresolved + resolved,
+            all: unresolved.strict_add(resolved),
             unresolved,
             resolved,
         })
@@ -767,15 +775,15 @@ pub struct GitPullRequest {
 }
 
 #[derive(Debug, Clone)]
-pub struct AzureDevOpsMergeRequest {
-    target_project_id: String,
+pub struct MergeRequest {
+    pub target_project_id: String,
 
-    base_url: String,
+    pub base_url: String,
 
     pub pull_request: GitPullRequest,
 }
 
-impl std::ops::Deref for AzureDevOpsMergeRequest {
+impl core::ops::Deref for MergeRequest {
     type Target = GitPullRequest;
 
     fn deref(&self) -> &Self::Target {
@@ -783,7 +791,7 @@ impl std::ops::Deref for AzureDevOpsMergeRequest {
     }
 }
 
-impl ForgeMergeRequest for AzureDevOpsMergeRequest {
+impl MergeRequestLike for MergeRequest {
     type User = IdentityRef;
 
     type Id = i32;
@@ -812,12 +820,12 @@ impl ForgeMergeRequest for AzureDevOpsMergeRequest {
             .trim_start_matches("refs/heads/")
     }
 
-    fn state(&self) -> ForgeMergeRequestState {
+    fn state(&self) -> MergeRequestState {
         match self.pull_request.status {
-            PullRequestStatus::Abandoned => ForgeMergeRequestState::Closed,
-            PullRequestStatus::Completed => ForgeMergeRequestState::Merged,
+            PullRequestStatus::Abandoned => MergeRequestState::Closed,
+            PullRequestStatus::Completed => MergeRequestState::Merged,
             PullRequestStatus::Active | PullRequestStatus::All | PullRequestStatus::NotSet => {
-                ForgeMergeRequestState::Open
+                MergeRequestState::Open
             }
         }
     }
@@ -877,7 +885,7 @@ impl ForgeMergeRequest for AzureDevOpsMergeRequest {
 
     fn clone_boxed(
         &self,
-    ) -> Box<dyn ForgeMergeRequest<User = Self::User, Id = Self::Id> + Send + Sync> {
+    ) -> Box<dyn MergeRequestLike<User = Self::User, Id = Self::Id> + Send + Sync> {
         Box::new(self.clone())
     }
 }
@@ -911,7 +919,7 @@ pub struct IdentityRef {
     pub url: String,
 }
 
-impl ForgeUser for IdentityRef {
+impl UserLike for IdentityRef {
     fn id(&self) -> Option<Cow<'_, str>> {
         Some(Cow::Borrowed(&self.descriptor))
     }
@@ -1016,7 +1024,7 @@ pub struct GitUserDate {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[allow(clippy::struct_excessive_bools, reason = "deserialized")]
+#[expect(clippy::struct_excessive_bools, reason = "deserialized")]
 pub struct IdentityRefWithVote {
     pub descriptor: String,
 
@@ -1041,7 +1049,7 @@ pub struct IdentityRefWithVote {
     pub voted_for: Vec<IdentityRefWithVote>,
 }
 
-impl ForgeUser for IdentityRefWithVote {
+impl UserLike for IdentityRefWithVote {
     fn id(&self) -> Option<Cow<'_, str>> {
         Some(Cow::Borrowed(&self.descriptor))
     }

@@ -1,12 +1,12 @@
 use bon::Builder;
-use owo_colors::OwoColorize;
+use owo_colors::OwoColorize as _;
 use snafu::whatever;
 use tracing::error;
 
 use crate::{
-    description::FormatMergeRequest,
+    description::FormatMergeRequest as _,
     error::{Error, Result},
-    forge::Forge,
+    forge::Forge as _,
     submit::execute::{
         ActionInfo,
         ActionResultData,
@@ -17,7 +17,7 @@ use crate::{
     },
 };
 
-/// Update the target branch (base) of an existing MR
+/// Update the target branch (base) of an existing MR.
 #[derive(Debug, Clone, PartialEq, Eq, Builder)]
 pub struct UpdateMRBaseAction {
     pub bookmark: String,
@@ -32,7 +32,7 @@ impl ActionInfo for UpdateMRBaseAction {
     }
 
     fn group_text(&self) -> String {
-        "Updating MR bases".to_string()
+        "Updating MR bases".to_owned()
     }
 
     fn text(&self) -> String {
@@ -100,7 +100,7 @@ impl ExecuteAction for UpdateMRBaseAction {
             whatever!("Failed to find existing MR");
         };
 
-        let old_target = existing_mr.target_branch().to_string();
+        let old_target = existing_mr.target_branch().to_owned();
 
         match ctx
             .execute

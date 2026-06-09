@@ -11,27 +11,28 @@ use crate::{
         ApprovalSatisfaction,
         ApprovalStatus,
         CheckStatus,
+        CreateMergeRequestOptions,
         DiscussionCount,
         Forge,
-        ForgeCreateMergeRequestOptions,
-        ForgeMergeRequest,
-        ForgeMergeRequestState,
-        ForgeUpdateMergeRequestInfoOptions,
-        ForgeUser,
+        MergeRequestLike,
+        MergeRequestState,
         MergeRequestStatus,
+        UpdateMergeRequestInfoOptions,
         UserId,
+        UserLike,
     },
     utils::ResultWithWarnings,
 };
 
-/// Forgejo/Gitea REST API client
+/// Forgejo/Gitea REST API client.
+#[expect(clippy::module_name_repetitions, reason = "meh")]
 pub struct ForgejoForge {
     base_url: String,
     source_project_id: String,
     target_project_id: String,
     source_owner: String,
 
-    #[allow(dead_code)]
+    #[cfg_attr(not(test), expect(dead_code, reason = "keep it around"))]
     source_repo: String,
 
     target_owner: String,
@@ -44,17 +45,17 @@ pub struct ForgejoForge {
     wip_prefix: String,
 }
 
-/// Forgejo/Gitea user
+/// Forgejo/Gitea user.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ForgejoUser {
-    /// User ID
+pub struct User {
+    /// User ID.
     pub id: u64,
 
-    /// Username (login)
+    /// Username (login).
     pub login: String,
 }
 
-impl ForgeUser for ForgejoUser {
+impl UserLike for User {
     fn id(&self) -> Option<Cow<'_, str>> {
         Some(Cow::Owned(self.id.to_string()))
     }
@@ -64,77 +65,77 @@ impl ForgeUser for ForgejoUser {
     }
 }
 
-/// Branch reference in a pull request
+/// Branch reference in a pull request.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ForgejoBranchRef {
-    /// Branch name
+pub struct BranchRef {
+    /// Branch name.
     #[serde(rename = "ref")]
     pub ref_name: String,
 
-    /// Repository information (for cross-repo PRs)
-    pub repo: Option<ForgejoRepo>,
+    /// Repository information (for cross-repo PRs).
+    pub repo: Option<Repo>,
 }
 
-/// Forgejo/Gitea repository info
+/// Forgejo/Gitea repository info.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ForgejoRepo {
-    /// Repository full name (owner/repo)
+pub struct Repo {
+    /// Repository full name (owner/repo).
     pub full_name: String,
 }
 
-/// Forgejo/Gitea Pull Request
+/// Forgejo/Gitea Pull Request.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PullRequest {
-    /// PR number (index within repo)
+    /// PR number (index within repo).
     pub number: u64,
 
-    /// PR ID (unique globally)
+    /// PR ID (unique globally).
     pub id: u64,
 
-    /// PR title
+    /// PR title.
     pub title: String,
 
-    /// PR body/description
+    /// PR body/description.
     pub body: Option<String>,
 
-    /// Head branch information
-    pub head: ForgejoBranchRef,
+    /// Head branch information.
+    pub head: BranchRef,
 
-    /// Base branch information
-    pub base: ForgejoBranchRef,
+    /// Base branch information.
+    pub base: BranchRef,
 
-    /// PR state (open, closed)
+    /// PR state (open, closed).
     pub state: String,
 
-    /// HTML URL to view the PR
+    /// HTML URL to view the PR.
     pub html_url: String,
 
-    /// User who created the PR
-    pub user: ForgejoUser,
+    /// User who created the PR.
+    pub user: User,
 
-    /// Created at timestamp (ISO 8601)
+    /// Created at timestamp (ISO 8601).
     pub created_at: String,
 
-    /// Assignees of the PR
-    pub assignees: Option<Vec<ForgejoUser>>,
+    /// Assignees of the PR.
+    pub assignees: Option<Vec<User>>,
 
-    /// Requested reviewers
-    pub requested_reviewers: Option<Vec<ForgejoUser>>,
+    /// Requested reviewers.
+    pub requested_reviewers: Option<Vec<User>>,
 
-    /// Whether the PR was merged
+    /// Whether the PR was merged.
     #[serde(default)]
     pub merged: bool,
 }
 
 #[derive(Debug, Clone)]
-pub struct ForgejoMergeRequest {
+pub struct MergeRequest {
     pub pull_request: PullRequest,
 
-    wip_prefix: String,
+    pub wip_prefix: String,
 }
 
-impl ForgeMergeRequest for ForgejoMergeRequest {
-    type User = ForgejoUser;
+impl MergeRequestLike for MergeRequest {
+    type User = User;
 
     type Id = u64;
 
@@ -158,13 +159,13 @@ impl ForgeMergeRequest for ForgejoMergeRequest {
         &self.pull_request.base.ref_name
     }
 
-    fn state(&self) -> ForgeMergeRequestState {
+    fn state(&self) -> MergeRequestState {
         if self.pull_request.merged {
-            ForgeMergeRequestState::Merged
+            MergeRequestState::Merged
         } else if self.pull_request.state == "open" {
-            ForgeMergeRequestState::Open
+            MergeRequestState::Open
         } else {
-            ForgeMergeRequestState::Closed
+            MergeRequestState::Closed
         }
     }
 
@@ -204,7 +205,7 @@ impl ForgeMergeRequest for ForgejoMergeRequest {
 
     fn clone_boxed(
         &self,
-    ) -> Box<dyn ForgeMergeRequest<User = Self::User, Id = Self::Id> + Send + Sync>
+    ) -> Box<dyn MergeRequestLike<User = Self::User, Id = Self::Id> + Send + Sync>
     where
         Self: Sync + Send,
     {
@@ -223,7 +224,7 @@ enum ReviewStateType {
     Unknown,
 }
 
-/// Commit status state (pending, success, error, failure)
+/// Commit status state (pending, success, error, failure).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 enum CommitStatusState {
@@ -235,30 +236,30 @@ enum CommitStatusState {
     Unknown,
 }
 
-/// Individual commit status
+/// Individual commit status.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct CommitStatus {
-    /// Status state
+    /// Status state.
     pub state: CommitStatusState,
 }
 
-/// Combined status for a commit
+/// Combined status for a commit.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct CombinedStatus {
-    /// Combined state across all statuses
+    /// Combined state across all statuses.
     pub state: CommitStatusState,
 
-    /// Individual statuses
+    /// Individual statuses.
     #[serde(default)]
     pub statuses: Vec<CommitStatus>,
 
-    /// Total count of statuses
+    /// Total count of statuses.
     #[serde(default)]
     pub total_count: i64,
 }
 
 impl ForgejoForge {
-    /// Create a new Forgejo/Gitea client
+    /// Create a new Forgejo/Gitea client.
     ///
     /// # Arguments
     /// * `base_url` - Forgejo/Gitea instance URL (e.g., <https://codeberg.org>)
@@ -314,7 +315,7 @@ impl ForgejoForge {
 
         // Strip trailing slashes from base_url to avoid double slashes in constructed
         // URLs
-        let base_url = base_url.into().trim_end_matches('/').to_string();
+        let base_url = base_url.into().trim_end_matches('/').to_owned();
 
         let source_project_id = source_project_id.into();
         let target_project_id = target_project_id.into();
@@ -349,12 +350,15 @@ impl ForgejoForge {
         })
     }
 
-    async fn request<T: DeserializeOwned>(
+    async fn request<T>(
         &self,
         method: Method,
         path: impl AsRef<str>,
         payload: Option<impl Serialize>,
-    ) -> Result<T> {
+    ) -> Result<T>
+    where
+        T: DeserializeOwned,
+    {
         let url = format!("{}/api/v1{}", self.base_url, path.as_ref());
         let mut req = self
             .client
@@ -401,467 +405,10 @@ impl ForgejoForge {
         if draft {
             format!("{}{}", self.wip_prefix, title)
         } else {
-            title.to_string()
-        }
-    }
-}
-
-impl Forge for ForgejoForge {
-    type User = ForgejoUser;
-
-    type MergeRequest = ForgejoMergeRequest;
-
-    type UserId = UserId<u64>;
-
-    fn project_id(&self) -> &str {
-        &self.target_project_id
-    }
-
-    fn source_project_id(&self) -> &str {
-        &self.source_project_id
-    }
-
-    fn target_project_id(&self) -> &str {
-        &self.target_project_id
-    }
-
-    fn base_url(&self) -> &str {
-        &self.base_url
-    }
-
-    fn project_url(&self) -> String {
-        format!("{}/{}", self.base_url, self.target_project_id)
-    }
-
-    async fn current_user(&self) -> Result<Self::User> {
-        let user: ForgejoUser = self.request(Method::GET, "/user", None::<()>).await?;
-        Ok(user)
-    }
-
-    async fn user_by_username(&self, username: &str) -> Result<Option<Self::User>> {
-        match self
-            .request::<ForgejoUser>(
-                Method::GET,
-                format!("/users/{}", urlencoding::encode(username)),
-                None::<()>,
-            )
-            .await
-        {
-            Ok(user) => Ok(Some(user)),
-            Err(Error::ForgejoApi { message, .. }) if message.contains("404") => Ok(None),
-            Err(e) => Err(e),
+            title.to_owned()
         }
     }
 
-    async fn find_merge_request_by_source_branch(
-        &self,
-        branch: &str,
-    ) -> Result<Option<Self::MergeRequest>> {
-        let user = &self.current_user().await?.login;
-
-        // Forgejo doesn't support filtering by head branch in the API yet,
-        // so we fetch all open PRs and filter client-side
-        // See https://codeberg.org/api/swagger#/repository/repoListPullRequests
-
-        let mut page = 1;
-        let limit = 25;
-
-        loop {
-            let prs: Vec<PullRequest> = self
-                .request(
-                    Method::GET,
-                    format!(
-                        "/repos/{}/{}/pulls?state=open&poster={}&page={}&limit={}",
-                        self.target_owner,
-                        self.target_repo,
-                        urlencoding::encode(user),
-                        page,
-                        limit
-                    ),
-                    None::<()>,
-                )
-                .await?;
-
-            let has_more = prs.len() == limit;
-
-            let is_fork = self.source_project_id != self.target_project_id;
-            if let Some(pr) = prs.into_iter().find(|pr| {
-                pr.head.ref_name == branch
-                    && (!is_fork
-                        || pr
-                            .head
-                            .repo
-                            .as_ref()
-                            .is_some_and(|r| r.full_name == self.source_project_id))
-            }) {
-                return Ok(Some(ForgejoMergeRequest {
-                    pull_request: pr,
-                    wip_prefix: self.wip_prefix.clone(),
-                }));
-            }
-
-            if !has_more {
-                break;
-            }
-
-            page += 1;
-        }
-
-        Ok(None)
-    }
-
-    async fn find_merge_request_by_source_branch_base_branch(
-        &self,
-        source_branch: &str,
-        base_branch: &str,
-    ) -> Result<Option<Self::MergeRequest>> {
-        // Forgejo can look up a PR directly when both source and base branches
-        // are known, avoiding the paginated listing needed by the branch-only
-        // method. For cross-repo (fork) PRs the head parameter must use the
-        // "owner:branch" format so Forgejo resolves the correct repository.
-        let head = if self.source_project_id == self.target_project_id {
-            source_branch.to_string()
-        } else {
-            format!("{}:{source_branch}", self.source_owner)
-        };
-
-        let pr: Result<PullRequest> = self
-            .request(
-                Method::GET,
-                format!(
-                    "/repos/{}/{}/pulls/{}/{}",
-                    self.target_owner,
-                    self.target_repo,
-                    urlencoding::encode(base_branch),
-                    urlencoding::encode(&head),
-                ),
-                None::<()>,
-            )
-            .await;
-
-        match pr {
-            Ok(pr) => Ok(Some(ForgejoMergeRequest {
-                pull_request: pr,
-                wip_prefix: self.wip_prefix.clone(),
-            })),
-            Err(Error::ForgejoApi {
-                status: StatusCode::NOT_FOUND,
-                ..
-            }) => Ok(None),
-            Err(e) => Err(e),
-        }
-    }
-
-    async fn create_merge_request(
-        &self,
-        ForgeCreateMergeRequestOptions {
-            assignees,
-            description,
-            reviewers,
-            source_branch,
-            target_branch,
-            title,
-            open_as_draft,
-            // Forge supports this as a default repository setting, but not a per-pull-request
-            // setting.
-            remove_source_branch: _remove_source_branch,
-            // Forge supports this as a default repository setting, but not a per-pull-request
-            // setting.
-            squash: _squash,
-        }: ForgeCreateMergeRequestOptions<Self::UserId>,
-    ) -> Result<Self::MergeRequest> {
-        #[derive(Serialize)]
-        #[serde(rename_all = "camelCase")]
-        struct Body {
-            title: String,
-            head: String,
-            base: String,
-
-            #[serde(skip_serializing_if = "Option::is_none")]
-            #[allow(clippy::struct_field_names, reason = "serialized")]
-            body: Option<String>,
-        }
-
-        let head = if self.source_project_id == self.target_project_id {
-            source_branch.clone()
-        } else {
-            format!("{}:{}", self.source_owner, source_branch)
-        };
-
-        let payload = Body {
-            // Not exactly documented, but Forgejo detects this based on a repository-configurable
-            // prefix.
-            title: self.wrap_draft(&title, open_as_draft),
-            head,
-            base: target_branch,
-            body: description,
-        };
-
-        let pr: PullRequest = self
-            .request(
-                Method::POST,
-                format!("/repos/{}/{}/pulls", self.target_owner, self.target_repo),
-                Some(payload),
-            )
-            .await?;
-
-        if !assignees.is_empty() {
-            self.add_assignees(
-                pr.number,
-                assignees.into_iter().map(|user| user.0).collect(),
-            )
-            .await?;
-        }
-
-        if !reviewers.is_empty() {
-            self.request_reviewers(
-                pr.number,
-                reviewers.into_iter().map(|user| user.0).collect(),
-            )
-            .await?;
-        }
-
-        Ok(ForgejoMergeRequest {
-            pull_request: pr,
-            wip_prefix: self.wip_prefix.clone(),
-        })
-    }
-
-    async fn update_merge_request_base(
-        &self,
-        pr_number: u64,
-        new_base: &str,
-    ) -> Result<Self::MergeRequest> {
-        let pr: PullRequest = self
-            .request(
-                Method::PATCH,
-                format!(
-                    "/repos/{}/{}/pulls/{}",
-                    self.target_owner, self.target_repo, pr_number
-                ),
-                Some(serde_json::json!({
-                    "base": new_base,
-                })),
-            )
-            .await?;
-
-        Ok(ForgejoMergeRequest {
-            pull_request: pr,
-            wip_prefix: self.wip_prefix.clone(),
-        })
-    }
-
-    async fn update_merge_request_info(
-        &self,
-        pr_number: u64,
-        ForgeUpdateMergeRequestInfoOptions {
-            title,
-            description,
-            draft,
-            current_title,
-            current_is_draft,
-        }: ForgeUpdateMergeRequestInfoOptions,
-    ) -> Result<Self::MergeRequest> {
-        let pr: PullRequest = self
-            .request(
-                Method::PATCH,
-                format!(
-                    "/repos/{}/{}/pulls/{}",
-                    self.target_owner, self.target_repo, pr_number
-                ),
-                Some(serde_json::json!({
-                    "title": match (draft, title) {
-                        (Some(draft), Some(title)) => Some(self.wrap_draft(&title, draft)),
-                        (Some(draft), None) => Some(self.wrap_draft(&current_title, draft)),
-                        (None, Some(title)) => Some(self.wrap_draft(&title, current_is_draft)),
-                        (None, None) => None,
-                    },
-                    "body": description,
-                })),
-            )
-            .await?;
-
-        Ok(ForgejoMergeRequest {
-            pull_request: pr,
-            wip_prefix: self.wip_prefix.clone(),
-        })
-    }
-
-    async fn get_merge_request(&self, pr_number: u64) -> Result<Self::MergeRequest> {
-        let pr: PullRequest = self
-            .request(
-                Method::GET,
-                format!(
-                    "/repos/{}/{}/pulls/{}",
-                    self.target_owner, self.target_repo, pr_number
-                ),
-                None::<()>,
-            )
-            .await?;
-
-        Ok(ForgejoMergeRequest {
-            pull_request: pr,
-            wip_prefix: self.wip_prefix.clone(),
-        })
-    }
-
-    async fn get_approval_status(&self, pr_number: u64) -> Result<ApprovalStatus> {
-        let reviews = self.pull_request_reviews(pr_number).await;
-
-        let Ok(reviews) = reviews else {
-            // Can't access reviews, fall back to unknown
-            return Ok(ApprovalStatus::default());
-        };
-
-        // Group reviews by user, keeping only the most recent review from each user
-        let mut user_reviews: HashMap<u64, &PullRequestReview> = HashMap::new();
-
-        for review in &reviews {
-            if review.dismissed {
-                continue;
-            }
-
-            // Keep the most recent review by comparing submitted_at
-            if let Some(existing) = user_reviews.get(&review.user.id) {
-                if let (Some(new_time), Some(existing_time)) =
-                    (&review.submitted_at, &existing.submitted_at)
-                    && new_time > existing_time
-                {
-                    user_reviews.insert(review.user.id, review);
-                }
-            } else {
-                user_reviews.insert(review.user.id, review);
-            }
-        }
-
-        #[allow(clippy::cast_possible_truncation, reason = "will never get that high")]
-        let approved_count = user_reviews
-            .values()
-            .filter(|review| review.state == ReviewStateType::Approved)
-            .count() as u32;
-
-        #[allow(clippy::cast_possible_truncation, reason = "will never get that high")]
-        let blocking_count = user_reviews
-            .values()
-            .filter(|review| review.state == ReviewStateType::RequestChanges)
-            .count() as u32;
-
-        // Forgejo doesn't expose required approval count via API
-        Ok(ApprovalStatus {
-            approved_count,
-            required_count: 0,
-            blocking_count,
-            satisfaction: ApprovalSatisfaction::Unknown,
-        })
-    }
-
-    async fn get_check_status(&self, pr_number: u64) -> Result<CheckStatus> {
-        let pr = self.get_merge_request(pr_number).await?;
-        let head_branch = pr.pull_request.head.ref_name;
-
-        // Get combined status for the head branch
-        let response = self
-            .client
-            .request(
-                Method::GET,
-                format!(
-                    "{}/api/v1/repos/{}/{}/commits/{}/status",
-                    self.base_url,
-                    self.target_owner,
-                    self.target_repo,
-                    urlencoding::encode(&head_branch)
-                ),
-            )
-            .header("Authorization", format!("Bearer {}", self.token))
-            .header("Accept", "application/json")
-            .header("User-Agent", "jj-vine")
-            .send()
-            .await?;
-
-        // Handle different status codes
-        match response.status() {
-            reqwest::StatusCode::OK => {
-                let status: CombinedStatus = response.json().await?;
-
-                if status.total_count == 0 {
-                    return Ok(CheckStatus::None);
-                }
-
-                match status.state {
-                    CommitStatusState::Success => Ok(CheckStatus::Success),
-                    CommitStatusState::Pending => Ok(CheckStatus::Pending),
-                    CommitStatusState::Error | CommitStatusState::Failure => {
-                        Ok(CheckStatus::Failed)
-                    }
-                    CommitStatusState::Unknown => Ok(CheckStatus::None),
-                }
-            }
-            reqwest::StatusCode::NOT_FOUND => Ok(CheckStatus::None),
-            status => Err(ForgejoApiSnafu {
-                message: format!("Failed to get commit status: {status}"),
-                status,
-            }
-            .build()),
-        }
-    }
-
-    async fn get_merge_request_status(&self, pr_number: u64) -> Result<MergeRequestStatus> {
-        let (approval_status, check_status) = try_join!(
-            self.get_approval_status(pr_number),
-            self.get_check_status(pr_number),
-        )?;
-
-        Ok(MergeRequestStatus {
-            iid: pr_number.to_string(),
-            approval_status,
-            check_status,
-        })
-    }
-
-    async fn num_open_discussions(&self, pr_number: u64) -> Result<DiscussionCount> {
-        let reviews = self.pull_request_reviews(pr_number).await?;
-
-        // Let's not overload the API by default
-        let mut comments = Vec::new();
-        for review in reviews {
-            let review_comments = self.pull_request_comments(pr_number, review.id).await?;
-            comments.push((review, review_comments));
-        }
-
-        #[allow(clippy::cast_possible_truncation, reason = "will never get that high")]
-        Ok(comments.iter().fold(
-            DiscussionCount {
-                all: 0,
-                unresolved: 0,
-                resolved: 0,
-            },
-            |mut acc, (_review, comments)| {
-                acc.all += comments.len() as u32;
-
-                for comment in comments {
-                    if comment.resolver.is_some() {
-                        acc.unresolved += 1;
-                    } else {
-                        acc.resolved += 1;
-                    }
-                }
-
-                acc
-            },
-        ))
-    }
-
-    async fn sync_dependent_merge_requests(
-        &self,
-        _merge_request_iid: u64,
-        _dependent_merge_request_iids: &[u64],
-    ) -> ResultWithWarnings<bool> {
-        // Only supported for GitLab
-        Ok(false).into()
-    }
-}
-
-impl ForgejoForge {
     async fn add_assignees(&self, pr_number: u64, assignees: Vec<u64>) -> Result<()> {
         self.request::<serde_json::Value>(
             Method::POST,
@@ -918,6 +465,466 @@ impl ForgejoForge {
     }
 }
 
+impl Forge for ForgejoForge {
+    type User = User;
+
+    type MergeRequest = MergeRequest;
+
+    type UserId = UserId<u64>;
+
+    fn project_id(&self) -> &str {
+        &self.target_project_id
+    }
+
+    fn source_project_id(&self) -> &str {
+        &self.source_project_id
+    }
+
+    fn target_project_id(&self) -> &str {
+        &self.target_project_id
+    }
+
+    fn base_url(&self) -> &str {
+        &self.base_url
+    }
+
+    fn project_url(&self) -> String {
+        format!("{}/{}", self.base_url, self.target_project_id)
+    }
+
+    async fn current_user(&self) -> Result<Self::User> {
+        let user: User = self.request(Method::GET, "/user", None::<()>).await?;
+        Ok(user)
+    }
+
+    async fn user_by_username(&self, username: &str) -> Result<Option<Self::User>> {
+        match self
+            .request::<User>(
+                Method::GET,
+                format!("/users/{}", urlencoding::encode(username)),
+                None::<()>,
+            )
+            .await
+        {
+            Ok(user) => Ok(Some(user)),
+            Err(Error::ForgejoApi { message, .. }) if message.contains("404") => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
+    async fn find_merge_request_by_source_branch(
+        &self,
+        branch: &str,
+    ) -> Result<Option<Self::MergeRequest>> {
+        let user = &self.current_user().await?.login;
+
+        // Forgejo doesn't support filtering by head branch in the API yet,
+        // so we fetch all open PRs and filter client-side
+        // See https://codeberg.org/api/swagger#/repository/repoListPullRequests
+
+        let mut page = 1_i32;
+        let limit = 25;
+
+        loop {
+            let prs: Vec<PullRequest> = self
+                .request(
+                    Method::GET,
+                    format!(
+                        "/repos/{}/{}/pulls?state=open&poster={}&page={}&limit={}",
+                        self.target_owner,
+                        self.target_repo,
+                        urlencoding::encode(user),
+                        page,
+                        limit
+                    ),
+                    None::<()>,
+                )
+                .await?;
+
+            let has_more = prs.len() == limit;
+
+            let is_fork = self.source_project_id != self.target_project_id;
+            if let Some(pr) = prs.into_iter().find(|pr| {
+                pr.head.ref_name == branch
+                    && (!is_fork
+                        || pr
+                            .head
+                            .repo
+                            .as_ref()
+                            .is_some_and(|r| r.full_name == self.source_project_id))
+            }) {
+                return Ok(Some(MergeRequest {
+                    pull_request: pr,
+                    wip_prefix: self.wip_prefix.clone(),
+                }));
+            }
+
+            if !has_more {
+                break;
+            }
+
+            page = page.strict_add(1);
+        }
+
+        Ok(None)
+    }
+
+    async fn find_merge_request_by_source_branch_base_branch(
+        &self,
+        source_branch: &str,
+        base_branch: &str,
+    ) -> Result<Option<Self::MergeRequest>> {
+        // Forgejo can look up a PR directly when both source and base branches
+        // are known, avoiding the paginated listing needed by the branch-only
+        // method. For cross-repo (fork) PRs the head parameter must use the
+        // "owner:branch" format so Forgejo resolves the correct repository.
+        let head = if self.source_project_id == self.target_project_id {
+            source_branch.to_owned()
+        } else {
+            format!("{}:{source_branch}", self.source_owner)
+        };
+
+        let pr: Result<PullRequest> = self
+            .request(
+                Method::GET,
+                format!(
+                    "/repos/{}/{}/pulls/{}/{}",
+                    self.target_owner,
+                    self.target_repo,
+                    urlencoding::encode(base_branch),
+                    urlencoding::encode(&head),
+                ),
+                None::<()>,
+            )
+            .await;
+
+        match pr {
+            Ok(pr) => Ok(Some(MergeRequest {
+                pull_request: pr,
+                wip_prefix: self.wip_prefix.clone(),
+            })),
+            Err(Error::ForgejoApi {
+                status: StatusCode::NOT_FOUND,
+                ..
+            }) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
+    async fn create_merge_request(
+        &self,
+        CreateMergeRequestOptions {
+            assignees,
+            description,
+            reviewers,
+            source_branch,
+            target_branch,
+            title,
+            open_as_draft,
+            // Forge supports this as a default repository setting, but not a per-pull-request
+            // setting.
+            remove_source_branch: _remove_source_branch,
+            // Forge supports this as a default repository setting, but not a per-pull-request
+            // setting.
+            squash: _squash,
+        }: CreateMergeRequestOptions<Self::UserId>,
+    ) -> Result<Self::MergeRequest> {
+        #[derive(Serialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Body {
+            title: String,
+            head: String,
+            base: String,
+
+            #[serde(skip_serializing_if = "Option::is_none")]
+            #[expect(clippy::struct_field_names, reason = "serialized")]
+            body: Option<String>,
+        }
+
+        let head = if self.source_project_id == self.target_project_id {
+            source_branch.clone()
+        } else {
+            format!("{}:{}", self.source_owner, source_branch)
+        };
+
+        let payload = Body {
+            // Not exactly documented, but Forgejo detects this based on a repository-configurable
+            // prefix.
+            title: self.wrap_draft(&title, open_as_draft),
+            head,
+            base: target_branch,
+            body: description,
+        };
+
+        let pr: PullRequest = self
+            .request(
+                Method::POST,
+                format!("/repos/{}/{}/pulls", self.target_owner, self.target_repo),
+                Some(payload),
+            )
+            .await?;
+
+        if !assignees.is_empty() {
+            self.add_assignees(
+                pr.number,
+                assignees.into_iter().map(|user| user.0).collect(),
+            )
+            .await?;
+        }
+
+        if !reviewers.is_empty() {
+            self.request_reviewers(
+                pr.number,
+                reviewers.into_iter().map(|user| user.0).collect(),
+            )
+            .await?;
+        }
+
+        Ok(MergeRequest {
+            pull_request: pr,
+            wip_prefix: self.wip_prefix.clone(),
+        })
+    }
+
+    async fn update_merge_request_base(
+        &self,
+        merge_request_iid: u64,
+        new_base: &str,
+    ) -> Result<Self::MergeRequest> {
+        let pr: PullRequest = self
+            .request(
+                Method::PATCH,
+                format!(
+                    "/repos/{}/{}/pulls/{}",
+                    self.target_owner, self.target_repo, merge_request_iid
+                ),
+                Some(serde_json::json!({
+                    "base": new_base,
+                })),
+            )
+            .await?;
+
+        Ok(MergeRequest {
+            pull_request: pr,
+            wip_prefix: self.wip_prefix.clone(),
+        })
+    }
+
+    async fn update_merge_request_info(
+        &self,
+        merge_request_iid: u64,
+        UpdateMergeRequestInfoOptions {
+            title,
+            description,
+            draft,
+            current_title,
+            current_is_draft,
+        }: UpdateMergeRequestInfoOptions,
+    ) -> Result<Self::MergeRequest> {
+        let pr: PullRequest = self
+            .request(
+                Method::PATCH,
+                format!(
+                    "/repos/{}/{}/pulls/{}",
+                    self.target_owner, self.target_repo, merge_request_iid
+                ),
+                Some(serde_json::json!({
+                    "title": match (draft, title) {
+                        (Some(draft), Some(title)) => Some(self.wrap_draft(&title, draft)),
+                        (Some(draft), None) => Some(self.wrap_draft(&current_title, draft)),
+                        (None, Some(title)) => Some(self.wrap_draft(&title, current_is_draft)),
+                        (None, None) => None,
+                    },
+                    "body": description,
+                })),
+            )
+            .await?;
+
+        Ok(MergeRequest {
+            pull_request: pr,
+            wip_prefix: self.wip_prefix.clone(),
+        })
+    }
+
+    async fn get_merge_request(&self, merge_request_iid: u64) -> Result<Self::MergeRequest> {
+        let pr: PullRequest = self
+            .request(
+                Method::GET,
+                format!(
+                    "/repos/{}/{}/pulls/{}",
+                    self.target_owner, self.target_repo, merge_request_iid
+                ),
+                None::<()>,
+            )
+            .await?;
+
+        Ok(MergeRequest {
+            pull_request: pr,
+            wip_prefix: self.wip_prefix.clone(),
+        })
+    }
+
+    async fn get_approval_status(&self, merge_request_iid: u64) -> Result<ApprovalStatus> {
+        let reviews = self.pull_request_reviews(merge_request_iid).await;
+
+        let Ok(reviews) = reviews else {
+            // Can't access reviews, fall back to unknown
+            return Ok(ApprovalStatus::default());
+        };
+
+        // Group reviews by user, keeping only the most recent review from each user
+        let mut user_reviews: HashMap<u64, &PullRequestReview> = HashMap::new();
+
+        for review in &reviews {
+            if review.dismissed {
+                continue;
+            }
+
+            // Keep the most recent review by comparing submitted_at
+            if let Some(existing) = user_reviews.get(&review.user.id) {
+                if let (Some(new_time), Some(existing_time)) =
+                    (&review.submitted_at, &existing.submitted_at)
+                    && new_time > existing_time
+                {
+                    user_reviews.insert(review.user.id, review);
+                }
+            } else {
+                user_reviews.insert(review.user.id, review);
+            }
+        }
+
+        let approved_count = user_reviews
+            .values()
+            .filter(|review| review.state == ReviewStateType::Approved)
+            .count()
+            .try_into()
+            .expect("too large");
+
+        let blocking_count = user_reviews
+            .values()
+            .filter(|review| review.state == ReviewStateType::RequestChanges)
+            .count()
+            .try_into()
+            .expect("too large");
+
+        // Forgejo doesn't expose required approval count via API
+        Ok(ApprovalStatus {
+            approved_count,
+            required_count: 0,
+            blocking_count,
+            satisfaction: ApprovalSatisfaction::Unknown,
+        })
+    }
+
+    async fn get_check_status(&self, merge_request_iid: u64) -> Result<CheckStatus> {
+        let pr = self.get_merge_request(merge_request_iid).await?;
+        let head_branch = pr.pull_request.head.ref_name;
+
+        // Get combined status for the head branch
+        let response = self
+            .client
+            .request(
+                Method::GET,
+                format!(
+                    "{}/api/v1/repos/{}/{}/commits/{}/status",
+                    self.base_url,
+                    self.target_owner,
+                    self.target_repo,
+                    urlencoding::encode(&head_branch)
+                ),
+            )
+            .header("Authorization", format!("Bearer {}", self.token))
+            .header("Accept", "application/json")
+            .header("User-Agent", "jj-vine")
+            .send()
+            .await?;
+
+        // Handle different status codes
+        match response.status() {
+            reqwest::StatusCode::OK => {
+                let status: CombinedStatus = response.json().await?;
+
+                if status.total_count == 0 {
+                    return Ok(CheckStatus::None);
+                }
+
+                match status.state {
+                    CommitStatusState::Success => Ok(CheckStatus::Success),
+                    CommitStatusState::Pending => Ok(CheckStatus::Pending),
+                    CommitStatusState::Error | CommitStatusState::Failure => {
+                        Ok(CheckStatus::Failed)
+                    }
+                    CommitStatusState::Unknown => Ok(CheckStatus::None),
+                }
+            }
+            reqwest::StatusCode::NOT_FOUND => Ok(CheckStatus::None),
+            status => Err(ForgejoApiSnafu {
+                message: format!("Failed to get commit status: {status}"),
+                status,
+            }
+            .build()),
+        }
+    }
+
+    async fn get_merge_request_status(&self, merge_request_iid: u64) -> Result<MergeRequestStatus> {
+        let (approval_status, check_status) = try_join!(
+            self.get_approval_status(merge_request_iid),
+            self.get_check_status(merge_request_iid),
+        )?;
+
+        Ok(MergeRequestStatus {
+            iid: merge_request_iid.to_string(),
+            approval_status,
+            check_status,
+        })
+    }
+
+    async fn num_open_discussions(&self, merge_request_iid: u64) -> Result<DiscussionCount> {
+        let reviews = self.pull_request_reviews(merge_request_iid).await?;
+
+        // Let's not overload the API by default
+        let mut comments = Vec::new();
+        for review in reviews {
+            let review_comments = self
+                .pull_request_comments(merge_request_iid, review.id)
+                .await?;
+            comments.push((review, review_comments));
+        }
+
+        Ok(comments.iter().fold(
+            DiscussionCount {
+                all: 0,
+                unresolved: 0,
+                resolved: 0,
+            },
+            |mut acc, (_review, comments)| {
+                acc.all = acc
+                    .all
+                    .strict_add(comments.len().try_into().expect("too large"));
+
+                for comment in comments {
+                    if comment.resolver.is_some() {
+                        acc.unresolved = acc.unresolved.strict_add(1);
+                    } else {
+                        acc.resolved = acc.resolved.strict_add(1);
+                    }
+                }
+
+                acc
+            },
+        ))
+    }
+
+    async fn sync_dependent_merge_requests(
+        &self,
+        _merge_request_iid: u64,
+        _dependent_merge_request_iids: &[u64],
+    ) -> ResultWithWarnings<bool> {
+        // Only supported for GitLab
+        Ok(false).into()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct PullRequestReview {
     body: String,
@@ -931,7 +938,7 @@ struct PullRequestReview {
     stale: bool,
     state: ReviewStateType,
     submitted_at: Option<String>,
-    user: ForgejoUser,
+    user: User,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -948,9 +955,9 @@ struct Comment {
     position: u64,
     pull_request_review_id: u64,
     pull_request_url: String,
-    resolver: Option<ForgejoUser>,
+    resolver: Option<User>,
     updated_at: String,
-    user: ForgejoUser,
+    user: User,
 }
 
 impl FormatMergeRequest for ForgejoForge {
@@ -970,15 +977,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_forgejo_client_new() {
+    fn forgejo_client_new() {
         let forge = ForgejoForge::new(
-            "https://codeberg.org".to_string(),
-            "owner/repo".to_string(),
-            "owner/repo".to_string(),
-            "test-token".to_string(),
+            "https://codeberg.org".to_owned(),
+            "owner/repo".to_owned(),
+            "owner/repo".to_owned(),
+            "test-token".to_owned(),
             None::<&str>,
             false,
-            "WIP: ".to_string(),
+            "WIP: ".to_owned(),
         );
 
         assert!(forge.is_ok());
@@ -994,15 +1001,15 @@ mod tests {
     }
 
     #[test]
-    fn test_forgejo_client_new_with_trailing_slash() {
+    fn forgejo_client_new_with_trailing_slash() {
         let forge = ForgejoForge::new(
-            "https://codeberg.org/".to_string(),
-            "owner/repo".to_string(),
-            "owner/repo".to_string(),
-            "test-token".to_string(),
+            "https://codeberg.org/".to_owned(),
+            "owner/repo".to_owned(),
+            "owner/repo".to_owned(),
+            "test-token".to_owned(),
             None::<&str>,
             false,
-            "WIP: ".to_string(),
+            "WIP: ".to_owned(),
         );
 
         assert!(forge.is_ok());

@@ -1,4 +1,9 @@
-use std::{collections::HashMap, hash::Hash};
+use core::{
+    convert::Infallible,
+    hash::Hash,
+    ops::{ControlFlow, FromResidual, Residual, Try},
+};
+use std::collections::HashMap;
 
 /// A trait to get the only element of a collection.
 pub trait Only<T> {
@@ -7,51 +12,16 @@ pub trait Only<T> {
     fn only(self) -> Option<T>;
 }
 
-impl<T> Only<T> for Vec<T> {
-    fn only(self) -> Option<T> {
-        match self.len() {
-            1 => Some(self.into_iter().next().unwrap()),
-            _ => None,
-        }
-    }
-}
-
-impl<'a, T> Only<&'a T> for &'a Vec<T> {
-    fn only(self) -> Option<&'a T> {
-        match self.len() {
-            1 => Some(self.first().unwrap()),
-            _ => None,
-        }
-    }
-}
-
-impl<'a, T> Only<&'a T> for &'a T
+impl<T, U> Only<U::Item> for T
 where
-    T: AsRef<[T]>,
+    T: IntoIterator<IntoIter = U>,
+    U: ExactSizeIterator,
 {
-    fn only(self) -> Option<&'a T> {
-        match self.as_ref() {
-            [x] => Some(x),
-            _ => None,
-        }
-    }
-}
-
-impl<'a, T> Only<&'a T> for T
-where
-    T: IntoIterator<Item = &'a T>,
-{
-    fn only(self) -> Option<&'a T> {
+    fn only(self) -> Option<U::Item> {
         let mut iter = self.into_iter();
-        match iter.next() {
-            Some(x) => {
-                if iter.next().is_some() {
-                    None
-                } else {
-                    Some(x)
-                }
-            }
-            None => None,
+        match iter.len() {
+            1 => Some(iter.next().unwrap()),
+            _ => None,
         }
     }
 }
@@ -84,7 +54,8 @@ where
         in_degree.entry(idx).or_insert(0);
         for parent in get_parents(item) {
             if let Some(&parent_idx) = item_map.get(&parent) {
-                *in_degree.entry(idx).or_insert(0) += 1;
+                let current = in_degree.entry(idx).or_insert(0);
+                *current = current.saturating_add(1);
                 children.entry(parent_idx).or_default().push(idx);
             }
         }
@@ -104,7 +75,7 @@ where
         if let Some(child_list) = children.get(&current_idx) {
             for &child_idx in child_list {
                 if let Some(degree) = in_degree.get_mut(&child_idx) {
-                    *degree -= 1;
+                    *degree = degree.saturating_sub(1);
                     if *degree == 0 {
                         queue.push(child_idx);
                     }
@@ -140,7 +111,7 @@ impl<T, E, W> ResultWithWarnings<T, E, W> {
         }
     }
 
-    #[allow(clippy::missing_errors_doc)]
+    #[expect(clippy::missing_errors_doc, reason = "Acts like a Result")]
     pub fn into_result(self) -> Result<(T, Option<W>), E> {
         match self {
             Self::Ok(value) => Ok((value, None)),
@@ -159,10 +130,10 @@ impl<T, E, W> From<Result<T, E>> for ResultWithWarnings<T, E, W> {
     }
 }
 
-impl<T, E, W, F: From<E>> std::ops::FromResidual<ResultWithWarnings<std::convert::Infallible, E, W>>
+impl<T, E, W, F: From<E>> FromResidual<ResultWithWarnings<Infallible, E, W>>
     for ResultWithWarnings<T, F, W>
 {
-    fn from_residual(residual: ResultWithWarnings<std::convert::Infallible, E, W>) -> Self {
+    fn from_residual(residual: ResultWithWarnings<Infallible, E, W>) -> Self {
         match residual {
             ResultWithWarnings::Err(error) => Self::Err(error.into()),
             ResultWithWarnings::ErrWarnings(error, warnings) => {
@@ -172,26 +143,24 @@ impl<T, E, W, F: From<E>> std::ops::FromResidual<ResultWithWarnings<std::convert
     }
 }
 
-impl<T, E, W, F: From<E>> std::ops::FromResidual<std::result::Result<std::convert::Infallible, E>>
+impl<T, E, W, F: From<E>> FromResidual<core::result::Result<Infallible, E>>
     for ResultWithWarnings<T, F, W>
 {
-    fn from_residual(residual: std::result::Result<std::convert::Infallible, E>) -> Self {
+    fn from_residual(residual: core::result::Result<Infallible, E>) -> Self {
         match residual {
             Err(error) => Self::Err(error.into()),
         }
     }
 }
 
-impl<T, E, W> std::ops::Residual<(T, Option<W>)>
-    for ResultWithWarnings<std::convert::Infallible, E, W>
-{
+impl<T, E, W> Residual<(T, Option<W>)> for ResultWithWarnings<Infallible, E, W> {
     type TryType = ResultWithWarnings<T, E, W>;
 }
 
-impl<T, E, W> std::ops::Try for ResultWithWarnings<T, E, W> {
+impl<T, E, W> Try for ResultWithWarnings<T, E, W> {
     type Output = (T, Option<W>);
 
-    type Residual = ResultWithWarnings<std::convert::Infallible, E, W>;
+    type Residual = ResultWithWarnings<Infallible, E, W>;
 
     fn from_output(output: Self::Output) -> Self {
         match output {
@@ -200,15 +169,13 @@ impl<T, E, W> std::ops::Try for ResultWithWarnings<T, E, W> {
         }
     }
 
-    fn branch(self) -> std::ops::ControlFlow<Self::Residual, Self::Output> {
+    fn branch(self) -> ControlFlow<Self::Residual, Self::Output> {
         match self {
-            Self::Ok(value) => std::ops::ControlFlow::Continue((value, None)),
-            Self::OkWarnings(value, warnings) => {
-                std::ops::ControlFlow::Continue((value, Some(warnings)))
-            }
-            Self::Err(error) => std::ops::ControlFlow::Break(ResultWithWarnings::Err(error)),
+            Self::Ok(value) => ControlFlow::Continue((value, None)),
+            Self::OkWarnings(value, warnings) => ControlFlow::Continue((value, Some(warnings))),
+            Self::Err(error) => ControlFlow::Break(ResultWithWarnings::Err(error)),
             Self::ErrWarnings(error, warnings) => {
-                std::ops::ControlFlow::Break(ResultWithWarnings::ErrWarnings(error, warnings))
+                ControlFlow::Break(ResultWithWarnings::ErrWarnings(error, warnings))
             }
         }
     }
@@ -227,35 +194,35 @@ mod tests {
     impl Node {
         fn new(id: &str) -> Self {
             Self {
-                id: id.to_string(),
+                id: id.to_owned(),
                 parents: Vec::new(),
             }
         }
 
         fn with_parents(id: &str, parents: impl AsRef<[&'static str]>) -> Self {
             Self {
-                id: id.to_string(),
+                id: id.to_owned(),
                 parents: parents.as_ref().iter().map(ToString::to_string).collect(),
             }
         }
     }
 
     #[test]
-    fn test_toposort_empty() {
+    fn toposort_empty() {
         let items: Vec<Node> = vec![];
         let result = toposort(items, |i| i.id.clone(), |i| i.parents.clone());
         assert_eq!(result.len(), 0);
     }
 
     #[test]
-    fn test_toposort_single_item() {
+    fn toposort_single_item() {
         let result = toposort([Node::new("a")], |n| n.id.clone(), |n| n.parents.clone());
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].id, "a");
     }
 
     #[test]
-    fn test_toposort_linear_chain() {
+    fn toposort_linear_chain() {
         let result = toposort(
             [
                 Node::new("a"),
@@ -273,7 +240,7 @@ mod tests {
     }
 
     #[test]
-    fn test_toposort_multiple_roots() {
+    fn toposort_multiple_roots() {
         let result = toposort(
             [
                 Node::new("a"),
@@ -291,7 +258,7 @@ mod tests {
     }
 
     #[test]
-    fn test_toposort_diamond_shape() {
+    fn toposort_diamond_shape() {
         let result = toposort(
             [
                 Node::new("a"),
@@ -311,7 +278,7 @@ mod tests {
     }
 
     #[test]
-    fn test_toposort_ignores_external_parents() {
+    fn toposort_ignores_external_parents() {
         let result = toposort(
             [
                 Node::with_parents("b", vec!["a", "external"]),
@@ -327,7 +294,7 @@ mod tests {
     }
 
     #[test]
-    fn test_toposort_complex_graph() {
+    fn toposort_complex_graph() {
         let result = toposort(
             [
                 Node::with_parents("f", ["d", "e"]),

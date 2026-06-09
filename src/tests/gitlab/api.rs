@@ -2,12 +2,12 @@ use assertables::assert_contains;
 
 use crate::{
     error::Result,
-    forge::{Forge, ForgeCreateMergeRequestOptions, gitlab::GitLabForge},
+    forge::{CreateMergeRequestOptions, Forge as _, gitlab::GitLabForge},
     tests::TestRepo,
 };
 
 #[tokio::test]
-async fn test_submit_creates_mr() -> Result<()> {
+async fn submit_creates_mr() -> Result<()> {
     let repo = TestRepo::with_gitlab_remote();
 
     let branch = repo.bookmark_name("create-mr");
@@ -31,7 +31,7 @@ async fn test_submit_creates_mr() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_submit_creates_stacked_mrs() -> Result<()> {
+async fn submit_creates_stacked_mrs() -> Result<()> {
     let repo = TestRepo::with_gitlab_remote();
 
     let branch_a = repo.bookmark_name("stack-a");
@@ -58,7 +58,7 @@ async fn test_submit_creates_stacked_mrs() -> Result<()> {
             .find_merge_request_by_source_branch(&branch_a)
             .await?
             .map(|mr| mr.target_branch.clone()),
-        Some("main".to_string())
+        Some("main".to_owned())
     );
 
     assert_eq!(
@@ -81,7 +81,7 @@ async fn test_submit_creates_stacked_mrs() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_submit_is_idempotent() -> Result<()> {
+async fn submit_is_idempotent() -> Result<()> {
     let repo = TestRepo::with_gitlab_remote();
 
     let branch = repo.bookmark_name("idempotent");
@@ -111,7 +111,7 @@ async fn test_submit_is_idempotent() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_submit_retargets_after_middle_bookmark_deleted() -> Result<()> {
+async fn submit_retargets_after_middle_bookmark_deleted() -> Result<()> {
     let repo = TestRepo::with_gitlab_remote();
 
     let branch_a = repo.bookmark_name("retarget-a");
@@ -156,8 +156,8 @@ async fn test_submit_retargets_after_middle_bookmark_deleted() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_invalid_token_errors_clearly() -> Result<()> {
-    dotenv::dotenv().ok();
+async fn invalid_token_errors_clearly() -> Result<()> {
+    dotenv::dotenv().unwrap();
 
     let host = std::env::var("GITLAB_HOST").expect("GITLAB_HOST required");
     let project = std::env::var("GITLAB_PROJECT").expect("GITLAB_PROJECT required");
@@ -171,18 +171,18 @@ async fn test_invalid_token_errors_clearly() -> Result<()> {
         host,
         project.clone(),
         project,
-        "invalid-token-12345".to_string(),
+        "invalid-token-12345".to_owned(),
         ca_bundle,
         accept_non_compliant,
         true,
     )?;
 
     let result = client
-        .create_merge_request(ForgeCreateMergeRequestOptions {
+        .create_merge_request(CreateMergeRequestOptions {
             source_branch: TestRepo::new().bookmark_name("invalid-token"),
-            target_branch: "main".to_string(),
-            title: "This should fail".to_string(),
-            description: Some("Testing invalid token".to_string()),
+            target_branch: "main".to_owned(),
+            title: "This should fail".to_owned(),
+            description: Some("Testing invalid token".to_owned()),
             remove_source_branch: true,
             ..Default::default()
         })
@@ -194,8 +194,8 @@ async fn test_invalid_token_errors_clearly() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_nonexistent_project_errors_clearly() -> Result<()> {
-    dotenv::dotenv().ok();
+async fn nonexistent_project_errors_clearly() -> Result<()> {
+    dotenv::dotenv().unwrap();
 
     let host = std::env::var("GITLAB_HOST").expect("GITLAB_HOST required");
     let token = std::env::var("GITLAB_TOKEN").expect("GITLAB_TOKEN required");
@@ -208,8 +208,8 @@ async fn test_nonexistent_project_errors_clearly() -> Result<()> {
     // Create client with nonexistent project
     let client = GitLabForge::new(
         host,
-        "nonexistent/fake-project-12345".to_string(),
-        "nonexistent/fake-project-12345".to_string(),
+        "nonexistent/fake-project-12345".to_owned(),
+        "nonexistent/fake-project-12345".to_owned(),
         token,
         ca_bundle,
         accept_non_compliant,
@@ -217,11 +217,11 @@ async fn test_nonexistent_project_errors_clearly() -> Result<()> {
     )?;
 
     let result = client
-        .create_merge_request(ForgeCreateMergeRequestOptions {
+        .create_merge_request(CreateMergeRequestOptions {
             source_branch: TestRepo::new().bookmark_name("nonexistent-project"),
-            target_branch: "main".to_string(),
-            title: "This should fail".to_string(),
-            description: Some("Testing nonexistent project".to_string()),
+            target_branch: "main".to_owned(),
+            title: "This should fail".to_owned(),
+            description: Some("Testing nonexistent project".to_owned()),
             remove_source_branch: true,
             ..Default::default()
         })
@@ -233,7 +233,7 @@ async fn test_nonexistent_project_errors_clearly() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_create_merge_request_dependencies() -> Result<()> {
+async fn create_merge_request_dependencies() -> Result<()> {
     let repo = TestRepo::with_gitlab_remote();
 
     let a = repo.bookmark_name("dependency-a");

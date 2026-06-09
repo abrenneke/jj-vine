@@ -5,7 +5,7 @@ mod e2e {
     use crate::{error::Result, tests::TestRepo};
 
     #[tokio::test]
-    async fn test_tracked_only_includes_pushed_bookmarks() -> Result<()> {
+    async fn tracked_only_includes_pushed_bookmarks() -> Result<()> {
         let repo = TestRepo::with_forgejo_remote();
 
         let a = repo.bookmark_name("tracked-a");
@@ -27,7 +27,7 @@ mod e2e {
     }
 
     #[tokio::test]
-    async fn test_tracked_excludes_default_branch() -> Result<()> {
+    async fn tracked_excludes_default_branch() -> Result<()> {
         let repo = TestRepo::with_forgejo_remote();
 
         let branch = repo.bookmark_name("tracked-feature");

@@ -1,7 +1,7 @@
 use crate::{error::Result, tests::TestRepo};
 
 #[tokio::test]
-async fn test_pr_title_generates() -> Result<()> {
+async fn pr_title_generates() -> Result<()> {
     let repo = TestRepo::with_forgejo_remote();
 
     repo.set_config(
@@ -31,7 +31,7 @@ async fn test_pr_title_generates() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_pr_title_syncs_on_submit() -> Result<()> {
+async fn pr_title_syncs_on_submit() -> Result<()> {
     let repo = TestRepo::with_forgejo_remote();
 
     repo.set_config("jj-vine.title.sync", "true");
@@ -75,7 +75,7 @@ async fn test_pr_title_syncs_on_submit() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_pr_title_does_not_sync_on_submit() -> Result<()> {
+async fn pr_title_does_not_sync_on_submit() -> Result<()> {
     let repo = TestRepo::with_forgejo_remote();
 
     repo.set_config("jj-vine.title.sync", "false");

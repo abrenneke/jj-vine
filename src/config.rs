@@ -1,3 +1,5 @@
+#![expect(clippy::module_name_repetitions, reason = "fine for Config")]
+
 use std::path::PathBuf;
 
 use bon::Builder;
@@ -8,66 +10,22 @@ use crate::{
     jj::Jujutsu,
 };
 
-/// Forge type (GitLab, GitHub, or Forgejo)
+/// Forge type (GitLab, GitHub, or Forgejo).
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize, strum::VariantArray)]
 #[serde(rename_all = "lowercase")]
 pub enum ForgeType {
-    /// GitLab (GitLab.com or self-hosted)
+    /// GitLab (GitLab.com or self-hosted).
     GitLab,
 
-    /// GitHub (GitHub.com or GitHub Enterprise)
+    /// GitHub (GitHub.com or GitHub Enterprise).
     GitHub,
 
-    /// Forgejo/Gitea (self-hosted or Codeberg)
+    /// Forgejo/Gitea (self-hosted or Codeberg).
     Forgejo,
 
-    /// Azure DevOps
+    /// Azure DevOps.
     #[serde(rename = "azure")]
     AzureDevOps,
-}
-
-impl ForgeType {
-    #[must_use]
-    pub fn display_name(&self) -> &str {
-        match self {
-            ForgeType::GitLab => "GitLab",
-            ForgeType::GitHub => "GitHub",
-            ForgeType::Forgejo => "Forgejo",
-            ForgeType::AzureDevOps => "Azure DevOps",
-        }
-    }
-}
-
-impl std::fmt::Display for ForgeType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}",
-            match self {
-                ForgeType::GitLab => "gitlab",
-                ForgeType::GitHub => "github",
-                ForgeType::Forgejo => "forgejo",
-                ForgeType::AzureDevOps => "azure",
-            }
-        )
-    }
-}
-
-impl std::str::FromStr for ForgeType {
-    type Err = Error;
-
-    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "gitlab" => Ok(Self::GitLab),
-            "github" => Ok(Self::GitHub),
-            "forgejo" => Ok(Self::Forgejo),
-            "azure" => Ok(Self::AzureDevOps),
-            _ => Err(ConfigSnafu {
-                message: format!("Invalid forge type: {s}"),
-            }
-            .build()),
-        }
-    }
 }
 
 impl ForgeType {
@@ -85,35 +43,77 @@ impl ForgeType {
             None
         }
     }
+
+    #[must_use]
+    pub fn display_name(&self) -> &str {
+        match self {
+            ForgeType::GitLab => "GitLab",
+            ForgeType::GitHub => "GitHub",
+            ForgeType::Forgejo => "Forgejo",
+            ForgeType::AzureDevOps => "Azure DevOps",
+        }
+    }
 }
 
-/// Stack visualization format
+impl core::fmt::Display for ForgeType {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                ForgeType::GitLab => "gitlab",
+                ForgeType::GitHub => "github",
+                ForgeType::Forgejo => "forgejo",
+                ForgeType::AzureDevOps => "azure",
+            }
+        )
+    }
+}
+
+impl core::str::FromStr for ForgeType {
+    type Err = Error;
+
+    fn from_str(s: &str) -> core::result::Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "gitlab" => Ok(Self::GitLab),
+            "github" => Ok(Self::GitHub),
+            "forgejo" => Ok(Self::Forgejo),
+            "azure" => Ok(Self::AzureDevOps),
+            _ => Err(ConfigSnafu {
+                message: format!("Invalid forge type: {s}"),
+            }
+            .build()),
+        }
+    }
+}
+
+/// Stack visualization format.
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum DescriptionDiagramFormat {
-    /// Do not render this stack visualization
+    /// Do not render this stack visualization.
     None,
 
-    /// A linear numbered list
+    /// A linear numbered list.
     #[default]
     Linear,
 
-    /// A tree of MRs where children are indented
+    /// A tree of MRs where children are indented.
     Tree,
 }
 
 fn default_remote_name() -> String {
-    "origin".to_string()
+    "origin".to_owned()
 }
 
 const fn default_true() -> bool {
     true
 }
 
-/// Configuration for jj-vine
+/// Configuration for jj-vine.
 #[derive(Debug, Clone, Deserialize, Builder)]
 #[serde(rename_all = "camelCase")]
-#[allow(clippy::struct_excessive_bools)]
+#[expect(clippy::struct_excessive_bools, reason = "deserialized")]
 pub struct Config {
     /// Which forge to use.
     pub forge: ForgeType,
@@ -314,7 +314,7 @@ pub enum TitleFormat {
 }
 
 impl<'de> Deserialize<'de> for TitleFormat {
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    fn deserialize<D>(deserializer: D) -> core::result::Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
@@ -323,11 +323,11 @@ impl<'de> Deserialize<'de> for TitleFormat {
         impl Visitor<'_> for TitleFormatVisitor {
             type Value = TitleFormat;
 
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            fn expecting(&self, formatter: &mut core::fmt::Formatter) -> core::fmt::Result {
                 formatter.write_str("a title format")
             }
 
-            fn visit_str<E>(self, v: &str) -> std::result::Result<Self::Value, E>
+            fn visit_str<E>(self, v: &str) -> core::result::Result<Self::Value, E>
             where
                 E: serde::de::Error,
             {
@@ -337,7 +337,7 @@ impl<'de> Deserialize<'de> for TitleFormat {
                     "headRevisionFirstLine" => TitleFormat::HeadRevisionFirstLine,
                     "headRevisionFullMessage" => TitleFormat::HeadRevisionFullMessage,
                     "bookmarkName" => TitleFormat::BookmarkName,
-                    _ => TitleFormat::Other(v.to_string()),
+                    _ => TitleFormat::Other(v.to_owned()),
                 })
             }
         }
@@ -460,7 +460,7 @@ impl GitHubConfig {
 /// WorkInProgressPrefixes: []string{"WIP:", "[WIP]"}
 /// ```
 fn default_wip_prefix() -> String {
-    "WIP: ".to_string()
+    "WIP: ".to_owned()
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -647,18 +647,18 @@ pub enum DescriptionMode {
 }
 
 impl<'de> Deserialize<'de> for DescriptionMode {
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    fn deserialize<D>(deserializer: D) -> core::result::Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
         struct DescriptionModeVisitor;
         impl Visitor<'_> for DescriptionModeVisitor {
             type Value = DescriptionMode;
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            fn expecting(&self, formatter: &mut core::fmt::Formatter) -> core::fmt::Result {
                 formatter.write_str("a description mode")
             }
 
-            fn visit_str<E>(self, v: &str) -> std::result::Result<Self::Value, E>
+            fn visit_str<E>(self, v: &str) -> core::result::Result<Self::Value, E>
             where
                 E: serde::de::Error,
             {
@@ -672,7 +672,7 @@ impl<'de> Deserialize<'de> for DescriptionMode {
                         Ok(DescriptionMode::File(
                             mode.trim_start_matches("file(")
                                 .trim_end_matches(')')
-                                .to_string(),
+                                .to_owned(),
                         ))
                     }
                     _ => Err(E::custom(format!("invalid description mode: {v}"))),
@@ -717,7 +717,7 @@ impl Default for DescriptionDiagramConfig {
 }
 
 impl Config {
-    /// Load configuration from jj config
+    /// Load configuration from jj config.
     pub fn load(repo_path: impl Into<PathBuf>) -> Result<Self> {
         let jj = Jujutsu::new(repo_path)?;
         let output = jj.exec(["config", "list"])?;
@@ -731,7 +731,7 @@ impl Config {
 
         let jj_vine_value = toml_value.get("jj-vine").ok_or_else(|| {
             ConfigSnafu {
-                message: "Missing required config section: jj-vine".to_string(),
+                message: "Missing required config section: jj-vine".to_owned(),
             }
             .build()
         })?;
@@ -753,13 +753,13 @@ impl Config {
             ForgeType::GitLab => {
                 if self.gitlab.host.is_empty() {
                     return Err(ConfigSnafu {
-                        message: "gitlab.host is required when forge is gitlab".to_string(),
+                        message: "gitlab.host is required when forge is gitlab".to_owned(),
                     }
                     .build());
                 }
                 if self.gitlab.project.is_empty() {
                     return Err(ConfigSnafu {
-                        message: "gitlab.project is required when forge is gitlab".to_string(),
+                        message: "gitlab.project is required when forge is gitlab".to_owned(),
                     }
                     .build());
                 }
@@ -772,7 +772,7 @@ impl Config {
                 }
                 if self.gitlab.token.is_empty() {
                     return Err(ConfigSnafu {
-                        message: "gitlab.token is required when forge is gitlab".to_string(),
+                        message: "gitlab.token is required when forge is gitlab".to_owned(),
                     }
                     .build());
                 }
@@ -780,13 +780,13 @@ impl Config {
             ForgeType::GitHub => {
                 if self.github.project.is_empty() {
                     return Err(ConfigSnafu {
-                        message: "github.project is required when forge is github".to_string(),
+                        message: "github.project is required when forge is github".to_owned(),
                     }
                     .build());
                 }
                 if self.github.token.is_empty() {
                     return Err(ConfigSnafu {
-                        message: "github.token is required when forge is github".to_string(),
+                        message: "github.token is required when forge is github".to_owned(),
                     }
                     .build());
                 }
@@ -794,19 +794,19 @@ impl Config {
             ForgeType::Forgejo => {
                 if self.forgejo.host.is_empty() {
                     return Err(ConfigSnafu {
-                        message: "forgejo.host is required when forge is forgejo".to_string(),
+                        message: "forgejo.host is required when forge is forgejo".to_owned(),
                     }
                     .build());
                 }
                 if self.forgejo.project.is_empty() {
                     return Err(ConfigSnafu {
-                        message: "forgejo.project is required when forge is forgejo".to_string(),
+                        message: "forgejo.project is required when forge is forgejo".to_owned(),
                     }
                     .build());
                 }
                 if self.forgejo.token.is_empty() {
                     return Err(ConfigSnafu {
-                        message: "forgejo.token is required when forge is forgejo".to_string(),
+                        message: "forgejo.token is required when forge is forgejo".to_owned(),
                     }
                     .build());
                 }
@@ -814,19 +814,19 @@ impl Config {
             ForgeType::AzureDevOps => {
                 if self.azure.host.is_empty() {
                     return ConfigSnafu {
-                        message: "azure.host is required when forge is azure".to_string(),
+                        message: "azure.host is required when forge is azure".to_owned(),
                     }
                     .fail();
                 }
                 if self.azure.project.is_empty() {
                     return ConfigSnafu {
-                        message: "azure.project is required when forge is azure".to_string(),
+                        message: "azure.project is required when forge is azure".to_owned(),
                     }
                     .fail();
                 }
                 if self.azure.token.is_empty() {
                     return ConfigSnafu {
-                        message: "azure.token is required when forge is azure".to_string(),
+                        message: "azure.token is required when forge is azure".to_owned(),
                     }
                     .fail();
                 }
@@ -834,7 +834,7 @@ impl Config {
                     && self.azure.source_repository_id.is_none()
                 {
                     return ConfigSnafu {
-                        message: "azure.source_repository_name or azure.source_repository_id is required when forge is azure".to_string(),
+                        message: "azure.source_repository_name or azure.source_repository_id is required when forge is azure".to_owned(),
                     }
                     .fail();
                 }
@@ -862,7 +862,7 @@ mod tests {
     }
 
     #[test]
-    fn test_config_load_missing_required() {
+    fn config_load_missing_required() {
         let (_temp, repo_path) = create_test_repo();
 
         // Try to load config without setting anything
@@ -882,7 +882,7 @@ mod tests {
     }
 
     #[test]
-    fn test_config_load_complete() {
+    fn config_load_complete() {
         let (_temp, repo_path) = create_test_repo();
 
         let jj = Jujutsu::new(&repo_path).expect("Failed to create Jujutsu instance");
@@ -920,14 +920,14 @@ mod tests {
         // Load config
         let config = Config::load(&repo_path).expect("Failed to load config");
 
-        assert_eq!(config.gitlab.host, "https://gitlab.example.com".to_string());
-        assert_eq!(config.gitlab.project, "my-group/my-project".to_string());
-        assert_eq!(config.gitlab.token, "glpat-test123".to_string());
+        assert_eq!(config.gitlab.host, "https://gitlab.example.com".to_owned());
+        assert_eq!(config.gitlab.project, "my-group/my-project".to_owned());
+        assert_eq!(config.gitlab.token, "glpat-test123".to_owned());
         assert_eq!(config.remote_name, "origin");
     }
 
     #[test]
-    fn test_config_with_optional_fields() {
+    fn config_with_optional_fields() {
         let (_temp, repo_path) = create_test_repo();
 
         let jj = Jujutsu::new(&repo_path).expect("Failed to create Jujutsu instance");
@@ -974,14 +974,14 @@ mod tests {
         // Load config
         let config = Config::load(&repo_path).expect("Failed to load config");
 
-        assert_eq!(config.gitlab.host, "https://gitlab.example.com".to_string());
-        assert_eq!(config.gitlab.project, "my-group/my-project".to_string());
-        assert_eq!(config.gitlab.token, "glpat-test123".to_string());
+        assert_eq!(config.gitlab.host, "https://gitlab.example.com".to_owned());
+        assert_eq!(config.gitlab.project, "my-group/my-project".to_owned());
+        assert_eq!(config.gitlab.token, "glpat-test123".to_owned());
         assert_eq!(config.remote_name, "upstream");
     }
 
     #[test]
-    fn test_config_default_stack_visualization() {
+    fn config_default_stack_visualization() {
         let (_temp, repo_path) = create_test_repo();
 
         let jj = Jujutsu::new(&repo_path).expect("Failed to create Jujutsu instance");
@@ -1032,7 +1032,7 @@ mod tests {
     }
 
     #[test]
-    fn test_config_explicit_stack_visualization() {
+    fn config_explicit_stack_visualization() {
         let (_temp, repo_path) = create_test_repo();
 
         let jj = Jujutsu::new(&repo_path).expect("Failed to create Jujutsu instance");
@@ -1092,7 +1092,7 @@ mod tests {
     }
 
     #[test]
-    fn test_config_default_mr_settings() {
+    fn config_default_mr_settings() {
         let (_temp, repo_path) = create_test_repo();
 
         let jj = Jujutsu::new(&repo_path).expect("Failed to create Jujutsu instance");
@@ -1128,7 +1128,7 @@ mod tests {
     }
 
     #[test]
-    fn test_config_explicit_mr_settings() {
+    fn config_explicit_mr_settings() {
         let (_temp, repo_path) = create_test_repo();
 
         let jj = Jujutsu::new(&repo_path).expect("Failed to create Jujutsu instance");
@@ -1177,7 +1177,7 @@ mod tests {
     }
 
     #[test]
-    fn test_config_default_assign_to_self() {
+    fn config_default_assign_to_self() {
         let (_temp, repo_path) = create_test_repo();
 
         let jj = Jujutsu::new(&repo_path).expect("Failed to create Jujutsu instance");
@@ -1212,7 +1212,7 @@ mod tests {
     }
 
     #[test]
-    fn test_config_explicit_assign_to_self() {
+    fn config_explicit_assign_to_self() {
         let (_temp, repo_path) = create_test_repo();
 
         let jj = Jujutsu::new(&repo_path).expect("Failed to create Jujutsu instance");
@@ -1251,7 +1251,7 @@ mod tests {
     }
 
     #[test]
-    fn test_config_default_reviewers_empty() {
+    fn config_default_reviewers_empty() {
         let (_temp, repo_path) = create_test_repo();
 
         let jj = Jujutsu::new(&repo_path).expect("Failed to create Jujutsu instance");
@@ -1286,7 +1286,7 @@ mod tests {
     }
 
     #[test]
-    fn test_config_default_reviewers_single() {
+    fn config_default_reviewers_single() {
         let (_temp, repo_path) = create_test_repo();
 
         let jj = Jujutsu::new(&repo_path).expect("Failed to create Jujutsu instance");
@@ -1331,7 +1331,7 @@ mod tests {
     }
 
     #[test]
-    fn test_config_default_reviewers_multiple() {
+    fn config_default_reviewers_multiple() {
         let (_temp, repo_path) = create_test_repo();
 
         let jj = Jujutsu::new(&repo_path).expect("Failed to create Jujutsu instance");
@@ -1379,12 +1379,12 @@ mod tests {
     }
 
     #[test]
-    fn test_gitlab_direct_mode_without_target() {
+    fn gitlab_direct_mode_without_target() {
         let config = GitLabConfig {
-            host: "https://gitlab.com".to_string(),
-            project: "myuser/myrepo".to_string(),
+            host: "https://gitlab.com".to_owned(),
+            project: "myuser/myrepo".to_owned(),
             target_project: String::new(),
-            token: "token".to_string(),
+            token: "token".to_owned(),
             create_merge_request_dependencies: true,
         };
 
@@ -1394,12 +1394,12 @@ mod tests {
     }
 
     #[test]
-    fn test_gitlab_fork_mode_with_different_target() {
+    fn gitlab_fork_mode_with_different_target() {
         let config = GitLabConfig {
-            host: "https://gitlab.com".to_string(),
-            project: "myuser/fork".to_string(),
-            target_project: "upstream/repo".to_string(),
-            token: "token".to_string(),
+            host: "https://gitlab.com".to_owned(),
+            project: "myuser/fork".to_owned(),
+            target_project: "upstream/repo".to_owned(),
+            token: "token".to_owned(),
             create_merge_request_dependencies: true,
         };
 
@@ -1409,12 +1409,12 @@ mod tests {
     }
 
     #[test]
-    fn test_gitlab_fork_mode_with_same_target() {
+    fn gitlab_fork_mode_with_same_target() {
         let config = GitLabConfig {
-            host: "https://gitlab.com".to_string(),
-            project: "myuser/repo".to_string(),
-            target_project: "myuser/repo".to_string(),
-            token: "token".to_string(),
+            host: "https://gitlab.com".to_owned(),
+            project: "myuser/repo".to_owned(),
+            target_project: "myuser/repo".to_owned(),
+            token: "token".to_owned(),
             create_merge_request_dependencies: true,
         };
 
@@ -1424,14 +1424,14 @@ mod tests {
     }
 
     #[test]
-    fn test_gitlab_project_rejects_clone_url() {
+    fn gitlab_project_rejects_clone_url() {
         let config = Config::builder()
             .forge(ForgeType::GitLab)
             .gitlab(GitLabConfig {
-                host: "https://gitlab.com".to_string(),
-                project: "git@gitlab.com:myuser/repo.git".to_string(),
+                host: "https://gitlab.com".to_owned(),
+                project: "git@gitlab.com:myuser/repo.git".to_owned(),
                 target_project: String::new(),
-                token: "token".to_string(),
+                token: "token".to_owned(),
                 create_merge_request_dependencies: true,
             })
             .build();
@@ -1442,14 +1442,14 @@ mod tests {
     }
 
     #[test]
-    fn test_gitlab_target_project_rejects_clone_url() {
+    fn gitlab_target_project_rejects_clone_url() {
         let config = Config::builder()
             .forge(ForgeType::GitLab)
             .gitlab(GitLabConfig {
-                host: "https://gitlab.com".to_string(),
-                project: "myuser/fork".to_string(),
-                target_project: "https://gitlab.com/upstream/repo.git".to_string(),
-                token: "token".to_string(),
+                host: "https://gitlab.com".to_owned(),
+                project: "myuser/fork".to_owned(),
+                target_project: "https://gitlab.com/upstream/repo.git".to_owned(),
+                token: "token".to_owned(),
                 create_merge_request_dependencies: true,
             })
             .build();
@@ -1460,12 +1460,12 @@ mod tests {
     }
 
     #[test]
-    fn test_github_direct_mode_without_target() {
+    fn github_direct_mode_without_target() {
         let config = GitHubConfig {
-            host: "https://api.github.com".to_string(),
-            project: "myuser/myrepo".to_string(),
+            host: "https://api.github.com".to_owned(),
+            project: "myuser/myrepo".to_owned(),
             target_project: String::new(),
-            token: "token".to_string(),
+            token: "token".to_owned(),
         };
 
         assert_eq!(config.target_project(), "myuser/myrepo");
