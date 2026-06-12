@@ -6,10 +6,10 @@ use std::collections::HashSet;
 use itertools::Itertools as _;
 
 use crate::{
-    bookmark::{BookmarkGraph, JJName},
+    bookmark::{BookmarkGraph, BookmarkWithPointers, JJName},
     config::Config,
     error::Result,
-    forge::ForgeImpl,
+    forge::{Forge as _, ForgeImpl},
     jj::{Change, Jujutsu},
     output::Output,
     submit::plan::SubmissionPlan,
@@ -41,6 +41,22 @@ pub fn find_changes_to_submit(
         ),
         change_ids_pending_bookmarks,
     )
+}
+
+/// Since we can't make a PR/MR between two fork branches, on the *target*
+/// repository, we can only really make all branches
+/// on the upstream. Returns the base branch to use for PRs/MRs.
+#[must_use]
+pub fn mr_base_branch(
+    forge: &ForgeImpl,
+    bookmark: &BookmarkWithPointers,
+    default_branch: &str,
+) -> String {
+    if forge.is_fork() {
+        default_branch.to_owned()
+    } else {
+        bookmark.parent_name(default_branch)
+    }
 }
 
 #[derive(Clone)]

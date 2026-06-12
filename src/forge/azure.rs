@@ -1,14 +1,15 @@
 use std::{borrow::Cow, collections::HashMap, path::Path};
 
 use bon::bon;
-use futures::try_join;
+use futures::{future::OptionFuture, try_join};
 use reqwest::Method;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use tokio::sync::OnceCell;
 
 use crate::{
+    bookmark::BookmarkRef,
     description::FormatMergeRequest,
-    error::{AzureDevOpsApiSnafu, ConfigSnafu, Result},
+    error::{AzureDevOpsApiSnafu, ConfigSnafu, Error, Result, make_whatever},
     forge::{
         ApprovalSatisfaction,
         ApprovalStatus,
@@ -60,19 +61,27 @@ pub struct AzureDevOpsForge {
     #[expect(dead_code, reason = "keep around for now")]
     target_project: String,
 
-    /// The name of the repository where branches are pushed (source/fork
-    /// project). The repository ID will be fetched from the API.
+    /// The config id of the repository where branches are pushed (source/fork
+    /// project).
+    source_repository_id: Option<String>,
+
+    /// The config id of the repository where MRs/PRs are created
+    /// (target/upstream project).
+    target_repository_id: Option<String>,
+
+    /// The config name of the repository where branches are pushed (source/fork
+    /// project).
     source_repository_name: Option<String>,
 
-    /// The name of the repository where MRs/PRs are created (target/upstream
-    /// project). The repository ID will be fetched from the API.
+    /// The config name of the repository where MRs/PRs are created
+    /// (target/upstream project).
     target_repository_name: Option<String>,
 
-    /// The repository ID where branches are pushed (source/fork project).
-    source_repository_id: OnceCell<String>,
+    /// The repository where branches are pushed (source/fork project).
+    source_repository: OnceCell<GitRepository>,
 
-    /// The repository ID where MRs/PRs are created (target/upstream project).
-    target_repository_id: OnceCell<String>,
+    /// The repository where MRs/PRs are created (target/upstream project).
+    target_repository: OnceCell<GitRepository>,
 
     client: reqwest::Client,
 }
@@ -165,8 +174,10 @@ impl AzureDevOpsForge {
             target_project: target_repo.into(),
             source_repository_name,
             target_repository_name,
-            source_repository_id: OnceCell::new_with(source_repository_id),
-            target_repository_id: OnceCell::new_with(target_repository_id),
+            source_repository_id,
+            target_repository_id,
+            source_repository: OnceCell::new(),
+            target_repository: OnceCell::new(),
             client,
         })
     }
@@ -237,22 +248,16 @@ impl AzureDevOpsForge {
         Ok(data)
     }
 
-    async fn source_repository_id(&self) -> Result<&String> {
-        match self.source_repository_id.get() {
-            Some(id) => return Ok(id),
-            None => {
-                if self.source_repository_name.is_none() {
-                    return ConfigSnafu {
-                        message:
-                            "Must provide either source repository name or source repository ID"
-                                .to_owned(),
-                    }
-                    .fail();
-                }
+    async fn source_repository(&self) -> Result<&GitRepository> {
+        if self.source_repository_id.is_none() && self.source_repository_name.is_none() {
+            return ConfigSnafu {
+                message: "Must provide either source repository name or source repository ID"
+                    .to_owned(),
             }
+            .fail();
         }
 
-        self.source_repository_id
+        self.source_repository
             .get_or_try_init(async || {
                 let repositories: ListResponse<GitRepository> = self
                     .request_git(
@@ -267,9 +272,12 @@ impl AzureDevOpsForge {
                     .value
                     .into_iter()
                     .find(|repository| {
-                        repository.name == *self.source_repository_name.as_ref().unwrap()
+                        match (&self.source_repository_id, &self.source_repository_name) {
+                            (Some(id), _) => repository.id == *id,
+                            (_, Some(name)) => repository.name == *name,
+                            (None, None) => unreachable!(),
+                        }
                     })
-                    .map(|repository| repository.id)
                     .ok_or(
                         ConfigSnafu {
                             message: format!(
@@ -283,22 +291,16 @@ impl AzureDevOpsForge {
             .await
     }
 
-    async fn target_repository_id(&self) -> Result<&String> {
-        match self.target_repository_id.get() {
-            Some(id) => return Ok(id),
-            None => {
-                if self.target_repository_name.is_none() {
-                    return ConfigSnafu {
-                        message:
-                            "Must provide either target repository name or target repository ID"
-                                .to_owned(),
-                    }
-                    .fail();
-                }
+    async fn target_repository(&self) -> Result<&GitRepository> {
+        if self.target_repository_id.is_none() && self.target_repository_name.is_none() {
+            return ConfigSnafu {
+                message: "Must provide either target repository name or target repository ID"
+                    .to_owned(),
             }
+            .fail();
         }
 
-        self.target_repository_id
+        self.target_repository
             .get_or_try_init(async || {
                 let repositories: ListResponse<GitRepository> = self
                     .request_git(
@@ -313,13 +315,16 @@ impl AzureDevOpsForge {
                     .value
                     .into_iter()
                     .find(|repository| {
-                        repository.name == *self.target_repository_name.as_ref().unwrap()
+                        match (&self.target_repository_id, &self.target_repository_name) {
+                            (Some(id), _) => repository.id == *id,
+                            (_, Some(name)) => repository.name == *name,
+                            (None, None) => unreachable!(),
+                        }
                     })
-                    .map(|repository| repository.id)
                     .ok_or(
                         ConfigSnafu {
                             message: format!(
-                                "Source repository not found: {}",
+                                "Target repository not found: {}",
                                 self.target_repository_name.as_ref().unwrap()
                             ),
                         }
@@ -351,6 +356,12 @@ impl Forge for AzureDevOpsForge {
 
     fn target_project_id(&self) -> &str {
         &self.target_project_id
+    }
+
+    fn is_fork(&self) -> bool {
+        self.source_project_id != self.target_project_id
+            || self.source_repository_id != self.target_repository_id
+            || self.source_repository_name != self.target_repository_name
     }
 
     fn base_url(&self) -> &str {
@@ -393,24 +404,80 @@ impl Forge for AzureDevOpsForge {
         &self,
         branch: &str,
     ) -> Result<Option<Self::MergeRequest>> {
-        let mrs: ListResponse<GitPullRequest> = self
-            .request_git(
+        let target_repository_id = &self.target_repository().await?.id;
+
+        let mr_match = if self.is_fork() {
+            const COUNT: u32 = 1000;
+
+            let source_repository_id = &self.source_repository().await?.id;
+
+            let mut page = 0_u32;
+            loop {
+                let all_mrs_from_fork: ListResponse<GitPullRequest> = self
+                    .request_git(
+                        Method::GET,
+                        &self.target_project_id,
+                        // I cannot figure out a way to even filter by source repo,
+                        // `sourceRepositoryId` only works in the same project!
+                        format!(
+                            "/repositories/{}/pullRequests?api-version=7.1&$top={COUNT}&$skip={}",
+                            target_repository_id,
+                            COUNT.strict_mul(page)
+                        ),
+                        None::<()>,
+                    )
+                    .await?;
+
+                if all_mrs_from_fork.value.is_empty() {
+                    break None;
+                }
+
+                // sourceRefName doesn't work for forks because the ref is something dumb like
+                // `refs/pull/1/source`. So for forks, iterate all the PRs from the
+                // fork to find it manually, because azure doesn't seem to support filtering by
+                // fork ref name...
+                if let Some(pr) = all_mrs_from_fork.value.into_iter().find(|pr| {
+                    pr.fork_source.as_ref().is_some_and(|fork| {
+                        fork.name == format!("refs/heads/{branch}")
+                            && fork.repository.id == *source_repository_id
+                    })
+                }) {
+                    break Some(pr);
+                }
+
+                page = page.strict_add(1);
+            }
+        } else {
+            self
+            .request_git::<ListResponse<GitPullRequest>>(
                 Method::GET,
                 &self.target_project_id,
                 format!(
-                    "/repositories/{}/pullRequests?api-version=7.1&searchCriteria.sourceRefName=refs/heads/{}",
-                    self.target_repository_id().await?,
-                    branch
+                    "/repositories/{target_repository_id}/pullRequests?api-version=7.1&searchCriteria.sourceRefName=refs/heads/{branch}"
                 ),
                 None::<()>,
             )
-            .await?;
-
-        Ok(mrs
+            .await?
             .value
             .into_iter()
             .next()
-            .map(|pr| self.to_merge_request(pr)))
+        };
+
+        // The list API truncates descriptions! yay!
+        Ok(OptionFuture::from(mr_match.map(|pr| {
+            self.request_git(
+                Method::GET,
+                &self.target_project_id,
+                format!(
+                    "/repositories/{target_repository_id}/pullRequests/{}",
+                    pr.pull_request_id
+                ),
+                None::<()>,
+            )
+        }))
+        .await
+        .transpose()?
+        .map(|pr| self.to_merge_request(pr)))
     }
 
     async fn create_merge_request(
@@ -439,7 +506,7 @@ impl Forge for AzureDevOpsForge {
             } else {
                 Some(RequestGitForkRef {
                     repository: RequestGitRepository {
-                        id: self.source_repository_id().await?.clone(),
+                        id: self.source_repository().await?.id.clone(),
                     },
                 })
             },
@@ -460,7 +527,7 @@ impl Forge for AzureDevOpsForge {
                 &self.target_project_id,
                 format!(
                     "/repositories/{}/pullrequests?api-version=7.1",
-                    self.target_repository_id().await?
+                    self.target_repository().await?.id
                 ),
                 Some(body),
             )
@@ -487,7 +554,7 @@ impl Forge for AzureDevOpsForge {
                 &self.target_project_id,
                 format!(
                     "/repositories/{}/pullrequests/{}?api-version=7.1",
-                    self.target_repository_id().await?,
+                    self.target_repository().await?.id,
                     merge_request_iid
                 ),
                 Some(body),
@@ -521,7 +588,7 @@ impl Forge for AzureDevOpsForge {
                 &self.target_project_id,
                 format!(
                     "/repositories/{}/pullrequests/{}?api-version=7.1",
-                    self.target_repository_id().await?,
+                    self.target_repository().await?.id,
                     merge_request_iid
                 ),
                 Some(body),
@@ -538,7 +605,7 @@ impl Forge for AzureDevOpsForge {
                 &self.target_project_id,
                 format!(
                     "/repositories/{}/pullrequests/{}?api-version=7.1",
-                    self.target_repository_id().await?,
+                    self.target_repository().await?.id,
                     merge_request_iid
                 ),
                 None::<()>,
@@ -555,7 +622,7 @@ impl Forge for AzureDevOpsForge {
                 &self.target_project_id,
                 format!(
                     "/repositories/{}/pullrequests/{}?api-version=7.1",
-                    self.target_repository_id().await?,
+                    self.target_repository().await?.id,
                     merge_request_iid
                 ),
                 None::<()>,
@@ -601,7 +668,7 @@ impl Forge for AzureDevOpsForge {
                 &self.target_project_id,
                 format!(
                     "/repositories/{}/pullrequests/{}?api-version=7.1",
-                    self.target_repository_id().await?,
+                    self.target_repository().await?.id,
                     merge_request_iid
                 ),
                 None::<()>,
@@ -638,7 +705,7 @@ impl Forge for AzureDevOpsForge {
                 &self.target_project_id,
                 format!(
                     "/repositories/{}/pullrequests/{}/threads?api-version=7.1",
-                    self.target_repository_id().await?,
+                    self.target_repository().await?.id,
                     merge_request_iid
                 ),
                 None::<()>,
@@ -691,6 +758,27 @@ impl FormatMergeRequest for AzureDevOpsForge {
     fn mr_name(&self) -> &'static str {
         "PR"
     }
+
+    fn mr_diff_url(
+        &self,
+        from: &BookmarkRef<'_>,
+        to: &BookmarkRef<'_>,
+        default_branch: &str,
+    ) -> Result<String> {
+        // Like GitLab, Azure doesn't seem to care to specify the project/repo of the
+        // base branch for forks.
+        Ok(format!(
+            "{}/{}/_git/{}/branchCompare?baseVersion=GB{}&targetVersion=GB{}&_a=files",
+            self.base_url,
+            self.source_project_id,
+            self.source_repository
+                .get()
+                .ok_or_else::<Error, _>(|| make_whatever!("haven't loaded source_repository yet!"))?
+                .name,
+            to.name().unwrap_or(default_branch),
+            from.name().unwrap_or(default_branch)
+        ))
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -702,12 +790,11 @@ pub struct GitRepository {
 
     pub url: String,
 
-    pub project: TeamProjectReference,
+    pub project: Option<TeamProjectReference>,
 
     pub remote_url: Option<String>,
 
-    #[serde(default)]
-    pub is_fork: bool,
+    pub is_fork: Option<bool>,
 
     pub web_url: Option<String>,
 }
@@ -809,9 +896,13 @@ impl MergeRequestLike for MergeRequest {
     }
 
     fn source_branch(&self) -> &str {
-        self.pull_request
-            .source_ref_name
-            .trim_start_matches("refs/heads/")
+        if let Some(fork) = self.fork_source.as_ref() {
+            fork.name.trim_start_matches("refs/heads/")
+        } else {
+            self.pull_request
+                .source_ref_name
+                .trim_start_matches("refs/heads/")
+        }
     }
 
     fn target_branch(&self) -> &str {
@@ -943,19 +1034,19 @@ impl From<IdentityRefWithVote> for IdentityRef {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GitForkRef {
-    pub creator: IdentityRef,
+    pub creator: Option<IdentityRef>,
 
-    pub is_locked: bool,
+    pub is_locked: Option<bool>,
 
     pub is_locked_by: Option<IdentityRef>,
 
     pub name: String,
 
-    pub object_id: String,
+    pub object_id: Option<String>,
 
     pub repository: GitRepository,
 
-    pub url: String,
+    pub url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

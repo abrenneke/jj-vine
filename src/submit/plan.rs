@@ -23,6 +23,7 @@ use crate::{
             update_mr_base::UpdateMRBaseAction,
             update_mr_title_description::UpdateMRTitleDescriptionAction,
         },
+        mr_base_branch,
     },
     title::get_mr_title,
 };
@@ -102,7 +103,7 @@ pub async fn plan(ctx: PlanContext<'_>) -> Result<SubmissionPlan> {
                             .forge
                             .find_merge_request_by_source_branch_base_branch(
                                 bookmark.name(),
-                                &bookmark.parent_name(default_branch),
+                                &mr_base_branch(ctx.forge, bookmark, default_branch),
                             )
                             .await?
                         {
@@ -179,8 +180,6 @@ pub async fn plan(ctx: PlanContext<'_>) -> Result<SubmissionPlan> {
                 .find_bookmark_in_components(&bookmark)
                 .unwrap();
 
-            let target_branch = bookmark.parent_name(default_branch);
-
             let mut dependencies = Vec::new();
 
             // MR updates depend on the source & target bookmarks being pushed
@@ -212,6 +211,8 @@ pub async fn plan(ctx: PlanContext<'_>) -> Result<SubmissionPlan> {
                     })
                     .flatten(),
             );
+
+            let target_branch = mr_base_branch(ctx.forge, bookmark, default_branch);
 
             if let Some(existing_mr) = existing_mrs.get(bookmark.name()) {
                 if existing_mr.target_branch() != target_branch {

@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use stable_try_trait_v2::try_;
 
 use crate::{
+    bookmark::BookmarkRef,
     description::FormatMergeRequest,
     error::{ConfigSnafu, Error, GitLabApiSnafu, Result},
     forge::{
@@ -311,6 +312,10 @@ impl Forge for GitLabForge {
 
     fn target_project_id(&self) -> &str {
         &self.target_project_id
+    }
+
+    fn is_fork(&self) -> bool {
+        self.target_project_id != self.source_project_id
     }
 
     fn base_url(&self) -> &str {
@@ -745,6 +750,24 @@ impl FormatMergeRequest for GitLabForge {
 
     fn mr_name(&self) -> &'static str {
         "MR"
+    }
+
+    fn mr_diff_url(
+        &self,
+        from: &BookmarkRef,
+        to: &BookmarkRef,
+        default_branch: &str,
+    ) -> Result<String> {
+        // For whatever reason, GitLab seems to work fine if you always use the source
+        // project in the URL, even if the target branch isn't on the source
+        // project? 🤷
+        Ok(format!(
+            "{}/{}/-/compare/{}...{}",
+            self.base_url(),
+            self.source_project_id(),
+            to.name().unwrap_or(default_branch),
+            from.name().unwrap_or(default_branch)
+        ))
     }
 }
 

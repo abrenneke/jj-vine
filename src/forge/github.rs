@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use tracing::debug;
 
 use crate::{
+    bookmark::BookmarkRef,
     description::FormatMergeRequest,
     error::{ConfigSnafu, Error, GitHubApiSnafu, Result},
     forge::{
@@ -657,6 +658,17 @@ query GetDiscussions($owner: String!, $name: String!, $pr_number: Int!) {
             .cloned()
             .collect())
     }
+
+    fn project_url_from_id(&self, project_id: &str) -> String {
+        let base_url = if self.base_url.starts_with("https://api.github.com") {
+            "https://github.com"
+        } else if self.base_url.contains("/api/v3") {
+            self.base_url.trim_end_matches("/api/v3")
+        } else {
+            &self.base_url
+        };
+        format!("{base_url}/{project_id}")
+    }
 }
 
 impl Forge for GitHubForge {
@@ -678,19 +690,16 @@ impl Forge for GitHubForge {
         &self.target_project_id
     }
 
+    fn is_fork(&self) -> bool {
+        self.source_project_id != self.target_project_id
+    }
+
     fn base_url(&self) -> &str {
         &self.base_url
     }
 
     fn project_url(&self) -> String {
-        let base_url = if self.base_url.starts_with("https://api.github.com") {
-            "https://github.com"
-        } else if self.base_url.contains("/api/v3") {
-            self.base_url.trim_end_matches("/api/v3")
-        } else {
-            &self.base_url
-        };
-        format!("{}/{}", base_url, self.target_project_id)
+        self.project_url_from_id(&self.target_project_id)
     }
 
     async fn current_user(&self) -> Result<Self::User> {
@@ -1113,6 +1122,26 @@ impl FormatMergeRequest for GitHubForge {
 
     fn id_expands_title(&self) -> bool {
         true
+    }
+
+    fn mr_diff_url(
+        &self,
+        from: &BookmarkRef,
+        to: &BookmarkRef,
+        default_branch: &str,
+    ) -> Result<String> {
+        let project_id = if from.parent_name(default_branch) == default_branch {
+            &self.target_project_id
+        } else {
+            &self.source_project_id
+        };
+
+        Ok(format!(
+            "{}/compare/{}..{}",
+            self.project_url_from_id(project_id),
+            to.name().unwrap_or(default_branch),
+            from.name().unwrap_or(default_branch)
+        ))
     }
 }
 

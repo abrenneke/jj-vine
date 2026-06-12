@@ -7,13 +7,16 @@ use crate::{
     description::FormatMergeRequest as _,
     error::{Error, Result},
     forge::Forge as _,
-    submit::execute::{
-        ActionInfo,
-        ActionResultData,
-        ExecuteAction,
-        ExecuteActionContext,
-        MRUpdate,
-        MRUpdateType,
+    submit::{
+        execute::{
+            ActionInfo,
+            ActionResultData,
+            ExecuteAction,
+            ExecuteActionContext,
+            MRUpdate,
+            MRUpdateType,
+        },
+        mr_base_branch,
     },
 };
 
@@ -93,7 +96,7 @@ impl ExecuteAction for UpdateMRBaseAction {
             .forge
             .find_merge_request_by_source_branch_base_branch(
                 bookmark.name(),
-                &bookmark.parent_name(default_branch),
+                &mr_base_branch(ctx.execute.forge, bookmark, default_branch),
             )
             .await
         else {

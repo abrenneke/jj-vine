@@ -7,6 +7,7 @@ use std::{borrow::Cow, collections::HashMap, sync::RwLock};
 use bon::bon;
 
 use crate::{
+    bookmark::BookmarkRef,
     description::FormatMergeRequest,
     error::{Error, Result},
     forge::{
@@ -129,6 +130,10 @@ impl Forge for TestForge {
 
     fn target_project_id(&self) -> &str {
         &self.target_project_id
+    }
+
+    fn is_fork(&self) -> bool {
+        self.source_project_id != self.target_project_id
     }
 
     fn base_url(&self) -> &str {
@@ -351,6 +356,22 @@ impl FormatMergeRequest for TestForge {
 
     fn id_expands_title(&self) -> bool {
         self.id_expands_title
+    }
+
+    fn mr_diff_url(
+        &self,
+        from: &BookmarkRef,
+        to: &BookmarkRef,
+        default_branch: &str,
+    ) -> Result<String> {
+        Ok(format!(
+            "{}/{}/compare/{}..{}:{}",
+            self.base_url,
+            self.target_project_id,
+            to.name().unwrap_or(default_branch),
+            self.source_project_id,
+            from.name().unwrap_or(default_branch)
+        ))
     }
 }
 

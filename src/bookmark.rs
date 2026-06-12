@@ -470,6 +470,17 @@ impl BookmarkRef<'_> {
             BookmarkRef::Trunk => false,
         }
     }
+
+    /// Gets the name of the parent bookmark, or the default branch if there is
+    /// no parent or the parent is the trunk.
+    #[must_use]
+    pub fn parent_name(&self, default_branch: &str) -> String {
+        // TODO let user pick target branch
+        match self {
+            BookmarkRef::Bookmark(bookmark) => bookmark.parent_name(default_branch),
+            BookmarkRef::Trunk => default_branch.to_owned(), // uhh idk
+        }
+    }
 }
 
 impl JJName for BookmarkRef<'_> {

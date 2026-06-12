@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use stable_try_trait_v2::try_;
 
 use crate::{
+    bookmark::BookmarkRef,
     config::{Config, ForgeType},
     description::FormatMergeRequest,
     error::{Error, Result},
@@ -520,6 +521,10 @@ pub trait Forge: Send + Sync + FormatMergeRequest {
     /// The project ID where MRs/PRs are created (target/upstream project).
     fn target_project_id(&self) -> &str;
 
+    /// Returns true if the configured project is a fork (i.e. upstream is
+    /// different).
+    fn is_fork(&self) -> bool;
+
     /// The base URL of the forge. E.g. <https://gitlab.example.com>.
     fn base_url(&self) -> &str;
 
@@ -619,6 +624,7 @@ pub trait Forge: Send + Sync + FormatMergeRequest {
 }
 
 #[expect(clippy::module_name_repetitions, reason = "Impl would be a dumb name")]
+#[expect(clippy::large_enum_variant, reason = "important")]
 pub enum ForgeImpl {
     GitLab(gitlab::GitLabForge),
     GitHub(github::GitHubForge),
@@ -682,6 +688,17 @@ impl Forge for ForgeImpl {
             #[cfg(test)]
             ForgeImpl::Test(forge) => forge.target_project_id(),
             ForgeImpl::AzureDevOps(forge) => forge.target_project_id(),
+        }
+    }
+
+    fn is_fork(&self) -> bool {
+        match self {
+            ForgeImpl::GitLab(forge) => forge.is_fork(),
+            ForgeImpl::GitHub(forge) => forge.is_fork(),
+            ForgeImpl::Forgejo(forge) => forge.is_fork(),
+            #[cfg(test)]
+            ForgeImpl::Test(forge) => forge.is_fork(),
+            ForgeImpl::AzureDevOps(forge) => forge.is_fork(),
         }
     }
 
@@ -1187,6 +1204,22 @@ impl FormatMergeRequest for ForgeImpl {
             #[cfg(test)]
             ForgeImpl::Test(forge) => forge.id_expands_title(),
             ForgeImpl::AzureDevOps(forge) => forge.id_expands_title(),
+        }
+    }
+
+    fn mr_diff_url(
+        &self,
+        from: &BookmarkRef<'_>,
+        to: &BookmarkRef<'_>,
+        default_branch: &str,
+    ) -> Result<String> {
+        match self {
+            ForgeImpl::GitLab(forge) => forge.mr_diff_url(from, to, default_branch),
+            ForgeImpl::GitHub(forge) => forge.mr_diff_url(from, to, default_branch),
+            ForgeImpl::Forgejo(forge) => forge.mr_diff_url(from, to, default_branch),
+            #[cfg(test)]
+            ForgeImpl::Test(forge) => forge.mr_diff_url(from, to, default_branch),
+            ForgeImpl::AzureDevOps(forge) => forge.mr_diff_url(from, to, default_branch),
         }
     }
 }

@@ -12,7 +12,8 @@ use itertools::Itertools as _;
 use crate::{
     bookmark::{BookmarkRef, ChangeComponent},
     config::{DescriptionConfig, DescriptionDiagramFormat, DescriptionMode},
-    forge::{AnyForgeMergeRequest, BorrowId, ForgeImpl, MergeRequestLike as _},
+    error::Result,
+    forge::{AnyForgeMergeRequest, BorrowId, Forge as _, ForgeImpl, MergeRequestLike as _},
     jj::Change,
     utils::toposort,
 };
@@ -32,6 +33,15 @@ pub trait FormatMergeRequest {
     fn id_expands_title(&self) -> bool {
         false
     }
+
+    /// Gets a URL that shows a diff comparison between two identifiers (e.g.
+    /// commit shas, bookmarks/branches, tags).
+    fn mr_diff_url(
+        &self,
+        from: &BookmarkRef,
+        to: &BookmarkRef,
+        default_branch: &str,
+    ) -> Result<String>;
 }
 
 pub enum Formatter {
@@ -335,7 +345,7 @@ impl LinearListFormatter {
 
         let list_indicator = format!("{}.", idx.saturating_add(1));
 
-        format_bookmark_entry(bookmark, "", &list_indicator, &into, context)
+        format_bookmark_entry(bookmark, "", &list_indicator, &into, context, None)
     }
 }
 
@@ -506,7 +516,7 @@ impl TreeFormatter {
             "-".to_owned()
         };
 
-        format_bookmark_entry(bookmark, &indent, &list_indicator, &also, context)
+        format_bookmark_entry(bookmark, &indent, &list_indicator, &also, context, parent)
     }
 }
 
@@ -516,7 +526,10 @@ fn format_bookmark_entry(
     list_indicator: &str,
     suffix: &str,
     context: &FormatContext<impl BuildHasher>,
+    base: Option<&BookmarkRef>,
 ) -> String {
+    let compares = render_compare_links(bookmark, base, context);
+
     match bookmark {
         BookmarkRef::Bookmark(bookmark) => {
             if bookmark.bookmark.name() == context.this_bookmark {
@@ -525,18 +538,24 @@ fn format_bookmark_entry(
                     .get(bookmark.name())
                     .expect("Self-bookmark should always have an MR")
                     .title();
+
                 let mr_name = context.format_merge_request.mr_name();
-                format!(r#"{prefix}{list_indicator} **"{title}" (this {mr_name}){suffix}**"#)
+
+                format!(
+                    r#"{prefix}{list_indicator} **"{title}" (this {mr_name}){suffix}**{compares}"#
+                )
             } else if let Some(mr) = context.merge_request_lookup.get(bookmark.name()) {
                 let id = context
                     .format_merge_request
                     .format_merge_request_id(mr.iid());
+
                 let title = if context.format_merge_request.id_expands_title() {
                     String::new()
                 } else {
                     format!(r#" "{}""#, mr.title())
                 };
-                format!("{prefix}{list_indicator} {id}{title}{suffix}")
+
+                format!("{prefix}{list_indicator} {id}{title}{suffix}{compares}")
             } else {
                 // Bookmark without MR (yet)
                 format!("{prefix}{list_indicator} `{}`", bookmark.name())
@@ -758,6 +777,63 @@ fn read_file(repository_root: &Path, path: &Path) -> String {
     std::fs::read_to_string(repository_root.join(path)).unwrap_or_default()
 }
 
+/// Renders 1 or more links that compare a bookmark with its parent. Used
+/// for forks because forges hate stacked PRs.
+fn render_compare_links(
+    source: &BookmarkRef,
+    base: Option<&BookmarkRef>,
+    context: &FormatContext<impl BuildHasher>,
+) -> String {
+    // If not a fork, then the normal PR diff view will work just fine.
+    if !context.format_merge_request.is_fork() {
+        return String::new();
+    }
+
+    match source {
+        BookmarkRef::Trunk => String::new(),
+        BookmarkRef::Bookmark(bookmark) => {
+            let parents: Vec<&BookmarkRef> = match base {
+                Some(base) => vec![base],
+                None => bookmark.parents.iter().collect::<Vec<_>>(),
+            };
+
+            match &parents[..] {
+                [] => String::new(),
+                [parent] => context
+                    .format_merge_request
+                    .mr_diff_url(source, parent, &context.base_branch)
+                    .map(|mr_diff_url| format!(" ([Compare]({mr_diff_url}))"))
+                    .unwrap_or_default(),
+                parents => parents
+                    .iter()
+                    .map(|parent| -> Result<String> {
+                        let url = context.format_merge_request.mr_diff_url(
+                            source,
+                            parent,
+                            &context.base_branch,
+                        )?;
+
+                        let id_or_name = parent
+                            .name()
+                            .and_then(|name| context.merge_request_lookup.get(name))
+                            .map(|mr| {
+                                context
+                                    .format_merge_request
+                                    .format_merge_request_id(mr.iid())
+                            })
+                            .or(parent.name().map(ToOwned::to_owned))
+                            .unwrap_or(context.base_branch.clone());
+
+                        Ok(format!("([Compare with {id_or_name}]({url}))"))
+                    })
+                    .collect::<Result<Vec<String>>>()
+                    .map(|links| format!(" {}", links.join(" ")))
+                    .unwrap_or_default(),
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 #[expect(clippy::too_many_lines, reason = "they're fine")]
 mod tests {
@@ -856,6 +932,77 @@ mod tests {
 2. #1 "Feature A"
 3. **"Feature B" (this MR)**
 4. #3 "Feature C""#
+        );
+    }
+
+    #[test]
+    fn linear_generate_linear_component_fork() {
+        let changes = Change::mock_stack_map([
+            Change::mock_from_bookmark("feature-a"),
+            Change::mock_from_bookmark("feature-b"),
+            Change::mock_from_bookmark("feature-c"),
+        ]);
+
+        let graph = BookmarkGraph::from_lookups(
+            changes.create_bookmark_map(),
+            &changes.create_adjacency_list(),
+        );
+
+        let component = &graph.components()[0];
+        let formatter = Formatter::LinearList(LinearListFormatter);
+
+        let forge = TestForge::builder()
+            .base_url("https://forge.local".to_owned())
+            .target_project_id("proj-1".to_owned())
+            .source_project_id("proj-2".to_owned())
+            .merge_requests(HashMap::from([
+                (
+                    "feature-a".to_owned(),
+                    MergeRequest::builder()
+                        .id("1".to_owned())
+                        .title("Feature A".to_owned())
+                        .source_branch("feature-a".to_owned())
+                        .target_branch("main".to_owned())
+                        .build(),
+                ),
+                (
+                    "feature-b".to_owned(),
+                    MergeRequest::builder()
+                        .id("2".to_owned())
+                        .title("Feature B".to_owned())
+                        .source_branch("feature-b".to_owned())
+                        .target_branch("main".to_owned())
+                        .build(),
+                ),
+                (
+                    "feature-c".to_owned(),
+                    MergeRequest::builder()
+                        .id("3".to_owned())
+                        .title("Feature C".to_owned())
+                        .source_branch("feature-c".to_owned())
+                        .target_branch("main".to_owned())
+                        .build(),
+                ),
+            ]))
+            .build();
+
+        let context = FormatContext {
+            component: component.clone(),
+            this_bookmark: "feature-b".to_owned(),
+            merge_request_lookup: &forge.merge_request_lookup(),
+            base_branch: "main".to_owned(),
+            format_merge_request: &ForgeImpl::Test(forge),
+        };
+        let description = formatter.format_linear(&context);
+
+        assert_str_eq!(
+            description,
+            r#"This MR is part of a stack containing 3 MRs:
+
+1. `main`
+2. #1 "Feature A"
+3. **"Feature B" (this MR)** ([Compare](https://forge.local/proj-1/compare/feature-a..proj-2:feature-b))
+4. #3 "Feature C" ([Compare](https://forge.local/proj-1/compare/feature-b..proj-2:feature-c))"#
         );
     }
 
@@ -1158,6 +1305,176 @@ mod tests {
 9. #7 "Feature G" → #3, #5, #10
 10. #8 "Feature H" → #7
 11. #6 "Feature F" → #3, #9"#
+        );
+    }
+
+    #[test]
+    fn linear_generate_complex_component_fork() {
+        let mut changes = Change::mock_stack_map([
+            Change::mock_from_bookmark("feature-a"),
+            Change::mock_from_bookmark("feature-b"),
+            Change::mock_from_bookmark("feature-c"),
+        ]);
+
+        changes.extend(Change::mock_stack_map([
+            Change::mock_from_bookmark("feature-i"),
+            Change::mock_from_bookmark("feature-j"),
+        ]));
+
+        changes.insert(
+            Change::mock_from_bookmark("feature-d")
+                .with_mock_parent_bookmarks(["feature-a", "feature-b"]),
+        );
+
+        changes.insert(
+            Change::mock_from_bookmark("feature-e")
+                .with_mock_parent_bookmarks(["feature-b", "feature-j"]),
+        );
+
+        changes.insert(
+            Change::mock_from_bookmark("feature-f")
+                .with_mock_parent_bookmarks(["feature-c", "feature-i"]),
+        );
+
+        changes.extend(Change::mock_stack_map([
+            Change::mock_from_bookmark("feature-g").with_mock_parent_bookmarks([
+                "feature-c",
+                "feature-j",
+                "feature-e",
+            ]),
+            Change::mock_from_bookmark("feature-h"),
+        ]));
+
+        let graph = BookmarkGraph::from_lookups(
+            changes.create_bookmark_map(),
+            &changes.create_adjacency_list(),
+        );
+
+        let component = &graph.components()[0];
+        let formatter = Formatter::LinearList(LinearListFormatter);
+
+        let forge = TestForge::builder()
+            .base_url("https://forge.local".to_owned())
+            .target_project_id("proj-1".to_owned())
+            .source_project_id("proj-2".to_owned())
+            .merge_requests(HashMap::from([
+                (
+                    "feature-a".to_owned(),
+                    MergeRequest::builder()
+                        .id("1".to_owned())
+                        .title("Feature A".to_owned())
+                        .source_branch("feature-a".to_owned())
+                        .target_branch("main".to_owned())
+                        .build(),
+                ),
+                (
+                    "feature-b".to_owned(),
+                    MergeRequest::builder()
+                        .id("2".to_owned())
+                        .title("Feature B".to_owned())
+                        .source_branch("feature-b".to_owned())
+                        .target_branch("main".to_owned())
+                        .build(),
+                ),
+                (
+                    "feature-c".to_owned(),
+                    MergeRequest::builder()
+                        .id("3".to_owned())
+                        .title("Feature C".to_owned())
+                        .source_branch("feature-c".to_owned())
+                        .target_branch("main".to_owned())
+                        .build(),
+                ),
+                (
+                    "feature-d".to_owned(),
+                    MergeRequest::builder()
+                        .id("4".to_owned())
+                        .title("Feature D".to_owned())
+                        .source_branch("feature-d".to_owned())
+                        .target_branch("main".to_owned())
+                        .build(),
+                ),
+                (
+                    "feature-e".to_owned(),
+                    MergeRequest::builder()
+                        .id("5".to_owned())
+                        .title("Feature E".to_owned())
+                        .source_branch("feature-e".to_owned())
+                        .target_branch("main".to_owned())
+                        .build(),
+                ),
+                (
+                    "feature-f".to_owned(),
+                    MergeRequest::builder()
+                        .id("6".to_owned())
+                        .title("Feature F".to_owned())
+                        .source_branch("feature-f".to_owned())
+                        .target_branch("main".to_owned())
+                        .build(),
+                ),
+                (
+                    "feature-g".to_owned(),
+                    MergeRequest::builder()
+                        .id("7".to_owned())
+                        .title("Feature G".to_owned())
+                        .source_branch("feature-g".to_owned())
+                        .target_branch("main".to_owned())
+                        .build(),
+                ),
+                (
+                    "feature-h".to_owned(),
+                    MergeRequest::builder()
+                        .id("8".to_owned())
+                        .title("Feature H".to_owned())
+                        .source_branch("feature-h".to_owned())
+                        .target_branch("main".to_owned())
+                        .build(),
+                ),
+                (
+                    "feature-i".to_owned(),
+                    MergeRequest::builder()
+                        .id("9".to_owned())
+                        .title("Feature I".to_owned())
+                        .source_branch("feature-i".to_owned())
+                        .target_branch("main".to_owned())
+                        .build(),
+                ),
+                (
+                    "feature-j".to_owned(),
+                    MergeRequest::builder()
+                        .id("10".to_owned())
+                        .title("Feature J".to_owned())
+                        .source_branch("feature-j".to_owned())
+                        .target_branch("main".to_owned())
+                        .build(),
+                ),
+            ]))
+            .build();
+
+        let context = FormatContext {
+            component: component.clone(),
+            this_bookmark: "feature-e".to_owned(),
+            merge_request_lookup: &forge.merge_request_lookup(),
+            base_branch: "main".to_owned(),
+            format_merge_request: &ForgeImpl::Test(forge),
+        };
+        let description = formatter.format_graph(&context);
+
+        assert_str_eq!(
+            description,
+            r#"This MR is part of a complex set of MRs containing 10 MRs:
+
+1. `main`
+2. #9 "Feature I" → `main`
+3. #10 "Feature J" → #9 ([Compare](https://forge.local/proj-1/compare/feature-i..proj-2:feature-j))
+4. #1 "Feature A" → `main`
+5. #2 "Feature B" → #1 ([Compare](https://forge.local/proj-1/compare/feature-a..proj-2:feature-b))
+6. **"Feature E" (this MR) → #2, #10** ([Compare with #2](https://forge.local/proj-1/compare/feature-b..proj-2:feature-e)) ([Compare with #10](https://forge.local/proj-1/compare/feature-j..proj-2:feature-e))
+7. #4 "Feature D" → #1, #2 ([Compare with #1](https://forge.local/proj-1/compare/feature-a..proj-2:feature-d)) ([Compare with #2](https://forge.local/proj-1/compare/feature-b..proj-2:feature-d))
+8. #3 "Feature C" → #2 ([Compare](https://forge.local/proj-1/compare/feature-b..proj-2:feature-c))
+9. #7 "Feature G" → #3, #5, #10 ([Compare with #3](https://forge.local/proj-1/compare/feature-c..proj-2:feature-g)) ([Compare with #5](https://forge.local/proj-1/compare/feature-e..proj-2:feature-g)) ([Compare with #10](https://forge.local/proj-1/compare/feature-j..proj-2:feature-g))
+10. #8 "Feature H" → #7 ([Compare](https://forge.local/proj-1/compare/feature-g..proj-2:feature-h))
+11. #6 "Feature F" → #3, #9 ([Compare with #3](https://forge.local/proj-1/compare/feature-c..proj-2:feature-f)) ([Compare with #9](https://forge.local/proj-1/compare/feature-i..proj-2:feature-f))"#
         );
     }
 
@@ -1537,6 +1854,185 @@ mod tests {
                 2. #6 "Feature F" (→ #9 also)
             3. #4 "Feature D" (→ #1 also)
         2. #4 "Feature D" (→ #2 also)"#
+        );
+    }
+
+    #[test]
+    fn tree_generate_complex_component_fork() {
+        let mut changes = Change::mock_stack_map([
+            Change::mock_from_bookmark("feature-a"),
+            Change::mock_from_bookmark("feature-b"),
+            Change::mock_from_bookmark("feature-c"),
+        ]);
+
+        changes.extend(Change::mock_stack_map([
+            Change::mock_from_bookmark("feature-i"),
+            Change::mock_from_bookmark("feature-j"),
+        ]));
+
+        changes.insert(
+            Change::mock_from_bookmark("feature-d")
+                .with_mock_parent_bookmarks(["feature-a", "feature-b"]),
+        );
+
+        changes.insert(
+            Change::mock_from_bookmark("feature-e")
+                .with_mock_parent_bookmarks(["feature-b", "feature-j"]),
+        );
+
+        changes.insert(
+            Change::mock_from_bookmark("feature-f")
+                .with_mock_parent_bookmarks(["feature-c", "feature-i"]),
+        );
+
+        changes.extend(Change::mock_stack_map([
+            Change::mock_from_bookmark("feature-g").with_mock_parent_bookmarks([
+                "feature-c",
+                "feature-j",
+                "feature-e",
+            ]),
+            Change::mock_from_bookmark("feature-h"),
+        ]));
+
+        let graph = BookmarkGraph::from_lookups(
+            changes.create_bookmark_map(),
+            &changes.create_adjacency_list(),
+        );
+
+        let component = &graph.components()[0];
+        let formatter = Formatter::Tree(TreeFormatter);
+
+        let forge = TestForge::builder()
+            .base_url("https://forge.local".to_owned())
+            .target_project_id("proj-1".to_owned())
+            .source_project_id("proj-2".to_owned())
+            .merge_requests(HashMap::from([
+                (
+                    "feature-a".to_owned(),
+                    MergeRequest::builder()
+                        .id("1".to_owned())
+                        .title("Feature A".to_owned())
+                        .source_branch("feature-a".to_owned())
+                        .target_branch("main".to_owned())
+                        .build(),
+                ),
+                (
+                    "feature-b".to_owned(),
+                    MergeRequest::builder()
+                        .id("2".to_owned())
+                        .title("Feature B".to_owned())
+                        .source_branch("feature-b".to_owned())
+                        .target_branch("main".to_owned())
+                        .build(),
+                ),
+                (
+                    "feature-c".to_owned(),
+                    MergeRequest::builder()
+                        .id("3".to_owned())
+                        .title("Feature C".to_owned())
+                        .source_branch("feature-c".to_owned())
+                        .target_branch("main".to_owned())
+                        .build(),
+                ),
+                (
+                    "feature-d".to_owned(),
+                    MergeRequest::builder()
+                        .id("4".to_owned())
+                        .title("Feature D".to_owned())
+                        .source_branch("feature-d".to_owned())
+                        .target_branch("main".to_owned())
+                        .build(),
+                ),
+                (
+                    "feature-e".to_owned(),
+                    MergeRequest::builder()
+                        .id("5".to_owned())
+                        .title("Feature E".to_owned())
+                        .source_branch("feature-e".to_owned())
+                        .target_branch("main".to_owned())
+                        .build(),
+                ),
+                (
+                    "feature-f".to_owned(),
+                    MergeRequest::builder()
+                        .id("6".to_owned())
+                        .title("Feature F".to_owned())
+                        .source_branch("feature-f".to_owned())
+                        .target_branch("main".to_owned())
+                        .build(),
+                ),
+                (
+                    "feature-g".to_owned(),
+                    MergeRequest::builder()
+                        .id("7".to_owned())
+                        .title("Feature G".to_owned())
+                        .source_branch("feature-g".to_owned())
+                        .target_branch("main".to_owned())
+                        .build(),
+                ),
+                (
+                    "feature-h".to_owned(),
+                    MergeRequest::builder()
+                        .id("8".to_owned())
+                        .title("Feature H".to_owned())
+                        .source_branch("feature-h".to_owned())
+                        .target_branch("main".to_owned())
+                        .build(),
+                ),
+                (
+                    "feature-i".to_owned(),
+                    MergeRequest::builder()
+                        .id("9".to_owned())
+                        .title("Feature I".to_owned())
+                        .source_branch("feature-i".to_owned())
+                        .target_branch("main".to_owned())
+                        .build(),
+                ),
+                (
+                    "feature-j".to_owned(),
+                    MergeRequest::builder()
+                        .id("10".to_owned())
+                        .title("Feature J".to_owned())
+                        .source_branch("feature-j".to_owned())
+                        .target_branch("main".to_owned())
+                        .build(),
+                ),
+            ]))
+            .build();
+
+        let context = FormatContext {
+            component: component.clone(),
+            this_bookmark: "feature-e".to_owned(),
+            merge_request_lookup: &forge.merge_request_lookup(),
+            base_branch: "main".to_owned(),
+            format_merge_request: &ForgeImpl::Test(forge),
+        };
+        let description = formatter.format_graph(&context);
+
+        assert_str_eq!(
+            description,
+            r#"This MR is part of a complex set of MRs containing 10 MRs:
+
+- `main`
+    1. #9 "Feature I" ([Compare](https://forge.local/proj-1/compare/main..proj-2:feature-i))
+        1. #10 "Feature J" ([Compare](https://forge.local/proj-1/compare/feature-i..proj-2:feature-j))
+            1. #7 "Feature G" (→ #3, #5 also) ([Compare](https://forge.local/proj-1/compare/feature-j..proj-2:feature-g))
+                - #8 "Feature H" ([Compare](https://forge.local/proj-1/compare/feature-g..proj-2:feature-h))
+            2. **"Feature E" (this MR) (→ #2 also)** ([Compare](https://forge.local/proj-1/compare/feature-j..proj-2:feature-e))
+                - #7 "Feature G" (→ #3, #10 also) ([Compare](https://forge.local/proj-1/compare/feature-e..proj-2:feature-g))
+                    - #8 "Feature H" ([Compare](https://forge.local/proj-1/compare/feature-g..proj-2:feature-h))
+        2. #6 "Feature F" (→ #3 also) ([Compare](https://forge.local/proj-1/compare/feature-i..proj-2:feature-f))
+    2. #1 "Feature A" ([Compare](https://forge.local/proj-1/compare/main..proj-2:feature-a))
+        1. #2 "Feature B" ([Compare](https://forge.local/proj-1/compare/feature-a..proj-2:feature-b))
+            1. **"Feature E" (this MR) (→ #10 also)** ([Compare](https://forge.local/proj-1/compare/feature-b..proj-2:feature-e))
+                - #7 "Feature G" (→ #3, #10 also) ([Compare](https://forge.local/proj-1/compare/feature-e..proj-2:feature-g))
+                    - #8 "Feature H" ([Compare](https://forge.local/proj-1/compare/feature-g..proj-2:feature-h))
+            2. #3 "Feature C" ([Compare](https://forge.local/proj-1/compare/feature-b..proj-2:feature-c))
+                1. #7 "Feature G" (→ #5, #10 also) ([Compare](https://forge.local/proj-1/compare/feature-c..proj-2:feature-g))
+                    - #8 "Feature H" ([Compare](https://forge.local/proj-1/compare/feature-g..proj-2:feature-h))
+                2. #6 "Feature F" (→ #9 also) ([Compare](https://forge.local/proj-1/compare/feature-c..proj-2:feature-f))
+            3. #4 "Feature D" (→ #1 also) ([Compare](https://forge.local/proj-1/compare/feature-b..proj-2:feature-d))
+        2. #4 "Feature D" (→ #2 also) ([Compare](https://forge.local/proj-1/compare/feature-a..proj-2:feature-d))"#
         );
     }
 

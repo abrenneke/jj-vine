@@ -49,7 +49,8 @@ Supports the following code forges:
 
   - [Configuration](#title-configuration)
   - [Custom Title Templates](#custom-title-templates)
-  - [Credits](#credits)
+- [On Forks](#forks)
+- [Credits](#credits)
 - [FAQs](#faqs)
 
   - [Is this vibe-coded slop?](#is-this-vibe-coded-slop)
@@ -611,6 +612,14 @@ Some examples:
 
     - [kxqpmsyz] Add feature A
     - [rlvkpnkp] Add feature B
+
+## Forks{#forks}
+
+`jj-vine` will work on forked repositories on all forges.
+
+However, there is one main caveat: because none of the forges support the concept of stacked pull/merge requests when using forks, _all pull/merge requests must be created on the upstream, pointed to the first request's base branch_. This means that when viewing the diff page of stacked requests, the diff for all the requests lower in the stack will also be shown. To alleviate this somewhat, **Compare** links will be added to the generated stack description showing the diff between the actual base branch, and the source branch.
+
+> To expand on the issue somewhat, suppose you have a stack of `main<-A<-B`. It is fine to create PR `A->main` on the upstream. But then how do you create `B->A`? Neither branch A nor B are part of the upstream repository, so all forges will reject creating the PR (PRs must be created on the target branch's repository). The PR could be created in the source repository, but once `A` merges, and you have `B->main`, then the PR would somehow have to be _moved_ into the upstream repository. Or, it would have to be closed and reopened, losing any history. Additionally, if the PR is created in the source repository, then nobody will really have visibility before the PR moves into the upstream. This situation is something that forges will have to fix.
 
 ## Credits{#credits}
 

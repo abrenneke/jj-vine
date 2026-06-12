@@ -6,14 +6,17 @@ use crate::{
     bookmark::BookmarkRef,
     error::{Error, Result, make_whatever},
     forge::Forge as _,
-    submit::execute::{
-        ActionInfo,
-        ActionResultData,
-        BookmarkNameOrPendingChangeId,
-        ExecuteAction,
-        ExecuteActionContext,
-        MRUpdate,
-        MRUpdateType,
+    submit::{
+        execute::{
+            ActionInfo,
+            ActionResultData,
+            BookmarkNameOrPendingChangeId,
+            ExecuteAction,
+            ExecuteActionContext,
+            MRUpdate,
+            MRUpdateType,
+        },
+        mr_base_branch,
     },
 };
 
@@ -75,7 +78,7 @@ impl ExecuteAction for SyncDependentMergeRequestsAction {
             .forge
             .find_merge_request_by_source_branch_base_branch(
                 &bookmark_name,
-                &bookmark.parent_name(default_branch),
+                &mr_base_branch(ctx.execute.forge, bookmark, default_branch),
             )
             .await?
             .ok_or_else::<Error, _>(|| {
@@ -95,7 +98,7 @@ impl ExecuteAction for SyncDependentMergeRequestsAction {
                     .forge
                     .find_merge_request_by_source_branch_base_branch(
                         parent_bookmark.name(),
-                        &parent_bookmark.parent_name(default_branch),
+                        &mr_base_branch(ctx.execute.forge, parent_bookmark, default_branch),
                     )
                     .await?
                     .ok_or_else::<Error, _>(|| {

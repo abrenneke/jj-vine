@@ -229,6 +229,8 @@ fn format_title_with_template(
             Ok(Replacement::ParentBookmarkName) => {
                 title = title.replace(
                     needs_replacement.as_str(),
+                    // Intentionally not `mr_base_branch` because needs to show "intended" base
+                    // branch
                     &bookmark.parent_name(default_branch),
                 );
             }
