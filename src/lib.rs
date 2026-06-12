@@ -1,6 +1,4 @@
 #![allow(async_fn_in_trait, reason = "need it")]
-#![feature(try_trait_v2)]
-#![feature(try_trait_v2_residual)]
 #![warn(clippy::pedantic)]
 #![allow(clippy::missing_errors_doc, reason = "TODO")]
 #![allow(

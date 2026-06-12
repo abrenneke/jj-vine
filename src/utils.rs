@@ -1,9 +1,7 @@
-use core::{
-    convert::Infallible,
-    hash::Hash,
-    ops::{ControlFlow, FromResidual, Residual, Try},
-};
+use core::{convert::Infallible, hash::Hash, ops::ControlFlow};
 use std::collections::HashMap;
+
+use stable_try_trait_v2::{FromResidual, Residual, Try};
 
 /// A trait to get the only element of a collection.
 pub trait Only<T> {

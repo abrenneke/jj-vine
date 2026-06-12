@@ -43,6 +43,7 @@ reqwest = { version = "0.13.1", features = [
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 snafu = "0.8.9"
+stable_try_trait_v2 = "1.75.1"
 strum = { version = "0.27.2", features = ["derive"] }
 tokio = { version = "1.49.0", features = ["full"] }
 toml = "0.9.11"

@@ -9,6 +9,7 @@ use std::borrow::Cow;
 use bon::Builder;
 use enum_dispatch::enum_dispatch;
 use serde::{Deserialize, Serialize};
+use stable_try_trait_v2::try_;
 
 use crate::{
     config::{Config, ForgeType},
@@ -1086,36 +1087,42 @@ impl Forge for ForgeImpl {
             ForgeImpl::GitLab(forge) => {
                 forge
                     .sync_dependent_merge_requests(
-                        merge_request_iid.parse::<u64>()?,
-                        dependent_merge_request_iids
-                            .iter()
-                            .map(|s| s.parse::<u64>().map_err(Error::from))
-                            .collect::<Result<Vec<_>>>()?
-                            .as_slice(),
+                        try_!(merge_request_iid.parse::<u64>()),
+                        try_!(
+                            dependent_merge_request_iids
+                                .iter()
+                                .map(|s| s.parse::<u64>().map_err(Error::from))
+                                .collect::<Result<Vec<_>>>()
+                        )
+                        .as_slice(),
                     )
                     .await
             }
             ForgeImpl::GitHub(forge) => {
                 forge
                     .sync_dependent_merge_requests(
-                        merge_request_iid.parse::<u64>()?,
-                        dependent_merge_request_iids
-                            .iter()
-                            .map(|s| s.parse::<u64>().map_err(Error::from))
-                            .collect::<Result<Vec<_>>>()?
-                            .as_slice(),
+                        try_!(merge_request_iid.parse::<u64>()),
+                        try_!(
+                            dependent_merge_request_iids
+                                .iter()
+                                .map(|s| s.parse::<u64>().map_err(Error::from))
+                                .collect::<Result<Vec<_>>>()
+                        )
+                        .as_slice(),
                     )
                     .await
             }
             ForgeImpl::Forgejo(forge) => {
                 forge
                     .sync_dependent_merge_requests(
-                        merge_request_iid.parse::<u64>()?,
-                        dependent_merge_request_iids
-                            .iter()
-                            .map(|s| s.parse::<u64>().map_err(Error::from))
-                            .collect::<Result<Vec<_>>>()?
-                            .as_slice(),
+                        try_!(merge_request_iid.parse::<u64>()),
+                        try_!(
+                            dependent_merge_request_iids
+                                .iter()
+                                .map(|s| s.parse::<u64>().map_err(Error::from))
+                                .collect::<Result<Vec<_>>>()
+                        )
+                        .as_slice(),
                     )
                     .await
             }
@@ -1128,12 +1135,14 @@ impl Forge for ForgeImpl {
             ForgeImpl::AzureDevOps(forge) => {
                 forge
                     .sync_dependent_merge_requests(
-                        merge_request_iid.parse::<i32>()?,
-                        dependent_merge_request_iids
-                            .iter()
-                            .map(|s| s.parse::<i32>().map_err(Error::from))
-                            .collect::<Result<Vec<_>>>()?
-                            .as_slice(),
+                        try_!(merge_request_iid.parse::<i32>()),
+                        try_!(
+                            dependent_merge_request_iids
+                                .iter()
+                                .map(|s| s.parse::<i32>().map_err(Error::from))
+                                .collect::<Result<Vec<_>>>()
+                        )
+                        .as_slice(),
                     )
                     .await
             }

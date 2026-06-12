@@ -3,6 +3,7 @@ use std::{borrow::Cow, collections::HashSet, path::Path};
 use futures::{StreamExt as _, stream::FuturesUnordered, try_join};
 use reqwest::{Method, StatusCode};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use stable_try_trait_v2::try_;
 
 use crate::{
     description::FormatMergeRequest,
@@ -716,7 +717,7 @@ impl Forge for GitLabForge {
         }
         .await;
 
-        let (made_changes, _) = match api_result {
+        let (made_changes, _) = try_!(match api_result {
             Ok(value) => ResultWithWarnings::Ok(value),
             Err(error) => match error {
                 Error::GitLabApi { status, .. } if status == StatusCode::NOT_FOUND => {
@@ -729,7 +730,7 @@ impl Forge for GitLabForge {
                 }
                 _ => ResultWithWarnings::Err(error),
             },
-        }?;
+        });
 
         ResultWithWarnings::Ok(made_changes)
     }
