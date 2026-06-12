@@ -22,6 +22,10 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      # Stable is used for build
+      - uses: dtolnay/rust-toolchain@stable
+
+      # Nightly used for rustfmt and clippy only
       - uses: dtolnay/rust-toolchain@nightly
         with:
           components: clippy, rustfmt

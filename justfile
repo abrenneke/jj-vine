@@ -22,18 +22,18 @@ clippy *args:
 
 # Builds the project
 build *args:
-    cargo build {{ args }}
+    cargo +stable build {{ args }}
 
 # Runs all tests, including integration tests (see CONTRIBUTING.djot for more details)
 test *args:
-    cargo test {{ args }}
+    cargo +stable test {{ args }}
 
 watch:
     bacon build
 
 # Runs unit tests (excluding integration tests)
 test-unit *args:
-    cargo test --features no-e2e-tests {{ args }}
+    cargo +stable test --features no-e2e-tests {{ args }}
 
 # Ensures that the .djot files are synced to the .md files.
 check-readmes:
