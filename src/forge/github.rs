@@ -10,6 +10,7 @@ use tracing::debug;
 
 use crate::{
     bookmark::BookmarkRef,
+    config::Config,
     description::FormatMergeRequest,
     error::{ConfigSnafu, Error, GitHubApiSnafu, Result},
     forge::{
@@ -332,7 +333,38 @@ struct GraphQLError {
     message: String,
 }
 
+pub fn validate_config(config: &Config) -> Result<()> {
+    if config.github.project.is_empty() {
+        return Err(ConfigSnafu {
+            message: "github.project is required when forge is github".to_owned(),
+        }
+        .build());
+    }
+
+    if config.github.token.is_empty() {
+        return Err(ConfigSnafu {
+            message: "github.token is required when forge is github".to_owned(),
+        }
+        .build());
+    }
+
+    Ok(())
+}
+
 impl GitHubForge {
+    pub fn new_from_config(config: &Config) -> Result<Self> {
+        let source = config.github.source_project();
+        let target = config.github.target_project();
+        Self::new(
+            config.github.host.clone(),
+            source.to_owned(),
+            target.to_owned(),
+            config.github.token.clone(),
+            config.ca_bundle.clone(),
+            config.tls_accept_non_compliant_certs,
+        )
+    }
+
     /// Create a new GitHub client.
     pub fn new(
         base_url: impl Into<String>,

@@ -1237,64 +1237,17 @@ impl ForgeImpl {
 
         match config.forge {
             ForgeType::GitLab => {
-                let source = config.gitlab.source_project();
-                let target = config.gitlab.target_project();
-                gitlab::GitLabForge::new(
-                    config.gitlab.host.clone(),
-                    source.to_owned(),
-                    target.to_owned(),
-                    config.gitlab.token.clone(),
-                    config.ca_bundle.clone(),
-                    config.tls_accept_non_compliant_certs,
-                    config.gitlab.create_merge_request_dependencies,
-                )
-                .map(ForgeImpl::GitLab)
+                gitlab::GitLabForge::new_from_config(config).map(ForgeImpl::GitLab)
             }
             ForgeType::GitHub => {
-                let source = config.github.source_project();
-                let target = config.github.target_project();
-                github::GitHubForge::new(
-                    config.github.host.clone(),
-                    source.to_owned(),
-                    target.to_owned(),
-                    config.github.token.clone(),
-                    config.ca_bundle.clone(),
-                    config.tls_accept_non_compliant_certs,
-                )
-                .map(ForgeImpl::GitHub)
+                github::GitHubForge::new_from_config(config).map(ForgeImpl::GitHub)
             }
             ForgeType::Forgejo => {
-                let source = config.forgejo.source_project();
-                let target = config.forgejo.target_project();
-                forgejo::ForgejoForge::new(
-                    config.forgejo.host.clone(),
-                    source.to_owned(),
-                    target.to_owned(),
-                    config.forgejo.token.clone(),
-                    config.ca_bundle.clone(),
-                    config.tls_accept_non_compliant_certs,
-                    config.forgejo.wip_prefix.clone(),
-                )
-                .map(ForgeImpl::Forgejo)
+                forgejo::ForgejoForge::new_from_config(config).map(ForgeImpl::Forgejo)
             }
-            ForgeType::AzureDevOps => azure::AzureDevOpsForge::builder()
-                .base_url(config.azure.host.clone())
-                .vssps_base_url(config.azure.vssps_host.clone())
-                .source_project_id(config.azure.source_project_id())
-                .target_project_id(config.azure.target_project_id())
-                .token(config.azure.token.clone())
-                .maybe_source_repository_name(config.azure.source_repository_name.clone())
-                .maybe_target_repository_name(
-                    config.azure.target_repository_name().map(ToOwned::to_owned),
-                )
-                .maybe_source_repository_id(config.azure.source_repository_id.clone())
-                .maybe_target_repository_id(
-                    config.azure.target_repository_id().map(ToOwned::to_owned),
-                )
-                .accept_non_compliant_certs(config.tls_accept_non_compliant_certs)
-                .maybe_ca_bundle(config.ca_bundle.clone())
-                .build()
-                .map(ForgeImpl::AzureDevOps),
+            ForgeType::AzureDevOps => {
+                azure::AzureDevOpsForge::new_from_config(config).map(ForgeImpl::AzureDevOps)
+            }
         }
     }
 }

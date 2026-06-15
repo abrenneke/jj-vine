@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::{
     bookmark::BookmarkRef,
+    config::Config,
     description::FormatMergeRequest,
     error::{ConfigSnafu, Error, ForgejoApiSnafu, Result},
     forge::{
@@ -259,15 +260,45 @@ struct CombinedStatus {
     pub total_count: i64,
 }
 
+pub fn validate_config(config: &Config) -> Result<()> {
+    if config.forgejo.host.is_empty() {
+        return Err(ConfigSnafu {
+            message: "forgejo.host is required when forge is forgejo".to_owned(),
+        }
+        .build());
+    }
+    if config.forgejo.project.is_empty() {
+        return Err(ConfigSnafu {
+            message: "forgejo.project is required when forge is forgejo".to_owned(),
+        }
+        .build());
+    }
+    if config.forgejo.token.is_empty() {
+        return Err(ConfigSnafu {
+            message: "forgejo.token is required when forge is forgejo".to_owned(),
+        }
+        .build());
+    }
+
+    Ok(())
+}
+
 impl ForgejoForge {
+    pub fn new_from_config(config: &Config) -> Result<Self> {
+        let source = config.forgejo.source_project();
+        let target = config.forgejo.target_project();
+        Self::new(
+            config.forgejo.host.clone(),
+            source.to_owned(),
+            target.to_owned(),
+            config.forgejo.token.clone(),
+            config.ca_bundle.clone(),
+            config.tls_accept_non_compliant_certs,
+            config.forgejo.wip_prefix.clone(),
+        )
+    }
+
     /// Create a new Forgejo/Gitea client.
-    ///
-    /// # Arguments
-    /// * `base_url` - Forgejo/Gitea instance URL (e.g., <https://codeberg.org>)
-    /// * `project_id` - Repository in "owner/repo" format
-    /// * `token` - Personal Access Token
-    /// * `ca_bundle` - Optional path to CA bundle for TLS verification
-    /// * `accept_non_compliant_certs` - Accept non-compliant TLS certificates
     pub fn new(
         base_url: impl Into<String>,
         source_project_id: impl Into<String>,

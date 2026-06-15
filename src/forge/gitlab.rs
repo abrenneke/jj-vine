@@ -7,6 +7,7 @@ use stable_try_trait_v2::try_;
 
 use crate::{
     bookmark::BookmarkRef,
+    config::{Config, GitLabConfig},
     description::FormatMergeRequest,
     error::{ConfigSnafu, Error, GitLabApiSnafu, Result},
     forge::{
@@ -72,7 +73,64 @@ impl TryFrom<AnyForgeUser> for GitLabUser {
     }
 }
 
+pub fn validate_config(config: &Config) -> Result<()> {
+    if config.gitlab.host.is_empty() {
+        return Err(ConfigSnafu {
+            message: "gitlab.host is required when forge is gitlab".to_owned(),
+        }
+        .build());
+    }
+    if config.gitlab.project.is_empty() {
+        return Err(ConfigSnafu {
+            message: "gitlab.project is required when forge is gitlab".to_owned(),
+        }
+        .build());
+    }
+
+    validate_gitlab_project_id("gitlab.project", &config.gitlab.project)?;
+
+    if !config.gitlab.target_project.is_empty() {
+        validate_gitlab_project_id("gitlab.targetProject", &config.gitlab.target_project)?;
+    }
+
+    if config.gitlab.token.is_empty() {
+        return Err(ConfigSnafu {
+            message: "gitlab.token is required when forge is gitlab".to_owned(),
+        }
+        .build());
+    }
+
+    Ok(())
+}
+
+fn validate_gitlab_project_id(key: &str, value: &str) -> Result<()> {
+    if value.contains("://") || value.starts_with("git@") {
+        return ConfigSnafu {
+            message: format!(
+                "{key} must be a GitLab project path or numeric ID, not a clone URL. Use a value like `group/project` or `12345`."
+            ),
+        }
+        .fail();
+    }
+
+    Ok(())
+}
+
 impl GitLabForge {
+    pub fn new_from_config(config: &Config) -> Result<Self> {
+        let source = config.gitlab.source_project();
+        let target = config.gitlab.target_project();
+        Self::new(
+            config.gitlab.host.clone(),
+            source.to_owned(),
+            target.to_owned(),
+            config.gitlab.token.clone(),
+            config.ca_bundle.clone(),
+            config.tls_accept_non_compliant_certs,
+            config.gitlab.create_merge_request_dependencies,
+        )
+    }
+
     /// Create a new GitLab client.
     pub fn new(
         base_url: impl Into<String>,

@@ -397,19 +397,6 @@ impl GitLabConfig {
     }
 }
 
-fn validate_gitlab_project_id(key: &str, value: &str) -> Result<()> {
-    if value.contains("://") || value.starts_with("git@") {
-        return ConfigSnafu {
-            message: format!(
-                "{key} must be a GitLab project path or numeric ID, not a clone URL. Use a value like `group/project` or `12345`."
-            ),
-        }
-        .fail();
-    }
-
-    Ok(())
-}
-
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct GitHubConfig {
@@ -750,96 +737,12 @@ impl Config {
 
     pub fn validate(&self) -> Result<()> {
         match self.forge {
-            ForgeType::GitLab => {
-                if self.gitlab.host.is_empty() {
-                    return Err(ConfigSnafu {
-                        message: "gitlab.host is required when forge is gitlab".to_owned(),
-                    }
-                    .build());
-                }
-                if self.gitlab.project.is_empty() {
-                    return Err(ConfigSnafu {
-                        message: "gitlab.project is required when forge is gitlab".to_owned(),
-                    }
-                    .build());
-                }
-                validate_gitlab_project_id("gitlab.project", &self.gitlab.project)?;
-                if !self.gitlab.target_project.is_empty() {
-                    validate_gitlab_project_id(
-                        "gitlab.targetProject",
-                        &self.gitlab.target_project,
-                    )?;
-                }
-                if self.gitlab.token.is_empty() {
-                    return Err(ConfigSnafu {
-                        message: "gitlab.token is required when forge is gitlab".to_owned(),
-                    }
-                    .build());
-                }
-            }
-            ForgeType::GitHub => {
-                if self.github.project.is_empty() {
-                    return Err(ConfigSnafu {
-                        message: "github.project is required when forge is github".to_owned(),
-                    }
-                    .build());
-                }
-                if self.github.token.is_empty() {
-                    return Err(ConfigSnafu {
-                        message: "github.token is required when forge is github".to_owned(),
-                    }
-                    .build());
-                }
-            }
-            ForgeType::Forgejo => {
-                if self.forgejo.host.is_empty() {
-                    return Err(ConfigSnafu {
-                        message: "forgejo.host is required when forge is forgejo".to_owned(),
-                    }
-                    .build());
-                }
-                if self.forgejo.project.is_empty() {
-                    return Err(ConfigSnafu {
-                        message: "forgejo.project is required when forge is forgejo".to_owned(),
-                    }
-                    .build());
-                }
-                if self.forgejo.token.is_empty() {
-                    return Err(ConfigSnafu {
-                        message: "forgejo.token is required when forge is forgejo".to_owned(),
-                    }
-                    .build());
-                }
-            }
-            ForgeType::AzureDevOps => {
-                if self.azure.host.is_empty() {
-                    return ConfigSnafu {
-                        message: "azure.host is required when forge is azure".to_owned(),
-                    }
-                    .fail();
-                }
-                if self.azure.project.is_empty() {
-                    return ConfigSnafu {
-                        message: "azure.project is required when forge is azure".to_owned(),
-                    }
-                    .fail();
-                }
-                if self.azure.token.is_empty() {
-                    return ConfigSnafu {
-                        message: "azure.token is required when forge is azure".to_owned(),
-                    }
-                    .fail();
-                }
-                if self.azure.source_repository_name.is_none()
-                    && self.azure.source_repository_id.is_none()
-                {
-                    return ConfigSnafu {
-                        message: "azure.source_repository_name or azure.source_repository_id is required when forge is azure".to_owned(),
-                    }
-                    .fail();
-                }
-            }
-        }
+            ForgeType::GitLab => crate::forge::gitlab::validate_config(self),
+            ForgeType::GitHub => crate::forge::github::validate_config(self),
+            ForgeType::Forgejo => crate::forge::forgejo::validate_config(self),
+            ForgeType::AzureDevOps => crate::forge::azure::validate_config(self),
+        }?;
+
         Ok(())
     }
 }

@@ -8,6 +8,7 @@ use tokio::sync::OnceCell;
 
 use crate::{
     bookmark::BookmarkRef,
+    config::Config,
     description::FormatMergeRequest,
     error::{AzureDevOpsApiSnafu, ConfigSnafu, Error, Result, make_whatever},
     forge::{
@@ -86,8 +87,56 @@ pub struct AzureDevOpsForge {
     client: reqwest::Client,
 }
 
+pub fn validate_config(config: &Config) -> Result<()> {
+    if config.azure.host.is_empty() {
+        return ConfigSnafu {
+            message: "azure.host is required when forge is azure".to_owned(),
+        }
+        .fail();
+    }
+    if config.azure.project.is_empty() {
+        return ConfigSnafu {
+            message: "azure.project is required when forge is azure".to_owned(),
+        }
+        .fail();
+    }
+    if config.azure.token.is_empty() {
+        return ConfigSnafu {
+            message: "azure.token is required when forge is azure".to_owned(),
+        }
+        .fail();
+    }
+    if config.azure.source_repository_name.is_none() && config.azure.source_repository_id.is_none()
+    {
+        return ConfigSnafu {
+            message: "azure.source_repository_name or azure.source_repository_id is required when forge is azure".to_owned(),
+        }
+        .fail();
+    }
+
+    Ok(())
+}
+
 #[bon]
 impl AzureDevOpsForge {
+    pub fn new_from_config(config: &Config) -> Result<Self> {
+        Self::builder()
+            .base_url(config.azure.host.clone())
+            .vssps_base_url(config.azure.vssps_host.clone())
+            .source_project_id(config.azure.source_project_id())
+            .target_project_id(config.azure.target_project_id())
+            .token(config.azure.token.clone())
+            .maybe_source_repository_name(config.azure.source_repository_name.clone())
+            .maybe_target_repository_name(
+                config.azure.target_repository_name().map(ToOwned::to_owned),
+            )
+            .maybe_source_repository_id(config.azure.source_repository_id.clone())
+            .maybe_target_repository_id(config.azure.target_repository_id().map(ToOwned::to_owned))
+            .accept_non_compliant_certs(config.tls_accept_non_compliant_certs)
+            .maybe_ca_bundle(config.ca_bundle.clone())
+            .build()
+    }
+
     #[builder]
     #[expect(clippy::single_call_fn, reason = "necessary")]
     pub fn new(
