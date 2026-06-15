@@ -72,10 +72,12 @@ release VERSION:
 
     cargo build --release
 
-    jj commit -m "chore: bump version to {{ VERSION }}"
+    jj commit -m "v{{ VERSION }}"
     jj bookmark set main -r @-
     jj tag set v{{ VERSION }} -r @-
     jj git push
+
+    jj git fetch --remote github
     jj git push --remote github # Not sure why codeberg isn't syncing at the moment...
 
     cargo publish
