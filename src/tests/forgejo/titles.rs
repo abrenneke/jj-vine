@@ -78,7 +78,8 @@ async fn pr_title_syncs_on_submit() -> Result<()> {
 async fn pr_title_does_not_sync_on_submit() -> Result<()> {
     let repo = TestRepo::with_forgejo_remote();
 
-    repo.set_config("jj-vine.title.sync", "false");
+    repo.set_config("jj-vine.title.syncSingleRevision", "false");
+    repo.set_config("jj-vine.title.syncMultipleRevisions", "false");
 
     repo.set_config(
         "jj-vine.title.singleRevision",

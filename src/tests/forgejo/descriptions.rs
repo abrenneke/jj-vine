@@ -1,4 +1,5 @@
 use assertables::assert_contains;
+use pretty_assertions::assert_str_eq;
 
 use crate::{
     description::{END_MARKER, START_MARKER},
@@ -388,6 +389,58 @@ async fn sync_description_disabled() -> Result<()> {
 
 <!-- start jj-vine stack -->"
             ))
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn removes_stack_description_when_pr_moved_out_of_stack() -> Result<()> {
+    let repo = TestRepo::with_forgejo_remote();
+
+    let id = repo.id();
+    let branch_a = repo.bookmark_name("feature-a");
+    let branch_b = repo.bookmark_name("feature-b");
+    let branch_c = repo.bookmark_name("feature-c");
+
+    // main -> A -> B -> C
+    repo.submit_stack([&branch_a, &branch_b, &branch_c]).await;
+
+    let pr_a = repo.get_mr_with_base(&branch_a, "main").await;
+    let pr_b = repo.get_mr_with_base(&branch_b, &branch_a).await;
+    let pr_c = repo.get_mr_with_base(&branch_c, &branch_b).await;
+
+    assert_str_eq!(
+        pr_a.pull_request.body.as_ref().unwrap(),
+        &format!(
+            "Description for {id}-feature-a bookmark
+
+<!-- start jj-vine stack -->
+This PR is part of a stack containing 3 PRs:
+
+1. `main`
+2. **\"Commit for {id}-feature-a bookmark\" (this PR)**
+3. #{} \"Commit for {id}-feature-b bookmark\"
+4. #{} \"Commit for {id}-feature-c bookmark\"
+<!-- end jj-vine stack -->",
+            pr_b.pull_request.id, pr_c.pull_request.id
+        )
+    );
+
+    repo.exec(["rebase", "-s", &branch_b, "-o", "main"]);
+
+    repo.run([
+        "submit",
+        "-r",
+        &format!("{branch_a} | {branch_b} | {branch_c}"),
+    ])
+    .await;
+
+    let pr_a = repo.get_mr_with_base(&branch_a, "main").await;
+
+    assert_str_eq!(
+        pr_a.pull_request.body.as_ref().unwrap(),
+        &format!("Description for {id}-feature-a bookmark")
     );
 
     Ok(())

@@ -1,4 +1,5 @@
 #![expect(clippy::module_name_repetitions, reason = "seems fine")]
+use core::fmt::Write as _;
 use std::{borrow::Cow, collections::HashSet};
 
 use clap::Args;
@@ -10,7 +11,7 @@ use cli_table::{
 use itertools::Itertools as _;
 use owo_colors::OwoColorize as _;
 use snafu::{ensure_whatever, whatever};
-use tracing::{info, warn};
+use tracing::warn;
 use unicode_segmentation::UnicodeSegmentation as _;
 
 use crate::{
@@ -21,6 +22,7 @@ use crate::{
     error::{AggregateSnafu, Result},
     forge::ForgeImpl,
     jj::Jujutsu,
+    output::Output as _,
     submit::{
         PlanContext,
         RootExecuteContext,
@@ -155,10 +157,10 @@ pub struct SubmitCommandRevsetOptions {
 ///
 /// Can panic for many reasons.
 #[expect(clippy::too_many_lines, reason = "important")]
-#[expect(clippy::cognitive_complexity, reason = "main logic, it's fine")]
+// #[expect(clippy::cognitive_complexity, reason = "main logic, it's fine")]
 pub async fn submit(config: &SubmitCommandConfig, cli_config: &CliConfig<'_>) -> Result<()> {
     let jj = Jujutsu::new(&cli_config.repository)?;
-    let output = cli_config.output;
+    let mut output = cli_config.output;
 
     let repo_config = Config::load(&cli_config.repository)?;
 
@@ -242,8 +244,7 @@ pub async fn submit(config: &SubmitCommandConfig, cli_config: &CliConfig<'_>) ->
     .await?;
 
     if config.show_plan {
-        info!("Submission plan:");
-        info!("{}", submission_plan);
+        writeln!(output, "Submission plan:\n{submission_plan}")?;
         return Ok(());
     }
 
@@ -261,23 +262,23 @@ pub async fn submit(config: &SubmitCommandConfig, cli_config: &CliConfig<'_>) ->
 
     output.finish();
 
-    info!("\n═══════════════════════════════════════");
-    info!("{}", "Summary".bold());
-    info!("═══════════════════════════════════════");
+    writeln!(output, "\n═══════════════════════════════════════")?;
+    writeln!(output, "{}", "Summary".bold())?;
+    writeln!(output, "═══════════════════════════════════════")?;
 
     if result.bookmarks_pushed.is_empty() {
-        info!("No bookmarks pushed");
+        writeln!(output, "No bookmarks pushed")?;
     } else {
         let formatted_bookmarks: Vec<String> = result
             .bookmarks_pushed
             .iter()
             .map(|b| b.magenta().to_string())
             .collect();
-        info!("Pushed: {}", formatted_bookmarks.join(", "));
+        writeln!(output, "Pushed: {}", formatted_bookmarks.join(", "))?;
     }
 
     if !result.merge_requests.is_empty() {
-        info!("\n{}\n", "Merge Requests:".bold());
+        writeln!(output, "\n{}\n", "Merge Requests:".bold())?;
 
         let mut table = vec![];
 
@@ -345,7 +346,8 @@ pub async fn submit(config: &SubmitCommandConfig, cli_config: &CliConfig<'_>) ->
             }
         }
 
-        info!(
+        writeln!(
+            output,
             "{}",
             table
                 .table()
@@ -353,14 +355,14 @@ pub async fn submit(config: &SubmitCommandConfig, cli_config: &CliConfig<'_>) ->
                 .separator(Separator::builder().build())
                 .display()
                 .expect("Failed to display table")
-        );
+        )?;
     }
 
     if !result.errors.is_empty() {
-        info!("");
-        info!("✗ {} error(s) occurred:", result.errors.len());
+        writeln!(output)?;
+        writeln!(output, "✗ {} error(s) occurred:", result.errors.len())?;
         for error in &result.errors {
-            info!("  • {}", error);
+            writeln!(output, "  • {error}")?;
         }
     }
 

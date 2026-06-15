@@ -1,5 +1,5 @@
 #![expect(clippy::module_name_repetitions, reason = "seems fine here")]
-use core::{cmp::Ordering, ops::Sub as _};
+use core::{cmp::Ordering, fmt::Write as _, ops::Sub as _};
 
 use clap::{Args, ValueEnum};
 use enum_dispatch::enum_dispatch;
@@ -12,7 +12,6 @@ use itertools::Itertools as _;
 use jiff::SpanRound;
 use owo_colors::OwoColorize as _;
 use pluralizer::pluralize;
-use tracing::info;
 
 use crate::{
     bookmark::Bookmark,
@@ -32,7 +31,7 @@ use crate::{
         MergeRequestStatus,
     },
     jj::Jujutsu,
-    output::Output,
+    output::{Output as _, SyncOutput},
 };
 
 #[derive(Args)]
@@ -157,7 +156,7 @@ pub async fn status(
     let jj = Jujutsu::new(&cli_config.repository)?;
     let repo_config = Config::load(&cli_config.repository)?;
     let forge = ForgeImpl::new(&repo_config)?;
-    let output = cli_config.output;
+    let mut output = cli_config.output;
 
     let revset = revset_options.to_get_bookmarks_options().to_revset();
     let changes = jj.log(revset)?;
@@ -165,7 +164,7 @@ pub async fn status(
 
     if bookmarks.is_empty() {
         output.finish();
-        info!("No tracked bookmarks found.");
+        writeln!(output, "No tracked bookmarks found.")?;
         return Ok(());
     }
 
@@ -238,7 +237,7 @@ pub async fn status(
 
     output.finish();
 
-    info!("{}", rendered);
+    writeln!(output, "{rendered}")?;
 
     Ok(())
 }
@@ -273,7 +272,7 @@ impl StatusFormat {
         &self,
         statuses: Vec<Result<BookmarkStatus, BookmarkStatusError>>,
         forge: &ForgeImpl,
-        output: &dyn Output,
+        output: &SyncOutput,
     ) -> String {
         match self {
             StatusFormat::TwoLineCompact => print_two_line_compact(statuses, forge, output).await,
@@ -321,7 +320,7 @@ fn sorted_statuses(
 async fn print_two_line_compact(
     statuses: Vec<Result<BookmarkStatus, BookmarkStatusError>>,
     forge: &ForgeImpl,
-    output: &dyn Output,
+    output: &SyncOutput,
 ) -> String {
     let futures: FuturesOrdered<_> = sorted_statuses(&statuses)
         .map(|status| two_line_compact_status(status, forge, output))
@@ -339,7 +338,7 @@ async fn print_two_line_compact(
 async fn two_line_compact_status(
     status: &Result<BookmarkStatus, BookmarkStatusError>,
     forge: &ForgeImpl,
-    output: &dyn Output,
+    output: &SyncOutput,
 ) -> Option<String> {
     match status {
         Ok(BookmarkStatus::HasMergeRequest {
@@ -403,7 +402,7 @@ async fn two_line_compact_status(
 async fn print_slack_status(
     statuses: Vec<Result<BookmarkStatus, BookmarkStatusError>>,
     forge: &ForgeImpl,
-    output: &dyn Output,
+    output: &SyncOutput,
 ) -> String {
     let futures: FuturesOrdered<_> = sorted_statuses(&statuses)
         .map(|status| slack_status(status, forge, output))
@@ -421,7 +420,7 @@ async fn print_slack_status(
 async fn slack_status(
     status: &Result<BookmarkStatus, BookmarkStatusError>,
     forge: &ForgeImpl,
-    output: &dyn Output,
+    output: &SyncOutput,
 ) -> Option<String> {
     let output = match status {
         Ok(BookmarkStatus::HasMergeRequest {

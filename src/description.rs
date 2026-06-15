@@ -1,6 +1,5 @@
 use core::{fmt::Write as _, hash::BuildHasher};
 use std::{
-    borrow::Cow,
     collections::{HashMap, HashSet},
     hash::RandomState,
     path::Path,
@@ -591,14 +590,10 @@ pub struct FormatContext<'a, 'forge, 'lookup, S: BuildHasher = RandomState> {
 /// Generate a new description with stack visualization and user content.
 #[must_use]
 #[expect(clippy::module_name_repetitions, reason = "is sentence")]
-pub fn insert_stack_into_description<'a>(
+pub fn insert_stack_into_description(
     stack_description: &str,
-    existing_description: &'a str,
-) -> Cow<'a, str> {
-    if stack_description.is_empty() {
-        return Cow::Borrowed(existing_description);
-    }
-
+    existing_description: &str,
+) -> String {
     let mut result = String::new();
 
     #[expect(clippy::string_slice, reason = "index found via find()")]
@@ -613,17 +608,27 @@ pub fn insert_stack_into_description<'a>(
         _ => (existing_description.trim(), ""),
     };
 
-    if !before.is_empty() {
-        writeln!(result, "{before}\n").unwrap();
+    if stack_description.is_empty() {
+        if !before.is_empty() {
+            write!(result, "{before}").unwrap();
+        }
+
+        if !after.is_empty() {
+            write!(result, "\n{after}").unwrap();
+        }
+    } else {
+        if !before.is_empty() {
+            writeln!(result, "{before}\n").unwrap();
+        }
+
+        write!(result, "{START_MARKER}\n{stack_description}\n{END_MARKER}").unwrap();
+
+        if !after.is_empty() {
+            write!(result, "\n\n{after}").unwrap();
+        }
     }
 
-    write!(result, "{START_MARKER}\n{stack_description}\n{END_MARKER}").unwrap();
-
-    if !after.is_empty() {
-        write!(result, "\n\n{after}").unwrap();
-    }
-
-    Cow::Owned(result)
+    result
 }
 
 /// Generates a description for a bookmark in a stack.

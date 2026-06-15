@@ -1,13 +1,18 @@
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
-use tracing::Level;
-use tracing_subscriber::{EnvFilter, layer::SubscriberExt as _, util::SubscriberInitExt as _};
+use tracing::{Dispatch, Level, dispatcher};
+use tracing_subscriber::{
+    EnvFilter,
+    fmt::SubscriberBuilder,
+    layer::SubscriberExt as _,
+    util::SubscriberInitExt as _,
+};
 
 use crate::{
     commands::{status::StatusCommandConfig, submit::SubmitCommandConfig},
     error::Result,
-    output::{BufferedOutput, FlatOutput, InteractiveOutput, Output},
+    output::{BufferedOutput, FlatOutput, InteractiveOutput, SyncOutput},
     tracing_formatter::PlainFormatter,
 };
 
@@ -45,7 +50,7 @@ pub struct CliConfig<'a> {
     pub repository: PathBuf,
 
     /// Output formatter.
-    pub output: &'a dyn Output,
+    pub output: &'a SyncOutput,
 }
 
 impl Cli {
@@ -60,10 +65,10 @@ impl Cli {
             Commands::Init => false,
         };
 
-        let output: Box<dyn Output> = if self.verbose || !can_have_interactive_output {
-            Box::new(FlatOutput::new())
+        let output: SyncOutput = if self.verbose || !can_have_interactive_output {
+            SyncOutput::Flat(FlatOutput::new())
         } else {
-            Box::new(InteractiveOutput::new())
+            SyncOutput::Interactive(InteractiveOutput::new())
         };
 
         let filter = EnvFilter::builder()
@@ -71,7 +76,6 @@ impl Cli {
             .from_env_lossy();
 
         if self.verbose {
-            // Verbose mode: Keep timestamps and level
             tracing_subscriber::registry()
                 .with(filter)
                 .with(
@@ -80,26 +84,45 @@ impl Cli {
                 )
                 .init();
         } else {
-            // Default mode: Hide timestamps and level - just show log text
             tracing_subscriber::registry()
                 .with(filter)
                 .with(tracing_subscriber::fmt::layer().event_format(PlainFormatter::new()))
                 .init();
         }
 
-        self.run(output.as_ref()).await
+        self.run(&output).await
     }
 
     pub async fn run_captured(&self) -> Result<String> {
-        let buffered_output = BufferedOutput::new();
-        self.run(&buffered_output).await?;
-        Ok(strip_ansi::strip_str(&buffered_output.get_buffer()).to_string())
+        let buffered_output = Box::new(SyncOutput::Buffered(BufferedOutput::new()));
+
+        // with_writer requires something with 'static, dunno how else to do this
+        let buffered_output = &*Box::leak(buffered_output);
+
+        let subscriber = SubscriberBuilder::default()
+            .with_writer(move || buffered_output)
+            .with_max_level(Level::INFO)
+            .event_format(PlainFormatter::new())
+            .finish();
+        let dispatch = Dispatch::new(subscriber);
+
+        // TODO doesn't really work with concurrency
+        let _ = dispatcher::set_default(&dispatch);
+        self.run(buffered_output).await?;
+
+        let buffer = if let SyncOutput::Buffered(buffered) = buffered_output {
+            buffered.get_buffer()
+        } else {
+            unreachable!();
+        };
+
+        Ok(strip_ansi::strip_str(&buffer).to_string())
     }
 
     /// # Panics
     ///
     /// Panics if the current directory is inaccessible.
-    pub async fn run(&self, output: &dyn Output) -> Result<()> {
+    pub async fn run(&self, output: &SyncOutput) -> Result<()> {
         let repo_path = self.repository.as_ref().map_or_else(
             || std::env::current_dir().expect("Failed to get current directory"),
             Into::into,

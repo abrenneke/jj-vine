@@ -53,6 +53,82 @@ where
     }
 }
 
+pub enum SyncOutput {
+    Interactive(InteractiveOutput),
+    Flat(FlatOutput),
+    Buffered(BufferedOutput),
+}
+
+impl Output for SyncOutput {
+    fn log_current(&self, message: &str) {
+        match self {
+            Self::Interactive(output) => output.log_current(message),
+            Self::Flat(output) => output.log_current(message),
+            Self::Buffered(output) => output.log_current(message),
+        }
+    }
+
+    fn set_substep(&self, message: &str) {
+        match self {
+            Self::Interactive(output) => output.set_substep(message),
+            Self::Flat(output) => output.set_substep(message),
+            Self::Buffered(output) => output.set_substep(message),
+        }
+    }
+
+    fn start_substep(&self, message: &str) -> Substep<'_> {
+        match self {
+            Self::Interactive(output) => output.start_substep(message),
+            Self::Flat(output) => output.start_substep(message),
+            Self::Buffered(output) => output.start_substep(message),
+        }
+    }
+
+    fn log_message(&self, message: &str) {
+        match self {
+            Self::Interactive(output) => output.log_message(message),
+            Self::Flat(output) => output.log_message(message),
+            Self::Buffered(output) => output.log_message(message),
+        }
+    }
+
+    fn log_completed(&self, message: &str) {
+        match self {
+            Self::Interactive(output) => output.log_completed(message),
+            Self::Flat(output) => output.log_completed(message),
+            Self::Buffered(output) => output.log_completed(message),
+        }
+    }
+}
+
+impl core::fmt::Write for &SyncOutput {
+    fn write_str(&mut self, s: &str) -> core::fmt::Result {
+        match self {
+            SyncOutput::Interactive(output) => (&*output).write_str(s),
+            SyncOutput::Flat(output) => (&*output).write_str(s),
+            SyncOutput::Buffered(output) => (&*output).write_str(s),
+        }
+    }
+}
+
+impl std::io::Write for &SyncOutput {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        match self {
+            SyncOutput::Interactive(_output) => panic!("Not supported yet"),
+            SyncOutput::Flat(_output) => panic!("Not supported yet"),
+            SyncOutput::Buffered(output) => (&*output).write(buf),
+        }
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        match self {
+            SyncOutput::Interactive(_output) => panic!("Not supported yet"),
+            SyncOutput::Flat(_output) => panic!("Not supported yet"),
+            SyncOutput::Buffered(output) => (&*output).flush(),
+        }
+    }
+}
+
 /// Interactive spinner mode implementation.
 pub struct InteractiveOutput {
     spinner: ProgressBar,
@@ -113,6 +189,13 @@ impl<'a> Substep<'a> {
 impl Drop for Substep<'_> {
     fn drop(&mut self) {
         self.done();
+    }
+}
+
+impl core::fmt::Write for &InteractiveOutput {
+    fn write_str(&mut self, s: &str) -> core::fmt::Result {
+        self.log_message(s.trim_end_matches('\n'));
+        Ok(())
     }
 }
 
@@ -192,6 +275,13 @@ impl Default for FlatOutput {
     }
 }
 
+impl core::fmt::Write for &FlatOutput {
+    fn write_str(&mut self, s: &str) -> core::fmt::Result {
+        info!("{}", s.trim_end_matches('\n'));
+        Ok(())
+    }
+}
+
 impl Output for FlatOutput {
     fn log_current(&self, message: &str) {
         let mut current_text = self.current_text.write().unwrap();
@@ -259,6 +349,26 @@ impl BufferedOutput {
 impl Default for BufferedOutput {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl std::io::Write for &BufferedOutput {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let mut buffer = self.buffer.write().unwrap();
+        let text = String::from_utf8_lossy(buf);
+        buffer.write_str(&text).map_err(std::io::Error::other)?;
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl core::fmt::Write for &BufferedOutput {
+    fn write_str(&mut self, s: &str) -> core::fmt::Result {
+        let mut buffer = self.buffer.write().unwrap();
+        buffer.write_str(s)
     }
 }
 

@@ -232,6 +232,15 @@ impl Error {
         make_whatever!("{}", message.into())
     }
 
+    pub fn from_error(e: impl core::error::Error + 'static) -> Self {
+        Self::Other {
+            message: e.to_string(),
+            source: Some(Box::new(e)),
+            backtrace: Box::new(Backtrace::capture()),
+            location: Box::new(Location::default()),
+        }
+    }
+
     #[must_use]
     pub fn location(&self) -> Option<&Location> {
         match self {
@@ -331,6 +340,12 @@ impl From<core::num::ParseIntError> for Error {
             message: source.to_string(),
         }
         .build()
+    }
+}
+
+impl From<core::fmt::Error> for Error {
+    fn from(value: core::fmt::Error) -> Self {
+        Self::from_error(value)
     }
 }
 

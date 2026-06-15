@@ -174,7 +174,7 @@ impl ExecuteAction for UpdateMRTitleDescriptionAction {
             .update_merge_request_info(
                 current_mr.iid(),
                 UpdateMergeRequestInfoOptions::builder()
-                    .description(new_description.to_string())
+                    .description(new_description.clone())
                     .maybe_title(self.title.clone())
                     .current_is_draft(current_mr.is_draft())
                     .current_title(current_mr.title().to_owned())
@@ -194,7 +194,7 @@ impl ExecuteAction for UpdateMRTitleDescriptionAction {
                     update_type: MRUpdateType::new_updated()
                         .old_description(current_mr.description().to_owned())
                         .maybe_new_description(
-                            description_unchanged.then(|| new_description.to_string()),
+                            description_unchanged.then(|| new_description.clone()),
                         )
                         .old_title(current_mr.title().to_owned())
                         .maybe_new_title(self.title.clone())
