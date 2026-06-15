@@ -7,7 +7,7 @@ use stable_try_trait_v2::try_;
 
 use crate::{
     bookmark::BookmarkRef,
-    config::{Config, GitLabConfig},
+    config::Config,
     description::FormatMergeRequest,
     error::{ConfigSnafu, Error, GitLabApiSnafu, Result},
     forge::{
