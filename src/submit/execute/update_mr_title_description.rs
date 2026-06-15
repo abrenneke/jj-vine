@@ -114,22 +114,17 @@ impl ActionInfo for UpdateMRTitleDescriptionAction {
 }
 
 impl ExecuteAction for UpdateMRTitleDescriptionAction {
+    #[expect(clippy::too_many_lines, reason = "it's fine")]
     async fn execute(&self, ctx: ExecuteActionContext<'_>) -> Result<ActionResultData> {
         let bookmark = ctx.find_bookmark_name_required(&self.bookmark)?;
-
-        if ctx.execute.dry_run {
-            ctx.execute.output.log_message(&format!(
-                "Would try to {} {} description for {}",
-                "update".yellow(),
-                ctx.execute.forge.mr_name(),
-                bookmark.magenta()
-            ));
-            return Ok(ActionResultData::DryRun);
-        }
 
         let all_mrs = ctx.all_mrs();
 
         let Some(current_mr) = all_mrs.get(bookmark.as_str()) else {
+            if ctx.execute.dry_run {
+                return Ok(ActionResultData::DryRun);
+            }
+
             whatever!("No MR found for {}", bookmark.magenta());
         };
 
@@ -166,6 +161,33 @@ impl ExecuteAction for UpdateMRTitleDescriptionAction {
                 update_type: MRUpdateType::Unchanged,
                 warnings: None,
             }));
+        }
+
+        if ctx.execute.dry_run {
+            if let Some(title) = self.title.as_ref() {
+                ctx.execute.output.log_message(&format!(
+                    "Would {} the title of {} {} to \"{}\"",
+                    "update".yellow(),
+                    ctx.execute.forge.mr_name(),
+                    ctx.execute
+                        .forge
+                        .format_merge_request_id(current_mr.iid())
+                        .cyan(),
+                    title,
+                ));
+            }
+            if !description_unchanged {
+                ctx.execute.output.log_message(&format!(
+                    "Would {} the description of {} {}",
+                    "update".yellow(),
+                    ctx.execute.forge.mr_name(),
+                    ctx.execute
+                        .forge
+                        .format_merge_request_id(current_mr.iid())
+                        .cyan(),
+                ));
+            }
+            return Ok(ActionResultData::DryRun);
         }
 
         match ctx

@@ -72,7 +72,10 @@ impl ExecuteAction for UpdateMRBaseAction {
                 "Would {} {} {} base for {} to {}",
                 "update".yellow(),
                 ctx.execute.forge.mr_name(),
-                format!("!{}", self.mr_iid).cyan(),
+                ctx.execute
+                    .forge
+                    .format_merge_request_id((&self.mr_iid).into())
+                    .cyan(),
                 self.bookmark.magenta(),
                 self.new_target_branch.magenta()
             );
