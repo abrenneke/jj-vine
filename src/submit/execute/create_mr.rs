@@ -165,8 +165,9 @@ impl ExecuteAction for CreateMRAction {
         {
             Ok(mr) => {
                 ctx.execute.output.log_completed(&format!(
-                    "Created MR {}: {}",
-                    format!("!{}", mr.iid()).cyan(),
+                    "Created {} {}: {}",
+                    ctx.execute.forge.mr_name(),
+                    ctx.execute.forge.format_merge_request_id(mr.iid()).cyan(),
                     mr.url().dimmed()
                 ));
                 Ok(ActionResultData::MRCreated(MRUpdate {
@@ -177,7 +178,12 @@ impl ExecuteAction for CreateMRAction {
                 }))
             }
             Err(e) => {
-                let error_msg = format!("Failed to create MR for {}: {}", self.bookmark, e);
+                let error_msg = format!(
+                    "Failed to create {} for {}: {}",
+                    ctx.execute.forge.mr_name(),
+                    self.bookmark,
+                    e
+                );
                 ctx.execute.output.log_message(&error_msg);
                 error!("{}", error_msg);
                 Err(Error::new(error_msg))
