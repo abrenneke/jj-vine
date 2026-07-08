@@ -19,6 +19,7 @@ use crate::{
     cli::CliConfig,
     commands::{GetBookmarksOptions, StrVisualWidth as _},
     config::Config,
+    description::FormatMergeRequest,
     error::{AggregateSnafu, Result},
     forge::ForgeImpl,
     jj::Jujutsu,
@@ -278,7 +279,7 @@ pub async fn submit(config: &SubmitCommandConfig, cli_config: &CliConfig<'_>) ->
     }
 
     if !result.merge_requests.is_empty() {
-        writeln!(output, "\n{}\n", "Merge Requests:".bold())?;
+        writeln!(output, "\n{}\n", format!("{}s:", forge.mr_name()).bold())?;
 
         let mut table = vec![];
 
