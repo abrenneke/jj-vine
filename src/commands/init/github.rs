@@ -66,7 +66,7 @@ pub fn init(repo_path: impl Into<PathBuf>, remotes: Option<&Remotes>) -> Result<
                 .bold(),
             "jj-vine.github.targetProject".dimmed()
         ))
-        .default(
+        .with_initial_text(
             existing_target_project
                 .or(remotes.and_then(|f| {
                     f.upstream
@@ -77,6 +77,7 @@ pub fn init(repo_path: impl Into<PathBuf>, remotes: Option<&Remotes>) -> Result<
                 .or(remotes.and_then(|f| parse_forge_url(&f.origin).map(|f| f.project)))
                 .unwrap_or(github_project.clone()),
         )
+        .allow_empty(true)
         .interact_text()?;
 
     let github_token = if let Some(token) = existing_token {
@@ -110,11 +111,13 @@ pub fn init(repo_path: impl Into<PathBuf>, remotes: Option<&Remotes>) -> Result<
 
     set_config(&repo_path, "jj-vine.github.host", &github_host)?;
     set_config(&repo_path, "jj-vine.github.project", &github_project)?;
-    set_config(
-        &repo_path,
-        "jj-vine.github.targetProject",
-        &github_target_project,
-    )?;
+    if !github_target_project.is_empty() {
+        set_config(
+            &repo_path,
+            "jj-vine.github.targetProject",
+            &github_target_project,
+        )?;
+    }
     set_config(&repo_path, "jj-vine.github.token", &github_token)?;
 
     Ok(())
