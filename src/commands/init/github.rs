@@ -96,7 +96,15 @@ pub fn init(repo_path: impl Into<PathBuf>, remotes: Option<&Remotes>) -> Result<
         println!();
         println!(
             "  {}",
-            "Create token at: https://github.com/settings/tokens/new".dimmed()
+            format!(
+                "Create token at: {}/settings/tokens/new",
+                if github_host == "https://api.github.com" {
+                    "https://github.com"
+                } else {
+                    github_host.strip_suffix("/api/v3").unwrap_or(&github_host)
+                }
+            )
+            .dimmed()
         );
         println!();
 
