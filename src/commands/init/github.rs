@@ -4,7 +4,7 @@ use dialoguer::{Input, Password};
 use owo_colors::OwoColorize as _;
 
 use crate::{
-    commands::init::{Remotes, get_config, set_config},
+    commands::init::{Remotes, get_config, parse_forge_url, set_config},
     error::Result,
 };
 
@@ -68,8 +68,13 @@ pub fn init(repo_path: impl Into<PathBuf>, remotes: Option<&Remotes>) -> Result<
         ))
         .default(
             existing_target_project
-                .or(remotes.and_then(|f| f.upstream.clone()))
-                .or(remotes.map(|r| r.origin.clone()))
+                .or(remotes.and_then(|f| {
+                    f.upstream
+                        .as_ref()
+                        .and_then(|u| parse_forge_url(u))
+                        .map(|f| f.project)
+                }))
+                .or(remotes.and_then(|f| parse_forge_url(&f.origin).map(|f| f.project)))
                 .unwrap_or(github_project.clone()),
         )
         .interact_text()?;
