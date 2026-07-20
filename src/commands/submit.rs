@@ -19,7 +19,7 @@ use crate::{
     cli::CliConfig,
     commands::{GetBookmarksOptions, StrVisualWidth as _},
     config::Config,
-    description::FormatMergeRequest,
+    description::FormatMergeRequest as _,
     error::{AggregateSnafu, Result},
     forge::ForgeImpl,
     jj::Jujutsu,

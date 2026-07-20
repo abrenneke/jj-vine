@@ -77,6 +77,10 @@ impl ActionInfo for CreateMRAction {
 }
 
 impl ExecuteAction for CreateMRAction {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "meh, only +5. let's fix this if this gets any longer, maybe?"
+    )]
     async fn execute(&self, ctx: ExecuteActionContext<'_>) -> Result<ActionResultData> {
         let bookmark = ctx.find_bookmark_name_required(&self.bookmark)?;
 

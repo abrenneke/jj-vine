@@ -10,6 +10,10 @@ use crate::{
 
 /// Initialize GitHub-specific configuration.
 #[expect(clippy::single_call_fn, reason = "important")]
+#[expect(
+    clippy::too_many_lines,
+    reason = "meh, only +9. hey, if you're revisiting this function, consider fixing this? :)"
+)]
 pub fn init(repo_path: impl Into<PathBuf>, remotes: Option<&Remotes>) -> Result<()> {
     let repo_path = repo_path.into();
     let existing_host = get_config(&repo_path, "jj-vine.github.host");
