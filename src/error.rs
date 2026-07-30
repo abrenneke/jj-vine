@@ -380,7 +380,6 @@ mod tests {
     }
 
     #[test]
-    #[expect(clippy::std_instead_of_core, reason = "gated feature")]
     fn io_error_conversion() {
         let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file not found");
         let err: Error = io_err.into();
