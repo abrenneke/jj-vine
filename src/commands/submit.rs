@@ -96,9 +96,11 @@ impl SubmitCommandConfig {
 
             // Fall back to the same as -c if none of the other options are set
             (None, None, false, Some(create)) => Ok(GetBookmarksOptions::Revset(create.to_owned())),
-            _ => whatever!(
-                "You must specify a revset to submit with a positional argument, with the -r option, or with the --tracked option. You can also use the -c option to create bookmarks for changes that don't have one."
-            ),
+            _ => {
+                whatever!(
+                    "You must specify a revset to submit with a positional argument, with the -r option, or with the --tracked option. You can also use the -c option to create bookmarks for changes that don't have one."
+                );
+            }
         }
     }
 

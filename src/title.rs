@@ -146,7 +146,9 @@ impl core::str::FromStr for Replacement {
             "stack_count" => Ok(Replacement::StackCount),
             "bookmark_name" => Ok(Replacement::BookmarkName),
             "parent_bookmark_name" => Ok(Replacement::ParentBookmarkName),
-            _ => whatever!("Invalid replacement: {}", s),
+            _ => {
+                whatever!("Invalid replacement: {}", s);
+            }
         }
     }
 }

@@ -278,7 +278,7 @@ pub async fn plan(ctx: PlanContext<'_>) -> Result<SubmissionPlan> {
                             .get(bookmark.name())
                             .map(|mr| (&mr.title, &mr.description))
                         else {
-                            whatever!("No MR found for {}", bookmark.name())
+                            whatever!("No MR found for {}", bookmark.name());
                         };
 
                         let revisions = bookmark.revisions(ctx.jj)?;

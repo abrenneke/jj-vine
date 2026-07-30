@@ -131,7 +131,7 @@ impl ExecuteAction for UpdateMRTitleDescriptionAction {
         let default_branch = ctx.execute.jj.default_branch()?;
 
         let Some(stack) = ctx.execute.bookmark_graph.component_containing(&bookmark) else {
-            whatever!("Bookmark not found in component: {}", self.bookmark)
+            whatever!("Bookmark not found in component: {}", self.bookmark);
         };
 
         let stack_description = generate_stack_description(

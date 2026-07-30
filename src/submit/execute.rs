@@ -169,7 +169,9 @@ impl ExecuteActionContext<'_> {
     ) -> Result<String> {
         match self.find_bookmark_name(bookmark) {
             Some(name) => Ok(name),
-            None => whatever!("Could not find a created bookmark for change {}", bookmark),
+            None => {
+                whatever!("Could not find a created bookmark for change {}", bookmark);
+            }
         }
     }
 }

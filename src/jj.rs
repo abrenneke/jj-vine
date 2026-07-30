@@ -699,7 +699,9 @@ impl Jujutsu {
 
                 match &output.bookmarks[..] {
                     // If trunk() has no bookmarks, there's not much we can do.
-                    [] => whatever!("`jj log -r 'trunk()'` returned a commit with no bookmarks!"),
+                    [] => {
+                        whatever!("`jj log -r 'trunk()'` returned a commit with no bookmarks!");
+                    },
                     // If trunk() has a single bookmark, that's easy
                     [bookmark] => Ok(bookmark.name().to_owned()),
                     // If there are multiple bookmarks at trunk(), the next best approach is trying to parse the
