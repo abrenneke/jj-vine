@@ -253,7 +253,7 @@ struct CombinedStatus {
 
     /// Individual statuses.
     #[serde(default)]
-    pub statuses: Vec<CommitStatus>,
+    pub statuses: Option<Vec<CommitStatus>>,
 
     /// Total count of statuses.
     #[serde(default)]
