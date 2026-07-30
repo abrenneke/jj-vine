@@ -687,9 +687,8 @@ impl<'a> BookmarkGraph<'a> {
                 &pending_bookmarks,
             )?;
 
-            let parent_bookmark_names = parent_bookmark_changes
-                .iter()
-                .flat_map(BookmarkOrPending::from_change)
+            let parent_bookmark_names = BookmarkOrPending::from_changes(&parent_bookmark_changes)
+                .into_iter()
                 .map(|bookmark| bookmark.name().to_owned());
 
             adjacency_list
