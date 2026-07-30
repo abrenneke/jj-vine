@@ -85,12 +85,12 @@ release VERSION:
     echo "Waiting 10 seconds for Codeberg to sync to GitHub..."
     sleep 10
 
-    http post https://api.github.com/repos/abrenneke/jj-vine/actions/workflows/ci.yml/dispatches \
+    xh post https://api.github.com/repos/abrenneke/jj-vine/actions/workflows/ci.yml/dispatches \
         -A bearer -a "$GITHUB_TOKEN" \
         ref=main \
         inputs:='{"tag_name":"v{{ VERSION }}"}'
 
-    http post https://codeberg.org/api/v1/repos/abrenneke/jj-vine/releases \
+    xh post https://codeberg.org/api/v1/repos/abrenneke/jj-vine/releases \
         -A bearer -a "$CODEBERG_TOKEN" \
         --print h \
         tag_name=v{{ VERSION }} \
