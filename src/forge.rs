@@ -7,7 +7,6 @@ pub mod test;
 use std::borrow::Cow;
 
 use bon::Builder;
-use enum_dispatch::enum_dispatch;
 use serde::{Deserialize, Serialize};
 use stable_try_trait_v2::try_;
 
@@ -502,7 +501,6 @@ pub struct DiscussionCount {
 }
 
 /// A trait for a code forge (e.g. GitLab, GitHub, Forgejo, etc.)
-#[enum_dispatch]
 pub trait Forge: Send + Sync + FormatMergeRequest {
     type User: Send + Sync + UserLike;
 

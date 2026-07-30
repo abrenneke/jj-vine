@@ -5,7 +5,6 @@ use std::{
     path::Path,
 };
 
-use enum_dispatch::enum_dispatch;
 use itertools::Itertools as _;
 
 use crate::{
@@ -17,7 +16,6 @@ use crate::{
     utils::toposort,
 };
 
-#[enum_dispatch]
 pub trait FormatMergeRequest {
     type Id: BorrowId;
 
