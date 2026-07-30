@@ -237,7 +237,7 @@ impl Error {
             message: e.to_string(),
             source: Some(Box::new(e)),
             backtrace: Box::new(Backtrace::capture()),
-            location: Box::new(Location::default()),
+            location: Box::new(snafu::location!()),
         }
     }
 
