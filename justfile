@@ -68,7 +68,7 @@ release VERSION:
 
     jj new main
 
-    sed -i '' 's/^version = ".*"/version = "{{ VERSION }}"/' Cargo.toml
+    sed -i 's/^version = ".*"/version = "{{ VERSION }}"/' Cargo.toml
 
     cargo build --release
 
