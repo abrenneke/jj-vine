@@ -815,7 +815,6 @@ impl Forge for GitHubForge {
         }: CreateMergeRequestOptions<Self::UserId>,
     ) -> Result<Self::MergeRequest> {
         #[derive(Serialize)]
-        #[serde(rename_all = "camelCase")]
         struct Body {
             title: String,
             head: String,
