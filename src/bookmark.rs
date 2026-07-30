@@ -680,21 +680,22 @@ impl<'a> BookmarkGraph<'a> {
                 continue;
             }
 
-            let parent_bookmarks = Self::find_nearest_bookmarked_ancestors(
+            let parent_bookmark_changes = Self::find_nearest_bookmarked_ancestors(
                 jj,
                 bookmark.change(),
                 skip_untracked_local_bookmarks,
                 &pending_bookmarks,
             )?;
 
+            let parent_bookmark_names = parent_bookmark_changes
+                .iter()
+                .flat_map(BookmarkOrPending::from_change)
+                .map(|bookmark| bookmark.name().to_owned());
+
             adjacency_list
                 .entry(bookmark.name().to_owned())
                 .or_insert(BTreeSet::new())
-                .extend(
-                    parent_bookmarks
-                        .iter()
-                        .flat_map(|b| b.bookmarks.iter().map(|b| b.full_name().clone())),
-                );
+                .extend(parent_bookmark_names);
         }
 
         Ok(Self::from_lookups(bookmark_lookup, &adjacency_list))
@@ -869,7 +870,10 @@ impl<'a> BookmarkGraph<'a> {
     ) -> Result<Vec<Change>> {
         let mut ancestors = Vec::new();
 
-        let parents = jj.log(format!("{}- ~ ::trunk()", from.commit_id))?;
+        let parents = jj.log_with_pending_bookmarks(
+            format!("{}- ~ ::trunk()", from.commit_id),
+            pending_bookmarks,
+        )?;
 
         for parent in parents {
             let bookmarks: Vec<_> = parent
@@ -878,15 +882,15 @@ impl<'a> BookmarkGraph<'a> {
                 .filter(|bookmark| !skip_untracked_local_bookmarks || bookmark.is_tracked())
                 .collect();
 
-            if bookmarks.is_empty() && !pending_bookmarks.contains(&parent.change_id) {
+            if !bookmarks.is_empty() || pending_bookmarks.contains(&parent.change_id) {
+                ancestors.push(parent);
+            } else {
                 ancestors.extend(Self::find_nearest_bookmarked_ancestors(
                     jj,
                     &parent,
                     skip_untracked_local_bookmarks,
                     pending_bookmarks,
                 )?);
-            } else {
-                ancestors.push(parent);
             }
         }
 
@@ -899,7 +903,7 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     use super::*;
-    use crate::jj::ChangeMap;
+    use crate::{jj::ChangeMap, tests::TestRepo};
 
     #[test]
     fn build_components_simple_linear() {
@@ -1318,5 +1322,33 @@ mod tests {
         assert!(graph.components[0].is_linear_from("feature-a").unwrap());
         assert!(graph.components[0].is_linear_from("feature-b").unwrap());
         assert!(!graph.components[0].is_linear_from("feature-c").unwrap());
+    }
+
+    /// Submitting e.g. `-c a::c` should calculate adjacency correctly even with
+    /// not-yet-created bookmarks.
+    #[test]
+    fn stack_of_pending() -> Result<()> {
+        let repo = TestRepo::new();
+
+        repo.create_change("f1.txt", "c1", "1")
+            .new_on("@")
+            .create_change("f2.txt", "c2", "2")
+            .new_on("@")
+            .create_change("f3.txt", "c3", "3");
+
+        let change_ids: HashSet<_> = repo
+            .jj
+            .log("all()")?
+            .into_iter()
+            .map(|c| c.change_id)
+            .collect();
+        let changes = repo.jj.log_with_pending_bookmarks("all()", &change_ids)?;
+        let bookmarks = BookmarkOrPending::from_changes(&changes);
+
+        let graph = BookmarkGraph::from_bookmarks(&repo.jj, bookmarks, false)?;
+
+        assert_eq!(graph.components().len(), 1);
+
+        Ok(())
     }
 }
